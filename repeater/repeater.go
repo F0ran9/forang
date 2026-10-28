@@ -6,6 +6,7 @@ package repeater
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"html"
@@ -104,7 +105,7 @@ func Target(raw string, forceHTTPS bool) (scheme, host string, port int, err err
 
 // sendOnce 连接目标并写入原始字节，读取响应（Content-Length/chunked/EOF 自适应，
 // 总字节受 maxBodyKB 限制）。
-func sendOnce(scheme, host string, port int, raw []byte, timeout time.Duration, maxBody int) (status, headers, body string, elapsed int64, err error) {
+func sendOnce(ctx context.Context, scheme, host string, port int, raw []byte, timeout time.Duration, maxBody int) (status, headers, body string, elapsed int64, err error) {
 	start := time.Now()
 	var conn net.Conn
 	dialer := &net.Dialer{Timeout: timeout}
@@ -112,13 +113,24 @@ func sendOnce(scheme, host string, port int, raw []byte, timeout time.Duration, 
 		conn, err = tls.DialWithDialer(dialer, "tcp", net.JoinHostPort(host, strconv.Itoa(port)),
 			&tls.Config{InsecureSkipVerify: true, ServerName: host}) // 渗透重放场景：不校验证书链
 	} else {
-		conn, err = dialer.Dial("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+		conn, err = dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 	}
 	if err != nil {
 		return "", "", "", 0, err
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
+	// 停止观察者：ctx 取消立即断连接（读阻塞也能退出）
+	stopClose := make(chan struct{})
+	defer close(stopClose)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.SetDeadline(time.Now())
+			_ = conn.Close()
+		case <-stopClose:
+		}
+	}()
 	if _, err = conn.Write(raw); err != nil {
 		return "", "", "", time.Since(start).Milliseconds(), err
 	}
@@ -196,6 +208,11 @@ func dechunk(b []byte) []byte {
 // Send 忠实重放原始报文（自动补 Connection: close 保证能读到响应尾），
 // 可选跟随重定向。返回全部跳与末跳详情。
 func Send(raw string, opt Options) (*Result, error) {
+	return SendCtx(context.Background(), raw, opt)
+}
+
+// SendCtx 同 Send，但可被 ctx 取消（停止按钮）：取消时立即断开底层连接。
+func SendCtx(ctx context.Context, raw string, opt Options) (*Result, error) {
 	if opt.MaxBodyKB <= 0 {
 		opt.MaxBodyKB = 1024
 	}
@@ -221,7 +238,7 @@ func Send(raw string, opt Options) (*Result, error) {
 		}
 		var h Hop
 		h.RequestSent = string(b)
-		st, hd, bd, el, serr := sendOnce(scheme, host, port, b, timeout, opt.MaxBodyKB*1024)
+		st, hd, bd, el, serr := sendOnce(ctx, scheme, host, port, b, timeout, opt.MaxBodyKB*1024)
 		h.StatusLine, h.Headers, h.Body, h.ElapsedMS = st, hd, bd, el
 		if serr != nil {
 			h.Err = serr.Error()
@@ -229,6 +246,9 @@ func Send(raw string, opt Options) (*Result, error) {
 		res.Hops = append(res.Hops, h)
 		res.Final = h
 		res.TotalMS += h.ElapsedMS
+		if err := ctx.Err(); err != nil {
+			return res, err
+		}
 		if !opt.FollowRedirect || h.Err != "" {
 			break
 		}
@@ -391,8 +411,12 @@ func splitResponse(resp string) (head, body string) {
 }
 
 // CaptureScreenshot 用 Chromium headless 截取取证页，返回 PNG 字节数。
-// htmlPath 为已写好的取证页文件；pngPath 为输出 PNG。
 func CaptureScreenshot(htmlPath, pngPath string, width, height int) (int, error) {
+	return CaptureScreenshotCtx(context.Background(), htmlPath, pngPath, width, height)
+}
+
+// CaptureScreenshotCtx 同 CaptureScreenshot，可被 ctx 取消。
+func CaptureScreenshotCtx(ctx context.Context, htmlPath, pngPath string, width, height int) (int, error) {
 	if width <= 0 {
 		width = 1600
 	}
@@ -407,7 +431,7 @@ func CaptureScreenshot(htmlPath, pngPath string, width, height int) (int, error)
 		fmt.Sprintf("--screenshot=%s", pngPath),
 		"file://" + htmlPath,
 	}
-	cmd := exec.Command("chromium", args...)
+	cmd := exec.CommandContext(ctx, "chromium", args...)
 	var out strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil {

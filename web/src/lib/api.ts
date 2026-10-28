@@ -1244,9 +1244,12 @@ export const api = {
   // ---- intercept pending (ask) ----
   // ---- 工具箱（Repeater）----
   repeaterSend: (payload: { raw: string; force_https?: boolean; follow_redirect?: boolean; max_body_kb?: number; timeout?: number }) =>
-    post<{ status: string; result: unknown; error?: string }>("/tools/repeater/send", payload),
+    post<{ job_id: string }>("/tools/repeater/send", payload),
   repeaterCapture: (payload: { raw: string; note: string; force_https?: boolean; max_body_kb?: number }) =>
-    post<{ status: string; png?: string; html?: string; size?: number; error?: string }>("/tools/repeater/capture", payload),
+    post<{ job_id: string }>("/tools/repeater/capture", payload),
+  repeaterJob: (id: string) =>
+    get<{ job_id: string; state: string; kind: string; result?: RepeaterResult; png?: string; html?: string; size?: number; error?: string }>(`/tools/repeater/job/${id}`),
+  repeaterStop: (id: string) => post<{ ok: boolean; state: string }>("/tools/repeater/stop", { job_id: id }),
   pocList: () => get<{ pocs: unknown[] }>("/pocs"),
   pocCreate: (payload: unknown) => post<{ poc: unknown }>("/pocs", payload),
   pocUpdate: (id: number, payload: unknown) =>
@@ -1358,3 +1361,20 @@ export const api = {
   applyUpdate: () => post<{ ok: boolean; target: string }>(`/update/apply`),
   rollbackUpdate: () => post<{ ok: boolean }>(`/update/rollback`),
 };
+
+export interface RepeaterHop {
+  request_sent: string;
+  status_line: string;
+  headers: string;
+  body: string;
+  elapsed_ms: number;
+  err?: string;
+}
+export interface RepeaterResult {
+  scheme: string;
+  host: string;
+  port: number;
+  hops: RepeaterHop[];
+  final: RepeaterHop;
+  total_ms: number;
+}

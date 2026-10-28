@@ -789,9 +789,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/companies/reattribute", s.reattribute)
 
 	mux.HandleFunc("GET /api/exploration/frontier", s.frontier)
-	mux.HandleFunc("POST /api/tools/repeater/send", s.repeaterSend)   // 工具箱·Repeater 发包
-	mux.HandleFunc("POST /api/tools/repeater/capture", s.repeaterCapture) // 工具箱·Repeater 发包+带时间取证截图
-	mux.HandleFunc("GET /api/exploration/findings", s.findings)
+	mux.HandleFunc("POST /api/tools/repeater/send", s.repeaterSend)
+	mux.HandleFunc("POST /api/tools/repeater/capture", s.repeaterCapture)
+	mux.HandleFunc("GET /api/tools/repeater/job/{id}", s.repeaterJob)
+	mux.HandleFunc("POST /api/tools/repeater/stop", s.repeaterStop)   // 工具箱·Repeater 发包
+		mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
 	mux.HandleFunc("GET /api/exploration/findings/asset-tree", s.findingAssetTree)
 	mux.HandleFunc("GET /api/exploration/findings/stats", s.findingStats)
