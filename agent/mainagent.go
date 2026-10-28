@@ -19,7 +19,6 @@ import (
 // (→planner) or direct high-priority intents (→frontier). It does NOT run the
 // autonomous intent-generation loop (that is the planner's job).
 type MainAgent struct {
-	replayCaptureFn ReplayCaptureFunc // replayd 留证回调 (nil = replay_capture 不可用)
 	findingRecorder FindingRecorder
 	prov            llm.Provider
 	model           string
@@ -121,7 +120,6 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 	}
 	tsx.SetDroidDir(m.workDir) // droid 文件工具落到主 Agent 工作目录
 	tsx.SetSurveyService(m.surveySvc)   // 资产测绘（FOFA/Quake/Hunter）
-	tsx.SetReplayCaptureFn(m.replayCaptureFn) // replayd 留证截图
 	tsx.SetTaskID(taskID)
 	tsx.SetCoverageEnabled(as == nil || as.CoverageEnabled(taskID))
 	tsx.SetNotify(notify)         // 通用唤醒（无专用回调的写操作走它，debounced）
@@ -214,4 +212,3 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 // SetSurveyService 注入资产测绘服务（FOFA/Quake/Hunter 工具；nil=工具报未配置）。
 func (m *MainAgent) SetSurveyService(svc *survey.Service) { m.surveySvc = svc }
 // SetReplayCapture 注入 replayd 留证回调（nil = 工具报不可用）。
-func (m *MainAgent) SetReplayCapture(fn ReplayCaptureFunc) { m.replayCaptureFn = fn }

@@ -58,7 +58,6 @@ type ToolSet struct {
 	pocs            *db.PocStore     // POC 闭环 store (optional; nil = poc tools unavailable)
 	vulns           *db.VulnStore    // 漏洞中枢 store (optional; nil = vuln tools unavailable)
 	surveySvc       *survey.Service  // 资产测绘 (optional; nil = survey tools unavailable)
-	replayCaptureFn ReplayCaptureFunc // replayd 留证回调 (nil = replay tools unavailable)
 	apimodels     *db.ApiModelStore // 业务建模 (optional; nil = api_model tools unavailable)
 	droidDir        string           // droid 文件工具（截图/pull/push/install）的落盘目录 (optional)
 	ts              *db.ExplorationStore

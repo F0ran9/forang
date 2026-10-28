@@ -665,9 +665,8 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 	// 移动设备动态测试（adb 直连模拟器/真机）：APP 渗透的执行层，工具自带
 	// connect/devices 前置，无设备时报错引导，不影响其他任务。
 	tools = append(tools, t.droidTools()...)
-	 // 漏洞中枢：验证一条提交一条（CVSS+原始数据包），评审员重定级
+	tools = append(tools, t.repeaterTools()...) // 工具箱 Repeater：发包发送 + 带时间留证截图
 	tools = append(tools, t.screenshotTool()) // 网页截图（Chromium headless，漏洞证据用）
-	tools = append(tools, t.replayTools()...) // 发包留证截图（replayd）
 	tools = append(tools, t.fridaTools()...) // frida 动态调试（脱壳/反检测/明文流量）
 	tools = append(tools, t.surveyTools()...) // 资产测绘（FOFA/Quake/Hunter，未配置时工具报错引导）
 	tools = append(tools, t.apiModelTools()...) // 业务建模（操作员要求时 agent 合并 OpenAPI 文档）
@@ -696,12 +695,12 @@ func (t *ToolSet) MainAgentTools() []actool.CoreTool {
 		t.listUntestedAssets(),
 	}
 	tools = append(tools, t.droidTools()...)
+	tools = append(tools, t.repeaterTools()...) // 工具箱 Repeater：发包发送 + 带时间留证截图
 	
 	tools = append(tools, t.fridaTools()...)
 	tools = append(tools, t.apiModelTools()...)
 	tools = append(tools, t.surveyTools()...)
 	tools = append(tools, t.screenshotTool()) // 网页截图（漏洞证据）
-	tools = append(tools, t.replayTools()...) // 发包留证截图（replayd）
 	return tools
 }
 

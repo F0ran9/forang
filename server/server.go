@@ -54,7 +54,6 @@ type Server struct {
 	tavilyUsageAt time.Time
 	supervisor *Supervisor // LLM 监督员（旁观工具流→建议→NotifyHint），配置走 /api/supervisor/config
 	surveySvc *survey.Service // 资产测绘（FOFA/Quake/Hunter），配置门控+查询流水
-	replayd replaydProcess // 发包留证服务（replay_capture 用）
 	logins *loginLimiter // 登录限速（IP|用户名，15min 窗口 5 次失败）
 	ctx    context.Context
 
@@ -251,7 +250,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 			return a.TaskTimeoutWrapupMaxTurns, true
 		}
 		wireAgentAugment(m.pg, s.skillDir, s.hostTools) // 可见 skills/MCP + 流量/编排 host 工具装配进 agent 工具集
-		domainReg := buildDomainReg(m.Assets(), m.dir, s.surveySvc, s.replayCaptureFn())
+		domainReg := buildDomainReg(m.Assets(), m.dir, s.surveySvc)
 		s.wireTools(m.pg, domainReg) // 内置工具表：按 agent 过滤 + 覆盖描述/schema + 注入默认值
 		seedPrompts(m.pg)          // 内置 agent 默认提示词正文播种进 agent_prompts(仅空时)
 		s.seedOrchestrationTools() // P2 跨任务编排工具 seed 进 tools 表(可按 agent 绑定)
@@ -259,7 +258,6 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 			log.Printf("[retester] seed: %v", err)
 		}
 		go s.evidenceStore().RunGC(s.ctx)
-		s.replaydEnsureOnce() // replayd 留证服务（二进制存在才拉起，失败不影响平台）
 		s.seedPythonInterpreter()     // 自定义脚本工具:开机检测 python 解释器入库(仅空时)
 		go newScheduler(s).Run(s.ctx) // P3 触发器调度(定时/finding/目标事件),仅自定义 agent
 		// 漏洞 IM 推送投递引擎。与 Scheduler 并列但独立：推送的实时性要求(3s)
@@ -791,6 +789,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/companies/reattribute", s.reattribute)
 
 	mux.HandleFunc("GET /api/exploration/frontier", s.frontier)
+	mux.HandleFunc("POST /api/tools/repeater/send", s.repeaterSend)   // 工具箱·Repeater 发包
+	mux.HandleFunc("POST /api/tools/repeater/capture", s.repeaterCapture) // 工具箱·Repeater 发包+带时间取证截图
 	mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
 	mux.HandleFunc("GET /api/exploration/findings/asset-tree", s.findingAssetTree)
@@ -957,7 +957,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/asset-intercept/rules/{id}", s.assetInterceptDeleteRule)
 	mux.HandleFunc("POST /api/asset-intercept/rules/{id}/toggle", s.assetInterceptToggleRule)
 
-	mux.HandleFunc("GET /api/evidence/replay/{name}", s.replayEvidenceFile) // replayd 留证截图（<img> 内联渲染用）
 
 	mux.HandleFunc("GET /api/intercept/pending", s.interceptListPending)
 	mux.HandleFunc("GET /api/intercept/pending/{id}", s.interceptGetOne)

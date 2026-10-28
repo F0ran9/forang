@@ -7,8 +7,7 @@
 - 前身：ARTEX 0.3.15 二开版，深度吸收「全链哨兵 Full-Chain-Sentinel-System」（MIT）的
   漏洞中台、frida 脚本库、资产测绘、审批治理、replayd 发包留证等能力。
 - 技术栈：Go 单二进制（内嵌 Next.js 静态导出前端，`-tags embedui`）+ PostgreSQL。
-- 部署形态：Linux 宿主机直跑（亦可容器化）。Web 服务 `:8787`，流量录制代理 `127.0.0.1:8788`，
-  发包留证服务 replayd `127.0.0.1:18901`（FORANG 自动拉起）。
+- 部署形态：Linux 宿主机直跑（亦可容器化）。Web 服务 `:8787`，流量录制代理 `127.0.0.1:8788`。
 
 ---
 
@@ -42,8 +41,9 @@
 - **附件上传**：文件落到会话工作目录 `uploads/`，agent 直接读取使用。
 - **载体即传即测**：发来 wxapkg / 反编译源码 zip / APK / IPA / HAR，说一句「解析这个包」，
   agent 调用 `carrier_parse` 立即得到 appid、页面清单、后端域名、API 端点、硬编码密钥，随即开测。
-- **发包留证截图**：`replay_capture` 发送原始报文 → 无头浏览器渲染三栏留证页
-  （请求 | 响应 | 北京时间取证面板，支持关键片段高亮）→ PNG 截图。截图内联显示在对话流中，
+- **工具箱 Repeater / 发包留证截图**：内置 Repeater 页面（原始报文 TCP 直写忠实重放、
+  构造请求、强制 HTTPS、跟随重定向、响应体限制）；agent 侧 `repeater_send` / `repeater_capture`
+  发送报文并截取带时间取证页（请求 | 响应 | 北京时间取证面板）。截图内联显示在对话流中，
   **模型也能亲眼看到截图**（视觉自检），并可绑进漏洞证据。
 - **网页截图**：`web_screenshot`（Chromium headless，支持整页）。
 - **模型/预设/条令选择**：会话级选择 LLM 档案、三端预设、指挥条令；选择持久记忆。
@@ -151,7 +151,7 @@ FOFA / Quake / Hunter 三平台集成：
 - **健康检查**：`/api/health`（版本/运行时长/数据目录）。
 - **诊断**：/debug/pprof（gate+JWT 保护）。
 - **数据治理**：evidence GC、任务级清理、LLM 记录清理。
-- **外部伴生服务**：replayd（发包留证，二进制存在才自动拉起，失败不影响平台）。
+- **工具箱**：内置 Repeater 手工重放页（UI 与 agent 工具共用同一内核）。
 
 ---
 
@@ -162,7 +162,7 @@ FOFA / Quake / Hunter 三平台集成：
 1. 创建任务，圈定目标范围 → planner 拆解，worker 并行侦察
 2. 测绘补面（FOFA/Quake/Hunter）→ 资产入库
 3. worker 验证未授权/弱口令/逻辑漏洞 → `vuln_submit` 提交
-4. `replay_capture` 对关键漏洞发包留证 → 截图绑定漏洞
+4. `repeater_capture` 对关键漏洞发包留证 → 截图绑定漏洞
 5. LLM 评审员复核定级 → 一键导出 Word 报告提交 SRC
 
 ### 小程序渗透
@@ -182,10 +182,12 @@ FOFA / Quake / Hunter 三平台集成：
 
 ## 版本
 
-当前版本：**v0.4.7-forang**（2026-10-27）。
+当前版本：**v0.4.9-forang**（2026-10-28）。
 
 近期重要变更：
-- replayd 发包留证（三栏取证页截图，模型视觉自检 + 对话内联渲染）
+- 工具箱 Repeater（原始报文手工重放页 + agent 发包/留证工具，取代 replayd 外部服务；
+  取证截图带北京时间面板，模型视觉自检 + 对话内联渲染）
+- 漏洞中枢并入发现（漏洞中台）：评审员/CVSS/IM 推送切 findings 表，每条新发现自动评审
 - LLM 图片块支持（norma image-blocks，含 noa 压缩保留图片）
 - carrier_parse 对话内载体解析（独立载体页面已下线）
 - 上传产物类型显式选择、noa 图片保留修复

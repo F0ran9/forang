@@ -53,7 +53,6 @@ type WebSearchOpts struct {
 }
 
 type Worker struct {
-	replayCaptureFn ReplayCaptureFunc // replayd 留证回调 (nil = replay_capture 不可用)
 	findingRecorder FindingRecorder
 	prov            llm.Provider
 	model           string
@@ -377,7 +376,6 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	}
 	tsx.SetDroidDir(w.workDir)          // droid 文件工具（截图/拉取/推送/安装）落到 worker 工作目录
 	tsx.SetSurveyService(w.surveySvc)   // 资产测绘（FOFA/Quake/Hunter）
-	tsx.SetReplayCaptureFn(w.replayCaptureFn) // replayd 留证截图
 	tsx.SetOwnerNode(intent.ID)         // assets this worker discovers anchor to its intent → visible to the task
 	tsx.SetEnrich(enr)                  // async DNS/HTTP auto-completion for assets this worker writes
 	tsx.SetNotifyFinding(notifyFinding) // report_finding 落库时当场唤醒 planner，带上「哪个意图+finding」
@@ -551,4 +549,3 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 // SetSurveyService 注入资产测绘服务（FOFA/Quake/Hunter 工具；nil=工具报未配置）。
 func (w *Worker) SetSurveyService(svc *survey.Service) { w.surveySvc = svc }
 // SetReplayCapture 注入 replayd 留证回调（nil = 工具报不可用）。
-func (w *Worker) SetReplayCapture(fn ReplayCaptureFunc) { w.replayCaptureFn = fn }

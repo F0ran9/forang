@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 
 	"github.com/Autumn-27/artex/survey"
 	actool "github.com/Autumn-27/norma/tool"
@@ -39,9 +38,6 @@ func builtinToolsByAgent() map[string][]actool.CoreTool {
 	ts.SetSurveyService(survey.NewService(nil, ""))
 	// replayd 留证 dummy 回调：同上，仅为让 replay_capture 进种子表（运行时由
 	// server 注入真实回调；stub 永不被 Call，被调也只报未部署）。
-	ts.SetReplayCaptureFn(func(_ context.Context, _ ReplayCaptureReq) (string, string, error) {
-		return "", "", errors.New("replayd 留证服务不可用（未部署 replayd 二进制）")
-	})
 	return map[string][]actool.CoreTool{
 		"mainagent": ts.MainAgentTools(),
 		"planner":   ts.PlannerTools(),

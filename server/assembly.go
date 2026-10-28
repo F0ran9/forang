@@ -344,17 +344,13 @@ func contains(ss []string, v string) bool {
 // (they only need the AssetStore); the exploration-graph tools refuse with a
 // clear message via ToolSet.needExploration. Binding one of them to a task-less
 // agent in the tools table is therefore a useless tool, not a crash.
-func buildDomainReg(as *db.AssetStore, workDir string, svc *survey.Service, replayFn agent.ReplayCaptureFunc) map[string]actool.CoreTool {
-	if as == nil {
-		return nil
-	}
+func buildDomainReg(as *db.AssetStore, workDir string, svc *survey.Service) map[string]actool.CoreTool {
 	serverTS := agent.NewToolSet(nil, "")
 	serverTS.SetAssetStore(as, as.Companies())
 serverTS.SetPocStore(as.Pocs())
 	serverTS.SetApiModels(as.ApiModels())
 	serverTS.SetDroidDir(workDir) // droid 文件工具（截图/pull/push/install）在对话/自定义 agent 里同样可用
 	serverTS.SetSurveyService(svc)  // 资产测绘工具对对话/自定义 agent 可用
-	serverTS.SetReplayCaptureFn(replayFn) // replayd 留证截图工具对对话/自定义 agent 可用
 	reg := make(map[string]actool.CoreTool)
 	for _, t := range serverTS.AllDomainTools() {
 		reg[t.Name()] = t
