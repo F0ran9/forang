@@ -1,0 +1,10 @@
+{
+ "okhttp_log": "打印 OkHttp 每个请求/响应的明文（方法、URL、头、体）。参数：url=子串过滤（只打印 URL 含该子串的请求）。适用 OkHttp3/4 网络库；自定义 socket/自研协议看不到",
+ "ssl_pinning_bypass": "通用证书校验绕过：TrustManager/HostnameVerifier/OkHttp CertificatePinner（含 4.x check$okhttp）/NetworkSecurityConfig 一起打。Java 层通用；native 层 pinning 请另跑 native_ssl_bypass",
+ "root_detection_bypass": "常见 root 检测绕过：File.exists 拦 su/magisk/ksu 路径、Runtime.exec 单参数与 String[] 两种都拦、build tag 改 release-keys、PackageManager 隐藏 magisk/supersu 包名",
+ "crypto_log": "打印 javax.crypto 的算法、密钥与明文（Cipher 与 Mac 的 doFinal）——用于还原自定义加解密。参数：alg=算法子串过滤（例如 AES、DES、HmacSHA256）",
+ "native_ssl_bypass": "native 层证书校验绕过：hook libssl/boringssl 的 SSL_CTX_set_verify 与 SSL_get_verify_result。覆盖 Unity/xlua/自编译 curl/部分 Flutter；纯 Java 层校验请用 ssl_pinning_bypass",
+ "flutter_bypass": "Flutter（dart:io）证书校验绕过：在 libflutter.so 里 pattern 扫描 ssl_verify 并把返回值置 0。只对未改动过的官方 flutter 引擎 so 有效；release 且换过引擎的包会扫不到",
+ "anti_frida_bypass": "反调试/反 frida 绕过：ptrace 恒 0、strstr 拦 frida/gum/gadget 字符串、27042 端口 connect 探测失效。app 闪退或自行检测到 frida 时先跑这个（放在脚本列表第一个）",
+ "dex_dump": "内存脱壳（FRIDA-DEXDump 风格）：扫描进程内存中的 dex magic 并落盘到 /data/local/tmp/sentinel-unpack/。配合 spawn 模式在壳解密完成后收集；抽取壳（函数体 nop）dump 出的方法体仍是空的"
+}
