@@ -55,10 +55,11 @@ func (s *Server) QueueFindingReview(findingID int64) error {
 	return err
 }
 
-// PickQueuedFindingReviews 取待评审 id 列表。
+// PickQueuedFindingReviews 取待评审 id 列表：显式 queued + 从未评审过的新发现
+// （review IS NULL/空对象——新提交即自动评审；failed 终态不重试）。
 func (s *Server) PickQueuedFindingReviews(limit int) ([]int64, error) {
 	rows, err := s.m.pg.Query(
-		`SELECT id FROM findings WHERE review->>'state'='queued' ORDER BY id LIMIT $1`, limit)
+		`SELECT id FROM findings WHERE review->>'state'='queued' OR review IS NULL OR review='{}'::jsonb ORDER BY id LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -77,8 +78,8 @@ func (s *Server) PickQueuedFindingReviews(limit int) ([]int64, error) {
 // MarkFindingReviewRunning 抢占 queued→running（防并发双评）。
 func (s *Server) MarkFindingReviewRunning(id int64) bool {
 	ct, err := s.m.pg.Exec(
-		`UPDATE findings SET review=jsonb_set(COALESCE(review,'{}'::jsonb), '{state}', '"running"')
-WHERE id=$1 AND review->>'state'='queued'`, id)
+		`UPDATE findings SET review='{"state":"running"}'::jsonb
+WHERE id=$1 AND (review->>'state'='queued' OR review IS NULL OR review='{}'::jsonb)`, id)
 	if err != nil {
 		return false
 	}

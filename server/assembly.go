@@ -351,7 +351,6 @@ func buildDomainReg(as *db.AssetStore, workDir string, svc *survey.Service, repl
 	serverTS := agent.NewToolSet(nil, "")
 	serverTS.SetAssetStore(as, as.Companies())
 serverTS.SetPocStore(as.Pocs())
-	serverTS.SetVulnStore(as.Vulns())
 	serverTS.SetApiModels(as.ApiModels())
 	serverTS.SetDroidDir(workDir) // droid 文件工具（截图/pull/push/install）在对话/自定义 agent 里同样可用
 	serverTS.SetSurveyService(svc)  // 资产测绘工具对对话/自定义 agent 可用

@@ -1,7 +1,9 @@
 package server
 
-// reviewer.go — LLM 漏洞评审员（移植自全链哨兵 reviewer.ts，MIT）。
-// 设计要点（照搬）：模型只判 8 个 CVSS 指标 + 4 个能力问题 + dubious，
+// reviewer.go — LLM 漏洞评审员（移植自全链哨兵 reviewer.ts，MIT），数据源为
+// 发现（findings）表：每条新提交的发现自动评审一次（review IS NULL 即待评），
+// 失败置 failed 不重试，LLM 瞬时错误回排 queued；人工复核走 requeue 接口重排。
+// 设计要点（照搬哨兵）：模型只判 8 个 CVSS 指标 + 4 个能力问题 + dubious，
 // 分数由 cvss 包按公式计算，模型永远不给分；dubious 记录封顶中危并标注。
 // prompt 不放示例输出——哨兵实测放了示例后 25 条真实漏洞 14 条照抄示例向量。
 
@@ -81,6 +83,28 @@ C/I/A/S 要和第一问的答案一致，不要凭"危害大"自己另判：
 分数和等级由程序按 CVSS v3.1 公式从你给的指标算出，你不要给分数。严格输出 JSON（不要 markdown 代码块、不要多余文字）。
 输出一个 JSON 对象，字段为 av、ac、pr、ui、s、c、i、a（各取上面列出的字母）、read（none/partial/total）、write（true/false）、down（true/false）、cross（true/false）、dubious（布尔）与 reason（中文一句话到三句）。每一个指标都要按本条记录的证据单独判断。`
 
+// flexBool 宽容布尔：模型经常把 write/dubious 返回成字符串 "true"（哨兵同坑）。
+type flexBool bool
+
+// UnmarshalJSON 接受 true/false 与 "true"/"false"。
+func (b *flexBool) UnmarshalJSON(data []byte) error {
+	d := strings.TrimSpace(string(data))
+	if d == "true" {
+		*b = true
+		return nil
+	}
+	if d == "false" {
+		*b = false
+		return nil
+	}
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		*b = flexBool(strings.EqualFold(strings.TrimSpace(str), "true"))
+		return nil
+	}
+	return fmt.Errorf("不是合法的布尔值: %s", d)
+}
+
 // reviewerProfileID 解析评审模型（0=当前激活模型，与 intercept 裁判同语义）。
 func (s *Server) reviewerProfileID() int64 {
 	if s.m.pg == nil {
@@ -95,8 +119,8 @@ func (s *Server) reviewerProfileID() int64 {
 	return 0
 }
 
-// startVulnReviewLoop 启动评审轮询（每 20s 取 queued 记录）。
-func (s *Server) startVulnReviewLoop() {
+// startFindingReviewLoop 启动评审轮询（每 20s 取未评审/待重评的发现）。
+func (s *Server) startFindingReviewLoop() {
 	go func() {
 		t := time.NewTicker(20 * time.Second)
 		defer t.Stop()
@@ -105,38 +129,36 @@ func (s *Server) startVulnReviewLoop() {
 			case <-s.ctx.Done():
 				return
 			case <-t.C:
-				vs := s.m.pg.Vulns()
-				if vs == nil {
+				if s.m == nil || s.m.pg == nil {
 					continue
 				}
-				ids, err := vs.PickQueuedReviews(3)
+				ids, err := s.PickQueuedFindingReviews(3)
 				if err != nil {
 					continue
 				}
 				for _, id := range ids {
-					s.reviewVuln(id)
+					s.reviewFinding(id)
 				}
 			}
 		}
 	}()
 }
 
-// reviewVuln 评审一条：抢占 → LLM 判指标 → cvss 包算分 → 写回 + 时间线 + 高危通知。
-func (s *Server) reviewVuln(id int64) {
+// reviewFinding 评审一条发现：抢占 → LLM 判指标 → cvss 包算分 → 写回 + 高危通知。
+func (s *Server) reviewFinding(id int64) {
 	// 后台 goroutine panic 会击穿整个进程：评审循环无外层 recover，这里兜底。
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[reviewer] vuln %d panic: %v\n%s", id, r, debug.Stack())
-			_ = s.m.pg.Vulns().RequeueReview(id)
+			log.Printf("[reviewer] finding %d panic: %v\n%s", id, r, debug.Stack())
+			_ = s.RequeueFindingReview(id)
 		}
 	}()
-	vs := s.m.pg.Vulns()
-	if !vs.MarkReviewRunning(id) {
+	if !s.MarkFindingReviewRunning(id) {
 		return
 	}
-	v, err := vs.GetVuln(id)
-	if err != nil || v == nil {
-		_ = vs.RequeueReview(id)
+	f, err := s.m.pg.GetFinding(id)
+	if err != nil || f == nil {
+		_ = s.RequeueFindingReview(id)
 		return
 	}
 	profileID := s.reviewerProfileID()
@@ -147,23 +169,23 @@ func (s *Server) reviewVuln(id int64) {
 	}
 	prov, _, ok := s.providerForProfile(profileID)
 	if !ok {
-		_ = vs.SetVulnReview(id, db.VulnReview{State: "failed", Reason: "模型 profile 不可用", At: time.Now()}, v.Severity, v.Cvss, v.CvssVector)
+		s.setFindingReviewFailed(id, "模型 profile 不可用")
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	ctx = llmrec.WithWorker(ctx, "reviewer")
-	text, err := streamCollectText(ctx, prov, reviewerSystemPrompt, buildReviewerUserPrompt(v))
+	text, err := streamCollectText(ctx, prov, reviewerSystemPrompt, s.buildFindingReviewerPrompt(f))
 	if err != nil {
-		log.Printf("[reviewer] vuln %d LLM 失败: %v", id, err)
-		_ = vs.RequeueReview(id)
+		log.Printf("[reviewer] finding %d LLM 失败: %v", id, err)
+		_ = s.RequeueFindingReview(id)
 		return
 	}
 	var verdict struct {
 		Av, Ac, Pr, Ui, S, C, I, A string
-		Read                      string // none/partial/total
-		Write, Down, Cross        bool // prompt 规定三者均为 true/false
-		Dubious                    bool
+		Read                       string // none/partial/total
+		Write, Down, Cross         flexBool // prompt 规定三者均为 true/false
+		Dubious                    flexBool
 		Reason                     string
 	}
 	js := strings.TrimSpace(text)
@@ -173,57 +195,73 @@ func (s *Server) reviewVuln(id int64) {
 		}
 	}
 	if err := json.Unmarshal([]byte(js), &verdict); err != nil {
-		log.Printf("[reviewer] vuln %d 解析失败: %v raw=%s", id, err, preview(text, 200))
-		_ = vs.SetVulnReview(id, db.VulnReview{State: "failed", Reason: "评审输出无法解析", At: time.Now()}, v.Severity, v.Cvss, v.CvssVector)
+		log.Printf("[reviewer] finding %d 解析失败: %v raw=%s", id, err, preview(text, 200))
+		s.setFindingReviewFailed(id, "评审输出无法解析")
 		return
 	}
 	m := cvss.Metrics{Av: verdict.Av, Ac: verdict.Ac, Pr: verdict.Pr, Ui: verdict.Ui, S: verdict.S, C: verdict.C, I: verdict.I, A: verdict.A}
 	if !m.Valid() {
-		_ = vs.SetVulnReview(id, db.VulnReview{State: "failed", Reason: "评审指标取值非法", At: time.Now()}, v.Severity, v.Cvss, v.CvssVector)
+		s.setFindingReviewFailed(id, "评审指标取值非法")
 		return
 	}
 	score := cvss.BaseScore(m)
 	severity := cvss.SeverityForCvss(score)
-	if verdict.Dubious && (severity == "high" || severity == "critical") {
+	if bool(verdict.Dubious) && (severity == "high" || severity == "critical") {
 		severity = "medium" // 存疑封顶中危（哨兵原规则）
 	}
-	rev := db.VulnReview{
-		State: "done", Dubious: verdict.Dubious, Reason: verdict.Reason,
-		Cvss: score, Vector: m.Vector(), At: time.Now(),
+	rev := db.FindingReview{
+		State: "done", Dubious: bool(verdict.Dubious), Reason: verdict.Reason,
+		Cvss: score, Vector: m.Vector(), At: time.Now().Format(time.RFC3339),
 		Metrics:      map[string]string{"av": m.Av, "ac": m.Ac, "pr": m.Pr, "ui": m.Ui, "s": m.S, "c": m.C, "i": m.I, "a": m.A},
 		Capabilities: map[string]string{"read": verdict.Read, "write": fmt.Sprint(verdict.Write), "down": fmt.Sprint(verdict.Down), "cross": fmt.Sprint(verdict.Cross)},
 	}
-	if err := vs.SetVulnReview(id, rev, severity, score, m.Vector()); err != nil {
-		log.Printf("[reviewer] vuln %d 写回失败: %v", id, err)
+	if err := s.FinishFindingReview(id, rev, severity, score, m.Vector()); err != nil {
+		log.Printf("[reviewer] finding %d 写回失败: %v", id, err)
 		return
 	}
-	note := fmt.Sprintf("评审员重定级：CVSS %.1f（%s）%s。%s", score, m.Vector(), verdict.Reason, "")
-	if verdict.Dubious {
-		note = fmt.Sprintf("评审员存疑（证据缺口），封顶中危。CVSS %.1f（%s）。%s", score, m.Vector(), verdict.Reason)
-	}
-	_ = vs.AddVulnNote(id, "评审员", note)
-	log.Printf("[reviewer] vuln %d %s: %s → cvss %.1f dubious=%v", id, v.Label, severity, score, verdict.Dubious)
-	// 高危通知（P1-9）：评审确认的高危/严重才推，避免代理自评虚高打扰。
+	log.Printf("[reviewer] finding %d %s: %s → cvss %.1f dubious=%v", id, f.VulnClass, severity, score, verdict.Dubious)
+	// 高危通知：评审确认的高危/严重才推，避免代理自评虚高打扰。
 	if !verdict.Dubious && (severity == "high" || severity == "critical") {
-		if v2, err := vs.GetVuln(id); err == nil && v2 != nil {
-			go s.sendVulnNotify(v2)
+		if f2, err := s.m.pg.GetFinding(id); err == nil && f2 != nil {
+			go s.sendFindingNotify(f2, severity, score)
 		}
 	}
 }
 
-// buildReviewerUserPrompt 材料裁剪（哨兵：packet 6000 / 证据输出 1500 / 文本 2000）。
-func buildReviewerUserPrompt(v *db.Vuln) string {
+// setFindingReviewFailed 终态失败（不重试）；requeue 用 RequeueFindingReview。
+func (s *Server) setFindingReviewFailed(id int64, reason string) {
+	rev := db.FindingReview{State: "failed", Reason: reason, At: time.Now().Format(time.RFC3339)}
+	b, _ := json.Marshal(rev)
+	_, _ = s.m.pg.Exec(`UPDATE findings SET review=$2::jsonb WHERE id=$1`, id, string(b))
+}
+
+// RequeueFindingReview 失败/人工复核重排回待评队列。
+func (s *Server) RequeueFindingReview(id int64) error {
+	_, err := s.m.pg.Exec(
+		`UPDATE findings SET review=jsonb_set(COALESCE(review,'{}'::jsonb), '{state}', '"queued"') WHERE id=$1`, id)
+	return err
+}
+
+// buildFindingReviewerPrompt 材料裁剪（哨兵：packet 6000 / 证据输出 1500 / 文本 2000）。
+func (s *Server) buildFindingReviewerPrompt(f *db.DBFinding) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "标题: %s\n代理自评: %s CVSS %.1f %s\n目标: %s\n类别: %s\n平台: %s\n\n",
-		v.Title, v.Severity, v.Cvss, v.CvssVector, v.Target, v.Category, v.Platform)
-	fmt.Fprintf(&sb, "描述:\n%s\n\n", clipTo(v.Description, 2000))
-	fmt.Fprintf(&sb, "原始数据包:\n%s\n", clipTo(v.Packet, 6000))
-	if v.Repro != "" {
-		fmt.Fprintf(&sb, "\n复现步骤:\n%s\n", clipTo(v.Repro, 2000))
+	title := f.Name
+	if title == "" {
+		title = f.VulnClass
 	}
-	if len(v.Evidence) > 0 {
-		sb.WriteString("\n证据:\n")
-		for i, e := range v.Evidence {
+	fmt.Fprintf(&sb, "标题: %s\n代理自评: %s\n类别: %s\n提交: %s\n\n",
+		title, f.Severity, f.VulnClass, f.CreatedAt.Format("01-02 15:04"))
+	fmt.Fprintf(&sb, "描述:\n%s\n\n", clipTo(f.Summary, 2000))
+	if upg, err := s.GetFindingUpgrade(f.ID); err == nil && upg != nil && upg.Packet != "" {
+		fmt.Fprintf(&sb, "原始数据包:\n%s\n", clipTo(upg.Packet, 6000))
+		if upg.Repro != "" {
+			fmt.Fprintf(&sb, "\n复现步骤:\n%s\n", clipTo(upg.Repro, 2000))
+		}
+	}
+	fmt.Fprintf(&sb, "\n证据/PoC:\n%s\n", clipTo(f.Evidence, 4000))
+	if evs, err := s.ListFindingEvidence(f.ID); err == nil && len(evs) > 0 {
+		sb.WriteString("\n结构化证据:\n")
+		for i, e := range evs {
 			fmt.Fprintf(&sb, "%d. [%s] %s\n", i+1, e.Kind, e.Note)
 			if e.Command != "" {
 				fmt.Fprintf(&sb, "命令: %s\n", clipTo(e.Command, 800))

@@ -180,7 +180,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	s.initSideQuestions()
 	s.supervisor.srv = s                          // 监督员借用 Server 的模型解析
 	s.engine.SetActivityObserver(s.supervisor.Observe) // 监督员旁观活动流（supervisor 模式）
-	s.startVulnReviewLoop()                       // 漏洞中枢：LLM 评审员轮询 queued 记录
+	s.startFindingReviewLoop()                       // 漏洞中枢：LLM 评审员轮询 queued 记录
 	s.wireDoctrineResolver()                       // 指挥条令 doc:<id> 复用预设注入管道
 	workRoot = m.dir                             // 容器同路径挂载的平台根
 	go s.cleanupOrphanContainers()                // 启动清理无主任务容器
@@ -985,8 +985,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/supervisor/config", s.supervisorSetConfig)
 	// noa 上下文压缩（实验功能）：归档观测与清理
 	s.registerNoaRoutes(mux)
-	// 漏洞中枢（全链哨兵式）：vuln_submit/list/get + 复核 + markdown 导出；LLM 评审员后台重定级
-	s.registerVulnRoutes(mux)
 	s.registerSurveyRoutes(mux) // 资产测绘配置/验证/流水
 	s.registerTavilyPoolRoutes(mux) // Tavily 号池
 	s.registerPocSubRoutes(mux) // POC 订阅源管理+手动同步

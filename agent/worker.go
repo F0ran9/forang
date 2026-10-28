@@ -374,7 +374,6 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	if as != nil {
 		tsx.SetAssetStore(as, as.Companies())
 	tsx.SetPocStore(as.Pocs())
-		tsx.SetVulnStore(as.Vulns())
 	}
 	tsx.SetDroidDir(w.workDir)          // droid 文件工具（截图/拉取/推送/安装）落到 worker 工作目录
 	tsx.SetSurveyService(w.surveySvc)   // 资产测绘（FOFA/Quake/Hunter）

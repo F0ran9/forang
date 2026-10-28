@@ -1,7 +1,7 @@
 package agent
 
 // tools_screenshot.go — web_screenshot 工具：用宿主 Chromium headless 截取目标页面，
-// 落盘到工作目录供 vuln_submit 以 kind=screenshot 引用。
+// 落盘到工作目录供 report_finding 以 kind=screenshot 引用。
 // 也支持传入本地 HTML 文件路径（file:// 协议）截取离线报告页面。
 
 import (
@@ -19,7 +19,7 @@ import (
 
 func (t *ToolSet) screenshotTool() actool.CoreTool {
 	return writeTool("web_screenshot",
-		"截取目标网页截图（Chromium headless，支持 http/https/file 协议）。产出 PNG 落到工作目录 evidence/screenshots/，返回文件路径——在 vuln_submit 的 evidence 列表里用 kind=screenshot 引用该路径即可把截图附进漏洞报告。",
+		"截取目标网页截图（Chromium headless，支持 http/https/file 协议）。产出 PNG 落到工作目录 evidence/screenshots/，返回文件路径——在 report_finding 的 evidence 列表里用 kind=screenshot 引用该路径即可把截图附进漏洞报告。",
 		obj(map[string]any{
 			"url":       str("目标 URL（http://… / https://… / file://…）"),
 			"width":     intp("可选，视口宽，默认 1280"),
@@ -76,6 +76,6 @@ func (t *ToolSet) screenshotTool() actool.CoreTool {
 			if serr != nil || st.Size() < 1000 {
 				return actool.Errorf("截图产物异常（不存在或 <1KB）"), nil
 			}
-			return actool.Text(fmt.Sprintf("✅ 截图已保存: %s（%d KB）\n在 vuln_submit evidence 里用 {\"kind\":\"screenshot\",\"path\":\"%s\"} 引用。", outPath, st.Size()/1024, outPath)), nil
+			return actool.Text(fmt.Sprintf("✅ 截图已保存: %s（%d KB）\n在 report_finding evidence 里用 {\"kind\":\"screenshot\",\"path\":\"%s\"} 引用。", outPath, st.Size()/1024, outPath)), nil
 		})
 }

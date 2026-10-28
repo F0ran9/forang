@@ -118,7 +118,6 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 	if as != nil {
 		tsx.SetAssetStore(as, as.Companies())
 	tsx.SetPocStore(as.Pocs())
-		tsx.SetVulnStore(as.Vulns())
 	}
 	tsx.SetDroidDir(m.workDir) // droid 文件工具落到主 Agent 工作目录
 	tsx.SetSurveyService(m.surveySvc)   // 资产测绘（FOFA/Quake/Hunter）

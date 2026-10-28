@@ -1037,13 +1037,7 @@ export const api = {
 
   // 三端预设 Agent(测试模式)
   presets: () => get<{ presets: { id: string; name: string; description: string }[] }>("/presets"),
-  // ---- 漏洞中枢（vuln hub）----
-  vulnList: (q = "") => get<{ items: VulnRow[]; count: number }>(`/vulns${q}`),
-  vulnGet: (id: number) => get<VulnDetail>(`/vulns/${id}`),
-  vulnPatch: (id: number, status: string, note = "") => patch<VulnDetail>(`/vulns/${id}`, { status, note }),
-  vulnNote: (id: number, text: string) => post<{ ok: boolean }>(`/vulns/${id}/notes`, { text }),
-  vulnReview: (id: number) => post<{ ok: boolean }>(`/vulns/${id}/review`, {}),
-  // ---- 资产测绘 ----
+    // ---- 资产测绘 ----
   surveyConfig: () => get<Record<string, SurveyPlatform>>(`/survey/config`),
   surveySet: (platform: string, input: { enabled: boolean; key?: string; base_url?: string }) =>
     put<SurveyPlatform>(`/survey/config`, { platform, ...input }),

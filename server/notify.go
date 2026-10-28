@@ -68,27 +68,31 @@ func (s *Server) notifySetConfig(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/notify/test
 func (s *Server) notifyTest(w http.ResponseWriter, r *http.Request) {
-	if err := s.sendAll("ARTEX 通知测试", "如果你看到这条消息，说明通知通道配置成功。"); err != nil {
+	if err := s.sendAll("FORANG 通知测试", "如果你看到这条消息，说明通知通道配置成功。"); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
-
-// sendVulnNotify 高危漏洞推送（markdown 摘要）。
-func (s *Server) sendVulnNotify(v *db.Vuln) {
+// sendFindingNotify 高危发现推送（markdown 摘要）。
+func (s *Server) sendFindingNotify(f *db.DBFinding, severity string, score float64) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[notify] vuln %d 推送 panic: %v", v.ID, r)
+			log.Printf("[notify] finding %d 推送 panic: %v", f.ID, r)
 		}
 	}()
-	title := fmt.Sprintf("🚨 高危漏洞确认 %s", v.Label)
-	body := fmt.Sprintf("**%s**\n\n等级：%s · CVSS %.1f\n目标：%s\n提交：%s\n\n> %s",
-		v.Title, v.Severity, v.Cvss, v.Target, v.CreatedAt.Format("01-02 15:04"), clipTo(v.Description, 300))
-	if err := s.sendAll(title, body); err != nil {
-		log.Printf("[notify] vuln %d 推送失败: %v", v.ID, err)
+	title := f.Name
+	if title == "" {
+		title = f.VulnClass
+	}
+	t := fmt.Sprintf("🚨 高危漏洞评审确认（%s）", title)
+	body := fmt.Sprintf("**%s**\n\n等级：%s · CVSS %.1f\n提交：%s\n\n> %s",
+		title, severity, score, f.CreatedAt.Format("01-02 15:04"), clipTo(f.Summary, 300))
+	if err := s.sendAll(t, body); err != nil {
+		log.Printf("[notify] finding %d 推送失败: %v", f.ID, err)
 	}
 }
+
 
 func (s *Server) sendAll(title, body string) error {
 	cfg := s.loadNotifyConfig()

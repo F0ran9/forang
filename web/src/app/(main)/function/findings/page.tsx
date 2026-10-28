@@ -818,7 +818,7 @@ export default function FindingsPage() {
     <div className="flex flex-1 flex-col gap-4 md:gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">发现</h1>
+          <h1 className="text-xl font-semibold tracking-tight">漏洞中台</h1>
           <p className="text-muted-foreground text-sm">跨任务漏洞汇总</p>
         </div>
         <Tabs value={view} onValueChange={(v) => setView(v as FindingView)}>

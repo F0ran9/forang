@@ -57,7 +57,7 @@ func builtinToolsByAgent() map[string][]actool.CoreTool {
 		// 新库由此 seed 写入；老库由 seedPentestDefaultBindings 迁移。
 		"pentest": append(
 			[]actool.CoreTool{ts.listAssets(), ts.insertAssets(), ts.addFinding(), ts.listFindings(), ts.listCompanies()},
-			append(append(append(append(ts.droidTools(), ts.vulnTools()...), ts.fridaTools()...), ts.surveyTools()...), ts.apiModelTools()...)...,
+			append(append(append(ts.droidTools(), ts.fridaTools()...), ts.surveyTools()...), ts.apiModelTools()...)...,
 		),
 	}
 }
