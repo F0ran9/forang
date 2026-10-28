@@ -11,6 +11,20 @@
 
 ---
 
+## 截图预览
+
+> 截图数据已演示化/打码处理。
+
+| 仪表盘（总览 / Token 消耗 / 缓存命中） | 任务列表（多 Agent 任务） |
+| :---: | :---: |
+| ![仪表盘](screenshots/dashboard.png) | ![任务](screenshots/tasks.png) |
+| **漏洞中台**（发现汇总 / 评审 / 复测 / 导出） | **工具箱 · Repeater**（原始报文重放 + 留证截图） |
+| ![漏洞中台](screenshots/findings.png) | ![工具箱](screenshots/toolbox.png) |
+| **系统配置**（测绘 / 插件 / 更新 / 流量捕获） | |
+| ![系统配置](screenshots/settings.png) | |
+
+---
+
 ## 一、渗透任务引擎（多 Agent 协同）
 
 平台的核心执行单元。一个任务 = 一个探索图 + 一组协同 Agent：
