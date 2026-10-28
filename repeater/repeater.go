@@ -6,10 +6,14 @@ package repeater
 
 import (
 	"bytes"
+	"compress/flate"
+	"compress/gzip"
+	"compress/zlib"
 	"context"
 	"crypto/tls"
 	"fmt"
 	"html"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -19,6 +23,9 @@ import (
 	"strings"
 	"time"
 )
+
+// maxBodyBytes 解压后正文上限（8MB）。
+const maxBodyBytes = 8 << 20
 
 // Options 一次重放的选项。
 type Options struct {
@@ -166,8 +173,48 @@ func sendOnce(ctx context.Context, scheme, host string, port int, raw []byte, ti
 	if strings.Contains(strings.ToLower(headers), "transfer-encoding: chunked") {
 		rest = dechunk(rest)
 	}
+	rest = decompress(headers, rest)
 	body = string(rest)
 	return status, headers, body, elapsed, nil
+}
+
+// decompress 按响应头 Content-Encoding 还原 gzip/deflate 正文（显示用；失败原样返回）。
+func decompress(headers string, body []byte) []byte {
+	enc := ""
+	for _, l := range strings.Split(headers, "\r\n") {
+		if strings.HasPrefix(strings.ToLower(l), "content-encoding:") {
+			enc = strings.ToLower(strings.TrimSpace(strings.SplitN(l, ":", 2)[1]))
+		}
+	}
+	switch enc {
+	case "gzip":
+		zr, err := gzip.NewReader(bytes.NewReader(body))
+		if err != nil {
+			return body
+		}
+		out, err := io.ReadAll(io.LimitReader(zr, int64(maxBodyBytes)))
+		if err != nil {
+			return body
+		}
+		return out
+	case "deflate":
+		zr := flate.NewReader(bytes.NewReader(body))
+		out, err := io.ReadAll(io.LimitReader(zr, int64(maxBodyBytes)))
+		if err != nil || len(out) == 0 {
+			zr2, zerr := zlib.NewReader(bytes.NewReader(body))
+			if zerr != nil {
+				return body
+			}
+			out2, err2 := io.ReadAll(io.LimitReader(zr2, int64(maxBodyBytes)))
+			if err2 != nil {
+				return body
+			}
+			return out2
+		}
+		return out
+	default:
+		return body
+	}
 }
 
 // dechunk 按 RFC2616 还原 chunked 响应体（尽力而为，容忍截断）。
@@ -223,10 +270,19 @@ func SendCtx(ctx context.Context, raw string, opt Options) (*Result, error) {
 	raw = NormalizeRaw(raw)
 	res := &Result{}
 	current := raw
+	var curScheme, curHost string
+	var curPort int
 	for hop := 0; hop < 6; hop++ {
-		scheme, host, port, err := Target(current, opt.ForceHTTPS)
-		if err != nil {
-			return res, err
+		var scheme, host string
+		var port int
+		var err error
+		if hop == 0 {
+			scheme, host, port, err = Target(current, opt.ForceHTTPS)
+			if err != nil {
+				return res, err
+			}
+		} else {
+			scheme, host, port = curScheme, curHost, curPort
 		}
 		res.Scheme, res.Host, res.Port = scheme, host, port
 		// 未显式声明 Connection 时补 close，保证按 EOF 读完整响应
@@ -259,11 +315,12 @@ func SendCtx(ctx context.Context, raw string, opt Options) (*Result, error) {
 		if loc == "" {
 			break
 		}
-		next, err := redirectRaw(current, scheme, host, port, loc)
+		next, ns, nh, np, err := redirectRaw(current, scheme, host, port, loc)
 		if err != nil {
 			break
 		}
 		current = next
+		curScheme, curHost, curPort = ns, nh, np
 	}
 	return res, nil
 }
@@ -278,16 +335,19 @@ func headerValue(headers, name string) string {
 }
 
 // redirectRaw 基于 Location 构造下一跳报文（跨域改 Host，方法降 GET）。
-func redirectRaw(prev string, prevScheme, prevHost string, prevPort int, location string) (string, error) {
+func redirectRaw(prev string, prevScheme, prevHost string, prevPort int, location string) (string, string, string, int, error) {
 	u, err := url.Parse(location)
 	if err != nil {
-		return "", err
+		return "", "", "", 0, err
 	}
 	scheme, host, port := prevScheme, prevHost, prevPort
 	if u.IsAbs() {
 		scheme = u.Scheme
 		host = u.Hostname()
 		port = 80
+		if scheme == "https" {
+			port = 443
+		}
 		if u.Port() != "" {
 			port, _ = strconv.Atoi(u.Port())
 		}
@@ -300,7 +360,7 @@ func redirectRaw(prev string, prevScheme, prevHost string, prevPort int, locatio
 	lines := strings.Split(prev, "\r\n")
 	req := strings.Fields(lines[0])
 	if len(req) == 0 {
-		return "", fmt.Errorf("原报文请求行不合法")
+		return "", "", "", 0, fmt.Errorf("原报文请求行不合法")
 	}
 	method := "GET"
 	if req[0] == "HEAD" {
@@ -334,7 +394,7 @@ func redirectRaw(prev string, prevScheme, prevHost string, prevPort int, locatio
 	}
 	_ = body
 	sb.WriteString("\r\n")
-	return sb.String(), nil
+	return sb.String(), scheme, host, port, nil
 }
 
 // --- 取证页渲染 + 截图 ---

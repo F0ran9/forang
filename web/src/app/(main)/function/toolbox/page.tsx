@@ -96,6 +96,7 @@ export default function ToolboxPage() {
   const [result, setResult] = React.useState<RepeaterResult | null>(null);
   const [error, setError] = React.useState("");
   const [shot, setShot] = React.useState<{ png: string; size: number } | null>(null);
+  const [copied, setCopied] = React.useState(false);
   const preRef = React.useRef<HTMLPreElement>(null);
 
   const running = busy || capBusy;
@@ -162,6 +163,54 @@ export default function ToolboxPage() {
     await startJob("capture");
   };
 
+  // copyURL 从当前报文提取目标 URL（scheme://host[:port]path）并复制到剪贴板。
+  const copyURL = async () => {
+    const CR = String.fromCharCode(13);
+    const LF = String.fromCharCode(10);
+    const lines = raw.split(LF).map((x) => x.split(CR)[0]);
+    const parts = (lines[0] || "").split(" ");
+    let path = parts[1] || "/";
+    let host = "";
+    for (const l of lines.slice(1)) {
+      if (l.toLowerCase().startsWith("host:")) {
+        host = l.slice(5).trim();
+        break;
+      }
+    }
+    let scheme = forceHTTPS ? "https" : "http";
+    let port = scheme === "https" ? 443 : 80;
+    const absRe = new RegExp("^https?:" + String.fromCharCode(47) + String.fromCharCode(47), "i");
+    if (absRe.test(path)) {
+      try {
+        const u = new URL(path);
+        path = u.pathname + u.search;
+        scheme = u.protocol.replace(":", "");
+        host = u.hostname;
+        port = Number(u.port) || (scheme === "https" ? 443 : 80);
+      } catch {
+        /* 保持头信息推导 */
+      }
+    } else if (host.includes(":")) {
+      const seg = host.split(":");
+      host = seg[0];
+      const pn = Number(seg[1]);
+      if (pn) port = pn;
+    }
+    if (!host) {
+      window.alert("报文里没有 Host 头，无法生成 URL");
+      return;
+    }
+    const defaultPort = (scheme === "https" && port === 443) || (scheme === "http" && port === 80);
+    const url = scheme + "://" + host + (defaultPort ? "" : ":" + port) + path;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      window.alert(url);
+    }
+  };
+
   const buildFromURL = () => {
     const u = window.prompt("输入目标 URL（https://example.com/path）", "http://");
     if (!u) return;
@@ -188,6 +237,9 @@ export default function ToolboxPage() {
           <HammerIcon className="size-5" /> 工具箱 · Repeater
         </h1>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={copyURL} disabled={running}>
+            {copied ? "已复制 ✓" : "复制 URL"}
+          </Button>
           <Button variant="outline" size="sm" onClick={buildFromURL} disabled={running}>
             <WandIcon className="mr-1 size-4" /> 构造请求
           </Button>
