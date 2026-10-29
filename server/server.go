@@ -735,7 +735,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/task-archives/restore/batch", s.restoreTaskArchivesBatch)
 	mux.HandleFunc("DELETE /api/task-archives/{id}", s.queueTaskArchiveDelete)
 	mux.HandleFunc("POST /api/task-archives/delete/batch", s.deleteTaskArchivesBatch)
-	mux.HandleFunc("GET /api/tasks/{id}/report/docx", s.taskReportDocx)       // 漏洞中台 Word 报告（嵌截图）
+	mux.HandleFunc("GET /api/tasks/{id}/report/docx", s.taskReportNS)          // 渗透测试 Word 报告（行业模板，嵌截图）
 	mux.HandleFunc("GET /api/tasks/{id}/report/markdown", s.taskReportMarkdown)
 	mux.HandleFunc("GET /api/evidence/file", s.evidenceFile) // 证据文件（截图/日志，限 data 目录内） // 漏洞中台 Markdown 报告
 	mux.HandleFunc("GET /api/tasks/{id}/coverage", s.taskCoverage)
