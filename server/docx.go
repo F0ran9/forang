@@ -54,6 +54,14 @@ func (d *Docx) Image(path string, caption string) *Docx {
 	return d
 }
 
+// title 添加封面大标题（Title 样式，黑体居中）。
+func (d *Docx) title(text string) *Docx {
+	d.body.WriteString(fmt.Sprintf(
+		`<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr><w:r><w:t xml:space="preserve">%s</w:t></w:r></w:p>`,
+		xmlEscape(text)))
+	return d
+}
+
 // Heading 添加标题（level 1-4，Word 内置 Heading 样式）。
 func (d *Docx) Heading(level int, text string) *Docx {
 	style := fmt.Sprintf("Heading%d", level)
@@ -95,7 +103,7 @@ func (d *Docx) Table(headers []string, rows [][]string) *Docx {
 	d.body.WriteString(`<w:tr>`)
 	for _, h := range headers {
 		d.body.WriteString(fmt.Sprintf(
-			`<w:tc><w:tcPr><w:shd w:val="clear" w:fill="E2E8F0"/></w:tcPr><w:p><w:r><w:rPr><w:b/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">%s</w:t></w:r></w:p></w:tc>`,
+			`<w:tc><w:tcPr><w:shd w:val="clear" w:fill="E2E8F0"/></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:eastAsia="黑体" w:ascii="Times New Roman" w:hAnsi="Times New Roman"/><w:b/><w:sz w:val="24"/></w:rPr><w:t xml:space="preserve">%s</w:t></w:r></w:p></w:tc>`,
 			xmlEscape(h)))
 	}
 	d.body.WriteString(`</w:tr>`)
@@ -105,7 +113,7 @@ func (d *Docx) Table(headers []string, rows [][]string) *Docx {
 		d.body.WriteString(`<w:tr>`)
 		for _, cell := range row {
 			d.body.WriteString(fmt.Sprintf(
-				`<w:tc><w:p><w:r><w:rPr><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">%s</w:t></w:r></w:p></w:tc>`,
+				`<w:tc><w:p><w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t xml:space="preserve">%s</w:t></w:r></w:p></w:tc>`,
 				xmlEscape(cell)))
 		}
 		d.body.WriteString(`</w:tr>`)
@@ -167,14 +175,16 @@ func (d *Docx) Build() ([]byte, error) {
 		}
 	}
 
-	// word/styles.xml — 定义 Heading1-4 + TableGrid
+	// word/styles.xml — 字体对齐行业交付模板：正文 宋体/Times New Roman 12pt；
+	// 一级标题 黑体 16pt、二级 黑体 14pt、三级 黑体 12pt（均加粗）；TableGrid。
 	styles := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Microsoft YaHei"/><w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults>
-  <w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:pPr><w:outlineLvl w:val="0"/><w:spacing w:before="360" w:after="160"/></w:pPr><w:rPr><w:b/><w:sz w:val="36"/><w:color w:val="1E293B"/></w:rPr></w:style>
-  <w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:pPr><w:outlineLvl w:val="1"/><w:spacing w:before="280" w:after="120"/></w:pPr><w:rPr><w:b/><w:sz w:val="28"/><w:color w:val="334155"/></w:rPr></w:style>
-  <w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:pPr><w:outlineLvl w:val="2"/><w:spacing w:before="200" w:after="80"/></w:pPr><w:rPr><w:b/><w:sz w:val="24"/><w:color w:val="475569"/></w:rPr></w:style>
-  <w:style w:type="paragraph" w:styleId="Heading4"><w:name w:val="heading 4"/><w:pPr><w:outlineLvl w:val="3"/></w:pPr><w:rPr><w:b/><w:sz w:val="22"/></w:rPr></w:style>
+  <w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="宋体" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults>
+  <w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:pPr><w:jc w:val="center"/><w:spacing w:before="240" w:after="240"/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="黑体"/><w:b/><w:sz w:val="52"/></w:rPr></w:style>
+  <w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:pPr><w:outlineLvl w:val="0"/><w:spacing w:before="360" w:after="160"/></w:pPr><w:rPr><w:rFonts w:eastAsia="黑体" w:ascii="Times New Roman" w:hAnsi="Times New Roman"/><w:b/><w:sz w:val="32"/></w:rPr></w:style>
+  <w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:pPr><w:outlineLvl w:val="1"/><w:spacing w:before="280" w:after="120"/></w:pPr><w:rPr><w:rFonts w:eastAsia="黑体" w:ascii="Times New Roman" w:hAnsi="Times New Roman"/><w:b/><w:sz w:val="28"/></w:rPr></w:style>
+  <w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:pPr><w:outlineLvl w:val="2"/><w:spacing w:before="200" w:after="80"/></w:pPr><w:rPr><w:rFonts w:eastAsia="黑体" w:ascii="Times New Roman" w:hAnsi="Times New Roman"/><w:b/><w:sz w:val="24"/></w:rPr></w:style>
+  <w:style w:type="paragraph" w:styleId="Heading4"><w:name w:val="heading 4"/><w:pPr><w:outlineLvl w:val="3"/></w:pPr><w:rPr><w:rFonts w:eastAsia="宋体"/><w:b/><w:sz w:val="24"/></w:rPr></w:style>
   <w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/></w:style>
 </w:styles>`
 	if err := writeZipEntry(zw, "word/styles.xml", styles); err != nil {
