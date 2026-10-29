@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,18 +34,27 @@ func (t *ToolSet) screenshotTool() actool.CoreTool {
 				return actool.Errorf(err.Error()), nil
 			}
 			var a struct {
-				URL       string `json:"url"`
-				Width     int    `json:"width"`
-				Height    int    `json:"height"`
-				WaitMs    int    `json:"wait_ms"`
-				FullPage  string `json:"full_page"`
+				URL      string   `json:"url"`
+				Width    int      `json:"width"`
+				Height   int      `json:"height"`
+				WaitMs   int      `json:"wait_ms"`
+				FullPage string   `json:"full_page"`
+				Cookies  []string `json:"cookie"`
+				Headers  []string `json:"header"`
+				JS       string   `json:"js"`
 			}
 			if err := json.Unmarshal(in, &a); err != nil || strings.TrimSpace(a.URL) == "" {
 				return actool.Errorf("url 必填"), nil
 			}
-			if a.Width <= 0 { a.Width = 1280 }
-			if a.Height <= 0 { a.Height = 720 }
-			if a.WaitMs <= 0 { a.WaitMs = 3000 }
+			if a.Width <= 0 {
+				a.Width = 1280
+			}
+			if a.Height <= 0 {
+				a.Height = 720
+			}
+			if a.WaitMs <= 0 {
+				a.WaitMs = 3000
+			}
 
 			outDir := filepath.Join(dir, "evidence", "screenshots")
 			if err := os.MkdirAll(outDir, 0o755); err != nil {
@@ -53,6 +63,40 @@ func (t *ToolSet) screenshotTool() actool.CoreTool {
 			name := fmt.Sprintf("shot-%s.png", time.Now().Format("0102-150405"))
 			outPath := filepath.Join(outDir, name)
 
+			// 带登录态/注入 JS 时走 Playwright 渲染（chromium CLI 不支持自定义请求头）
+			if len(a.Cookies) > 0 || len(a.Headers) > 0 || strings.TrimSpace(a.JS) != "" {
+				helper := filepath.Join(dir, "tools", "webshot.py")
+				if err := os.WriteFile(helper, []byte(webshotScript), 0o644); err != nil {
+					return actool.Errorf("释放助手脚本失败: " + err.Error()), nil
+				}
+				var pargs []string
+				pargs = append(pargs, "--url", a.URL, "--out", outPath,
+					"--width", strconv.Itoa(a.Width), "--height", strconv.Itoa(a.Height),
+					"--wait", strconv.Itoa(a.WaitMs))
+				if a.FullPage == "true" {
+					pargs = append(pargs, "--full")
+				}
+				for _, c := range a.Cookies {
+					pargs = append(pargs, "--cookie", c)
+				}
+				for _, h := range a.Headers {
+					pargs = append(pargs, "--header", h)
+				}
+				if strings.TrimSpace(a.JS) != "" {
+					pargs = append(pargs, "--js", a.JS)
+				}
+				cmd := exec.CommandContext(ctx, "python3", append([]string{helper}, pargs...)...)
+				var pout strings.Builder
+				cmd.Stdout, cmd.Stderr = &pout, &pout
+				if err := cmd.Run(); err != nil {
+					return actool.Errorf("Playwright 截图失败: " + err.Error() + "; " + strings.TrimSpace(pout.String())), nil
+				}
+				st, serr := os.Stat(outPath)
+				if serr != nil || st.Size() < 1000 {
+					return actool.Errorf("截图产物异常（不存在或 <1KB）"), nil
+				}
+				return actool.Text("截图已保存（带登录态）: " + outPath + "。用 bind_finding_evidence 绑到漏洞，报告附录与 Word 自动嵌图。"), nil
+			}
 			args := []string{
 				"--headless", "--disable-gpu", "--no-sandbox",
 				"--hide-scrollbars",

@@ -657,6 +657,7 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 		t.nodeDetail(),
 		// 三端载体（小程序/APP/Web 统一后端 API 资产）：只读，上传解析在控制台完成。
 		t.carrierParse(),
+		t.annotateTool(),
 		// POC 闭环：批量匹配 + 精确验证 + 验证成功后入库（verify 会真实发请求，走拦截审批）。
 		t.matchPocTool(), t.runPocVerifyTool(), t.savePocTool(),
 		// 以下工具仍【不给】worker，只留给 planner/main（读上下文、跨 work 复盘是规划职责，
@@ -690,6 +691,7 @@ func (t *ToolSet) MainAgentTools() []actool.CoreTool {
 		t.insertAssets(), t.addCompanyScope(), t.listAssets(),
 		t.addFinding(), t.recordFact(),
 		t.carrierParse(),
+		t.annotateTool(),
 		t.matchPocTool(), t.runPocVerifyTool(), t.savePocTool(),
 		t.addTaskScope(),
 		// list_untested_assets：按需查本任务范围内未测资产(类型+分页)，自行决定补测。
