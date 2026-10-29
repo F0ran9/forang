@@ -735,6 +735,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/task-archives/restore/batch", s.restoreTaskArchivesBatch)
 	mux.HandleFunc("DELETE /api/task-archives/{id}", s.queueTaskArchiveDelete)
 	mux.HandleFunc("POST /api/task-archives/delete/batch", s.deleteTaskArchivesBatch)
+	mux.HandleFunc("GET /api/tasks/{id}/report/docx", s.taskReportDocx)       // 漏洞中台 Word 报告（嵌截图）
+	mux.HandleFunc("GET /api/tasks/{id}/report/markdown", s.taskReportMarkdown)
+	mux.HandleFunc("GET /api/evidence/file", s.evidenceFile) // 证据文件（截图/日志，限 data 目录内） // 漏洞中台 Markdown 报告
 	mux.HandleFunc("GET /api/tasks/{id}/coverage", s.taskCoverage)
 	mux.HandleFunc("GET /api/tasks/{id}/coverage-graph", s.taskCoverageGraph)
 	mux.HandleFunc("GET /api/tasks/{id}/asset-refs", s.taskAssetRefs)
@@ -3928,11 +3931,14 @@ func (s *Server) getReport(w http.ResponseWriter, r *http.Request) {
 		Title: t.Description, Goal: t.Goal, GeneratedAt: time.Now(),
 		AssetCounts: counts, Findings: findings,
 	})
+	// 漏洞中台附录（新增）：findings 表发现（评审 CVSS/结论 + 截图证据链接）
+	if appendix := s.findingsAppendixMarkdown(t.ID); appendix != "" {
+		md += "\\n\\n---\\n\\n" + appendix
+	}
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.WriteHeader(200)
 	_, _ = w.Write([]byte(md))
 }
-
 func (s *Server) getAudit(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {

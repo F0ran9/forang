@@ -82,6 +82,12 @@ export function ReportTab({ taskId }: { taskId: string }) {
               {copied ? <CheckIcon /> : <CopyIcon />} 复制
             </Button>
           )}
+          <a href={api.reportDocxUrl(taskId)} download>
+            <Button size="sm">下载 Word（含截图）</Button>
+          </a>
+          <a href={api.reportMdUrl(taskId)} download>
+            <Button size="sm" variant="outline">下载 Markdown</Button>
+          </a>
         </div>
       </CardHeader>
       <CardContent>{content}</CardContent>

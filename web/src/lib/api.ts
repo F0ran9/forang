@@ -1250,6 +1250,10 @@ export const api = {
   repeaterJob: (id: string) =>
     get<{ job_id: string; state: string; kind: string; result?: RepeaterResult; png?: string; html?: string; size?: number; error?: string }>(`/tools/repeater/job/${id}`),
   repeaterStop: (id: string) => post<{ ok: boolean; state: string }>("/tools/repeater/stop", { job_id: id }),
+  // ---- 漏洞中台报告导出 ----
+  reportDocxUrl: (taskId: string) => `/api/tasks/${taskId}/report/docx`,
+  reportMdUrl: (taskId: string) => `/api/tasks/${taskId}/report/markdown`,
+
   pocList: () => get<{ pocs: unknown[] }>("/pocs"),
   pocCreate: (payload: unknown) => post<{ poc: unknown }>("/pocs", payload),
   pocUpdate: (id: number, payload: unknown) =>
