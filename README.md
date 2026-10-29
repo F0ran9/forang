@@ -201,6 +201,8 @@ FOFA / Quake / Hunter 三平台集成：
 近期重要变更：
 - 工具箱 Repeater（原始报文手工重放页 + agent 发包/留证工具，取代 replayd 外部服务；
   取证截图带北京时间面板，模型视觉自检 + 对话内联渲染）
+- bind_finding_evidence：截图/输出一键绑定漏洞证据，报告附录与 Word 自动嵌图
+- 漏洞中枢并入发现（漏洞中台）：评审员/CVSS/IM 推送切 findings 表，每条新发现自动评审
 - 漏洞中枢并入发现（漏洞中台）：评审员/CVSS/IM 推送切 findings 表，每条新发现自动评审
 - LLM 图片块支持（norma image-blocks，含 noa 压缩保留图片）
 - carrier_parse 对话内载体解析（独立载体页面已下线）
