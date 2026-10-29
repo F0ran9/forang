@@ -666,6 +666,7 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 	// connect/devices 前置，无设备时报错引导，不影响其他任务。
 	tools = append(tools, t.droidTools()...)
 	tools = append(tools, t.repeaterTools()...) // 工具箱 Repeater：发包发送 + 带时间留证截图
+	tools = append(tools, t.bindFindingEvidence()) // 截图/输出绑定漏洞证据（报告嵌图）
 	tools = append(tools, t.screenshotTool()) // 网页截图（Chromium headless，漏洞证据用）
 	tools = append(tools, t.fridaTools()...) // frida 动态调试（脱壳/反检测/明文流量）
 	tools = append(tools, t.surveyTools()...) // 资产测绘（FOFA/Quake/Hunter，未配置时工具报错引导）
@@ -696,6 +697,7 @@ func (t *ToolSet) MainAgentTools() []actool.CoreTool {
 	}
 	tools = append(tools, t.droidTools()...)
 	tools = append(tools, t.repeaterTools()...) // 工具箱 Repeater：发包发送 + 带时间留证截图
+	tools = append(tools, t.bindFindingEvidence()) // 截图/输出绑定漏洞证据（报告嵌图）
 	
 	tools = append(tools, t.fridaTools()...)
 	tools = append(tools, t.apiModelTools()...)

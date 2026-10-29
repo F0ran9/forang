@@ -10,6 +10,9 @@ import (
 // evidence bodies themselves. Its implementation owns the atomic write.
 type FindingRecorder interface {
 	Record(context.Context, db.RecordFindingInput, []db.TrafficRef) (*db.RecordedFinding, error)
+	// AppendFindingEvidence 追加发现证据（截图/命令输出）到 finding_evidence 表。
+	// 报告附录与 Word 嵌图读取该表，是「截图进报告」的绑定环节。
+	AppendFindingEvidence(findingID int64, e db.FindingEvidence) error
 }
 
 // Tool-use guidance is appended without replacing the user's editable prompt.

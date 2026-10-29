@@ -194,6 +194,19 @@ func (s *Store) Record(ctx context.Context, in db.RecordFindingInput, refs []db.
 	return
 }
 
+// AppendFindingEvidence 追加一条发现证据（截图路径/命令输出）到 finding_evidence 表。
+// 供 agent 的 bind_finding_evidence 工具调用：报告附录与 Word 嵌图都读这张表。
+func (s *Store) AppendFindingEvidence(findingID int64, e db.FindingEvidence) error {
+	err := s.DB.WithEvidenceTx(context.Background(), func(tx *sql.Tx) error {
+		_, exErr := tx.Exec(
+			`INSERT INTO finding_evidence (finding_id, seq, kind, command, output, path, note)
+SELECT $1, COALESCE(MAX(seq)+1, 0), $2, $3, $4, $5, $6 FROM finding_evidence WHERE finding_id=$1`,
+			findingID, e.Kind, e.Command, e.Output, e.Path, e.Note)
+		return exErr
+	})
+	return err
+}
+
 func (s *Store) Bind(ctx context.Context, findingID int64, refs []db.TrafficRef) (out *db.FindingTraffic, err error) {
 	err = s.DB.WithEvidenceTx(ctx, func(tx *sql.Tx) error {
 		if err := db.LockFindingEvidenceTx(tx, findingID, nil); err != nil {
