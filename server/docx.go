@@ -122,6 +122,30 @@ func (d *Docx) Table(headers []string, rows [][]string) *Docx {
 	return d
 }
 
+// HRule 大标题下的粗黑分隔线（段落底边框 6pt 黑色）。
+func (d *Docx) HRule() *Docx {
+	d.body.WriteString(`<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="48" w:space="1" w:color="000000"/></w:pBdr></w:pPr></w:p>`)
+	return d
+}
+
+// FieldLine 字段行：加粗标签 + 常规内容（同一行，如「漏洞描述： xxx」）。
+func (d *Docx) FieldLine(label, text string) *Docx {
+	d.body.WriteString(`<w:p><w:pPr><w:spacing w:before="120" w:after="60"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="28"/></w:rPr><w:t xml:space="preserve">` + xmlEscape(label) + `</w:t></w:r>`)
+	if text != "" {
+		d.body.WriteString(`<w:r><w:t xml:space="preserve">` + xmlEscape(text) + `</w:t></w:r>`)
+	}
+	d.body.WriteString(`</w:p>`)
+	return d
+}
+
+// VulnHeading 漏洞章节大标题（黑体 18pt 加粗，独立段落）。
+func (d *Docx) VulnHeading(text string) *Docx {
+	d.body.WriteString(fmt.Sprintf(
+		`<w:p><w:pPr><w:spacing w:before="240" w:after="120"/></w:pPr><w:r><w:rPr><w:rFonts w:eastAsia="黑体" w:ascii="Times New Roman" w:hAnsi="Times New Roman"/><w:b/><w:sz w:val="36"/></w:rPr><w:t xml:space="preserve">%s</w:t></w:r></w:p>`,
+		xmlEscape(text)))
+	return d
+}
+
 // PageBreak 插入分页符。
 func (d *Docx) PageBreak() *Docx {
 	d.body.WriteString(`<w:p><w:r><w:br w:type="page"/></w:r></w:p>`)

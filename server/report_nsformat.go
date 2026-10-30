@@ -38,6 +38,7 @@ func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 
 	// ===== 一. 目标信息 =====
 	doc.Heading(1, "一. 目标信息")
+	doc.HRule()
 	doc.Heading(2, "1.1 资产列表")
 	doc.Paragraph("资产: " + target)
 	if t.Goal != "" {
@@ -47,6 +48,7 @@ func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 
 	// ===== 二. 测试内容 =====
 	doc.Heading(1, "二. 测试内容")
+	doc.HRule()
 	contents := [][2]string{
 		{"2.1 配置管理测试", "基础配置管理测试、应用管理界面测试、HTTP方法测试、SSL/TLS测试、应用配置管理测试、过期/备份页面测试"},
 		{"2.2 认证测试", "认证模式绕过测试、用户枚举测试、暴力破解测试、竞争条件测试、图形验证码测试、密码修改点测试、密码重置点测试、用户注册点测试、注销登录测试"},
@@ -61,6 +63,7 @@ func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 
 	// ===== 三. 漏洞信息（按等级排序，每漏洞一张表）=====
 	doc.Heading(1, "三. 漏洞信息")
+	doc.HRule()
 	sorted := append([]*db.DBFinding(nil), fs...)
 	sort.Slice(sorted, func(i, j int) bool {
 		return sevOrder[sorted[i].Severity] < sevOrder[sorted[j].Severity]
@@ -73,6 +76,7 @@ func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 	// ===== 四. 建议总结 =====
 	doc.PageBreak()
 	doc.Heading(1, "四. 建议总结")
+	doc.HRule()
 	doc.Paragraph("针对本次测试发现的安全问题，建议从以下方面加强系统安全防护：")
 	doc.Paragraph("1. 及时修复本报告列出的各漏洞项，优先处理高危与严重等级问题；对涉及默认凭据、未授权访问的服务，立即收紧访问控制并轮换相关凭据。")
 	doc.Paragraph("2. 部署 WAF/IDS 等防护设备并对管理后台、运维接口（如 Actuator、Druid、Derby 等诊断端点）实施访问隔离，仅允许受信网段访问。")
@@ -92,9 +96,9 @@ func (s *Server) buildNSVulnSection(doc *Docx, idx int, f *db.DBFinding) {
 	if sev == "" {
 		sev = f.Severity
 	}
-	doc.Heading(1, fmt.Sprintf("%d.【%s】%s", idx, sev, title))
+	doc.VulnHeading(fmt.Sprintf("%d.【%s】%s", idx, sev, title))
 
-	// 评审信息并入描述前缀
+	// 评审信息
 	cvssLine := ""
 	if upg, err := s.GetFindingUpgrade(f.ID); err == nil && upg != nil {
 		if upg.Cvss > 0 {
@@ -108,37 +112,33 @@ func (s *Server) buildNSVulnSection(doc *Docx, idx int, f *db.DBFinding) {
 		}
 	}
 
-	// 漏洞描述
+	// 漏洞描述（加粗标签行）
 	desc := strings.TrimSpace(f.Summary)
 	if desc == "" {
 		desc = f.Evidence
 	}
-	doc.Heading(3, "漏洞描述")
-	doc.Paragraph(desc)
+	doc.FieldLine("漏洞描述：", desc)
 	if cvssLine != "" {
-		doc.Paragraph("定级依据: " + cvssLine)
+		doc.FieldLine("定级依据：", cvssLine)
 	}
 
-	// 相关 URL（从流量绑定快照取）
-	doc.Heading(3, "相关URL")
+	// 相关 URL（流量绑定快照去重）
 	urls := map[string]bool{}
-	if len(f.TrafficBindings) == 0 {
-		doc.Paragraph("（见漏洞描述与截图）")
-	} else {
-		for _, b := range f.TrafficBindings {
-			u := b.Snapshot.URL
-			if u == "" {
-				continue
-			}
-			if !urls[u] {
-				urls[u] = true
-				doc.Paragraph(u)
-			}
+	var urlList []string
+	for _, b := range f.TrafficBindings {
+		u := b.Snapshot.URL
+		if u != "" && !urls[u] {
+			urls[u] = true
+			urlList = append(urlList, u)
 		}
 	}
+	doc.FieldLine("相关URL：", "")
+	for _, u := range urlList {
+		doc.Paragraph(u)
+	}
 
-	// 相关截图：先结构化截图（页面图），再接口取证图，最后报文文本
-	doc.Heading(3, "相关截图")
+	// 相关截图：结构化截图（页面图+接口取证图）实际嵌入
+	doc.FieldLine("相关截图：", "")
 	shotCount := 0
 	if evs, err := s.ListFindingEvidence(f.ID); err == nil {
 		for _, e := range evs {
@@ -146,30 +146,18 @@ func (s *Server) buildNSVulnSection(doc *Docx, idx int, f *db.DBFinding) {
 				if _, serr := os.Stat(e.Path); serr != nil {
 					continue
 				}
-				doc.Image(e.Path, firstNonEmpty(e.Note, "相关截图"))
+				caption := firstNonEmpty(e.Note, "相关截图")
+				doc.Image(e.Path, "▲ "+caption)
 				shotCount++
 			}
 		}
 	}
-	// 绑定的流量快照：报文作为文本证据
-	for _, b := range f.TrafficBindings {
-		if b.Snapshot.ReqHead == "" {
-			continue
-		}
-		var blk strings.Builder
-		blk.WriteString("> " + b.Snapshot.Method + " " + b.Snapshot.URL + "\n")
-		blk.WriteString(b.Snapshot.ReqHead)
-		doc.CodeBlock(blk.String())
-		shotCount++
-	}
-	// 无结构化截图时退回 evidence 文本
 	if shotCount == 0 && f.Evidence != "" {
 		doc.CodeBlock(f.Evidence)
 	}
 
 	// 加固建议
-	doc.Heading(3, "加固建议")
-	doc.Paragraph(remediationFor(f))
+	doc.FieldLine("加固建议：", remediationFor(f))
 }
 
 // remediationFor 按漏洞类别给出加固建议（类内通用建议 + 具体线索）。
