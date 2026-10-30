@@ -73,6 +73,7 @@ func (s *Server) webshellExecAPI(w http.ResponseWriter, r *http.Request) {
 		Op         string `json:"op"`
 		Cmd        string `json:"cmd"`
 		Path       string `json:"path"`
+		NewPath    string `json:"new_path"`
 		Content    string `json:"content"`
 		ContentB64 string `json:"content_b64"`
 		Cwd        string `json:"cwd"`
@@ -110,7 +111,7 @@ func (s *Server) webshellExecAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	res, err := cli.RoundTrip(b.Op, webshell.P{
-		Cmd: b.Cmd, Cwd: b.Cwd, Path: b.Path, Content: b.Content, B64Data: b.ContentB64,
+		Cmd: b.Cmd, Cwd: b.Cwd, Path: b.Path, NewPath: b.NewPath, Content: b.Content, B64Data: b.ContentB64,
 	})
 	if err != nil {
 		writeErr(w, 502, "webshell 调用失败: "+err.Error())
