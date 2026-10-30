@@ -69,3 +69,110 @@ func (t *ToolSet) kbSearchTool() actool.CoreTool {
 			return actool.Text(b.String()), nil
 		})
 }
+
+// ---- 字典中心工具（知识库二期）：沉淀 + 复用 ----
+
+// dictHooks server 注入的字典读写回调（解耦 agent 与 server 包）。
+var dictHooks struct {
+	add    func(kind, value, note string) error
+	query  func(kind, q string, limit int) ([]DictEntry, error)
+}
+
+// DictEntry 字典条目（agent 侧视图）。
+type DictEntry struct {
+	Kind     string `json:"kind"`
+	Value    string `json:"value"`
+	Note     string `json:"note"`
+	Context  string `json:"context"`
+	HitCount int    `json:"hit_count"`
+	LastStatus int `json:"last_status"`
+}
+
+// SetDictHooks server 启动时注入。
+func SetDictHooks(add func(kind, value, note string) error, query func(kind, q string, limit int) ([]DictEntry, error)) {
+	dictHooks.add = add
+	dictHooks.query = query
+}
+
+// dictAddTool 测试中沉淀字典：发现有效路径/可用凭据/敏感参数时记录，跨任务复用。
+func (t *ToolSet) dictAddTool() actool.CoreTool {
+	return writeTool("dict_add",
+		"把测试中验证有效的条目沉淀进字典中心（跨任务复用）。kind：path(Web 路径/目录/API 统一)/user(用户名)/pass(密码)/param(敏感参数名)/subdomain(子域)。使用场景：①发现未授权可访问的路径（如 /actuator/env）→ path；②拿到有效凭据（弱口令/默认口令/泄露凭据）→ user+pass；③发现敏感参数（debug/file/url 等可利用参数）→ param。",
+		obj(map[string]any{
+			"kind":  str("类别：path / user / pass / param / subdomain"),
+			"value": str("条目值（path 类不带前导斜杠更佳，自动规整）"),
+			"note":  str("可选：一句话说明（如：nacos 默认口令，2024 常见）"),
+		}, "kind", "value"),
+		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
+			var a struct {
+				Kind  string `json:"kind"`
+				Value string `json:"value"`
+				Note  string `json:"note"`
+			}
+			if err := json.Unmarshal(in, &a); err != nil {
+				return actool.Errorf("参数解析失败: " + err.Error()), nil
+			}
+			if dictHooks.add == nil {
+				return actool.Errorf("字典中心不可用（未接通）"), nil
+			}
+			if err := dictHooks.add(a.Kind, a.Value, a.Note); err != nil {
+				return actool.Errorf("沉淀失败: " + err.Error()), nil
+			}
+			return actool.Text("✅ 已沉淀到字典中心（" + a.Kind + "）：" + a.Value), nil
+		})
+}
+
+// dictQueryTool 查询字典：拿候选路径去测 / 拿用户名密码候选做登录尝试。
+func (t *ToolSet) dictQueryTool() actool.CoreTool {
+	return readTool("dict_query",
+		"查询字典中心（跨任务沉淀 + 内置种子）。kind：path(路径/目录/API)/user/pass/param/subdomain；q 可选模糊过滤。使用场景：①指纹识别后查相关路径（q=nacos）逐个验证；②登录点测试前查 user/pass 字典组合候选（配合 repeater_send 或自行构造请求）；③Fuzz 参数名时取 param 候选。返回按历史命中次数降序。",
+		obj(map[string]any{
+			"kind":  str("类别：path / user / pass / param / subdomain"),
+			"q":     str("可选：模糊过滤（值/说明/上下文）"),
+			"limit": intp("返回条数，默认 30，最大 100"),
+		}, "kind"),
+		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
+			var a struct {
+				Kind  string `json:"kind"`
+				Q     string `json:"q"`
+				Limit int    `json:"limit"`
+			}
+			if err := json.Unmarshal(in, &a); err != nil {
+				return actool.Errorf("参数解析失败: " + err.Error()), nil
+			}
+			if dictHooks.query == nil {
+				return actool.Errorf("字典中心不可用（未接通）"), nil
+			}
+			if a.Limit <= 0 || a.Limit > 100 {
+				a.Limit = 30
+			}
+			entries, err := dictHooks.query(a.Kind, a.Q, a.Limit)
+			if err != nil {
+				return actool.Errorf("查询失败: " + err.Error()), nil
+			}
+			if len(entries) == 0 {
+				return actool.Text("字典中心该类别暂无匹配（kind=" + a.Kind + " q=" + a.Q + "）。"), nil
+			}
+			var b strings.Builder
+			fmt.Fprintf(&b, "字典 %s 命中 %d 条（按历史命中降序）：\n", a.Kind, len(entries))
+			for i, e := range entries {
+				v := e.Value
+				if a.Kind == "path" {
+					v = "/" + strings.TrimLeft(v, "/")
+				}
+				fmt.Fprintf(&b, "%d. %s", i+1, v)
+				if e.HitCount > 1 {
+					fmt.Fprintf(&b, "（命中 %d 次", e.HitCount)
+					if e.LastStatus > 0 {
+						fmt.Fprintf(&b, "，最近 %d", e.LastStatus)
+					}
+					b.WriteString("）")
+				}
+				if e.Note != "" {
+					b.WriteString("  — " + e.Note)
+				}
+				b.WriteByte('\n')
+			}
+			return actool.Text(b.String()), nil
+		})
+}

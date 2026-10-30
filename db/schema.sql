@@ -1665,3 +1665,22 @@ CREATE TABLE IF NOT EXISTS kb_chunks (
     bow JSONB NOT NULL DEFAULT '{}',
     UNIQUE (task_id, seq)
 );
+
+-- 字典中心（2026-10-30 二期）：目录/API 路径、用户名、密码、参数名、子域的沉淀复用。
+-- 三路沉淀：任务蒸馏自动提取 / dirscan 命中回灌 / agent dict_add 手动记录；
+-- 两路复用：dirscan 默认联用字典、agent dict_query 查询；可导出 txt 供外部工具。
+CREATE TABLE IF NOT EXISTS dict_entries (
+    id BIGSERIAL PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('path','user','pass','param','subdomain')),
+    value TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    context TEXT NOT NULL DEFAULT '',        -- 出现的宿主/目标（host 或 base_url）
+    source TEXT NOT NULL DEFAULT 'builtin',  -- builtin/task/dirscan/manual
+    task_id BIGINT,
+    hit_count INTEGER NOT NULL DEFAULT 0,
+    last_status INTEGER NOT NULL DEFAULT 0,   -- dir/api：最近一次探测状态码
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (kind, value)
+);
+CREATE INDEX IF NOT EXISTS idx_dict_kind ON dict_entries(kind, updated_at DESC);

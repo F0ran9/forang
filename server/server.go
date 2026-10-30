@@ -195,6 +195,42 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		}
 		return hits, total, err
 	})
+	agent.SetDictHooks(
+		func(kind, value, note string) error {
+			if !validDictKind(kind) {
+				return fmt.Errorf("kind 非法: %s", kind)
+			}
+			s.dictAdd(kind, value, note, "", "manual", 0, 0)
+			return nil
+		},
+		func(kind, q string, limit int) ([]agent.DictEntry, error) {
+			if !validDictKind(kind) {
+				return nil, fmt.Errorf("kind 非法: %s", kind)
+			}
+			if limit <= 0 || limit > 100 {
+				limit = 30
+			}
+			where := "kind = $1"
+			args := []any{kind}
+			if q != "" {
+				args = append(args, "%"+q+"%")
+				where += " AND (value ILIKE $2 OR note ILIKE $2 OR context ILIKE $2)"
+			}
+			rows, err := s.m.PG().Query("SELECT kind, value, COALESCE(note,''), COALESCE(context,''), hit_count, last_status FROM dict_entries WHERE "+where+" ORDER BY hit_count DESC, updated_at DESC LIMIT "+itoa(limit), args...)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			var out []agent.DictEntry
+			for rows.Next() {
+				var e agent.DictEntry
+				if rows.Scan(&e.Kind, &e.Value, &e.Note, &e.Context, &e.HitCount, &e.LastStatus) == nil {
+					out = append(out, e)
+				}
+			}
+			return out, nil
+		})
+	s.seedDictBuiltins()          // 字典种子（幂等，只补缺失）
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。
 	s.applyRetryPolicy()
@@ -823,6 +859,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/kb/summaries/{task_id}", s.kbSummaryDetail)
 	mux.HandleFunc("POST /api/kb/summaries/{task_id}/regenerate", s.kbRegenerate)
 	mux.HandleFunc("GET /api/kb/search", s.kbSearchAPI)
+	mux.HandleFunc("GET /api/kb/dicts", s.dictList) // 字典中心（知识库二期）
+	mux.HandleFunc("POST /api/kb/dicts", s.dictCreate)
+	mux.HandleFunc("DELETE /api/kb/dicts/{id}", s.dictDelete)
+	mux.HandleFunc("GET /api/kb/dicts/export", s.dictExport)
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
 	mux.HandleFunc("GET /api/exploration/findings/asset-tree", s.findingAssetTree)

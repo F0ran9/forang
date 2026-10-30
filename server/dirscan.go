@@ -53,6 +53,7 @@ func (s *Server) dirScanStart(w http.ResponseWriter, r *http.Request) {
 		Wordlist    string `json:"wordlist"`
 		Extensions  string `json:"extensions"`
 		TimeoutSec  int    `json:"timeout_sec"`
+		UseDict     *bool  `json:"use_dict"` // 默认 true：联用知识库路径字典（沉淀复用）
 	}
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
@@ -80,7 +81,25 @@ func (s *Server) dirScanStart(w http.ResponseWriter, r *http.Request) {
 	}
 	custom := len(words) > 0
 	if !custom {
-		words = dirWordlist
+		// 联用知识库路径字典（目录/API 统一 kind=path，历史命中多的排前），叠加内置种子
+		if b.UseDict == nil || *b.UseDict {
+			seen := map[string]bool{}
+			for _, d := range s.dictWordlistForScan(2000) {
+				d = strings.Trim(strings.TrimSpace(d), "/")
+				if d != "" && !seen[d] {
+					seen[d] = true
+					words = append(words, d)
+				}
+			}
+			for _, d := range dirWordlist {
+				if !seen[d] {
+					seen[d] = true
+					words = append(words, d)
+				}
+			}
+		} else {
+			words = dirWordlist
+		}
 	}
 	exts := []string{""}
 	if e := strings.TrimSpace(b.Extensions); e != "" {
@@ -104,6 +123,7 @@ func (s *Server) dirScanStart(w http.ResponseWriter, r *http.Request) {
 	params, _ := json.Marshal(map[string]any{
 		"base_url": base, "word_count": len(paths), "custom_dict": custom,
 		"extensions": b.Extensions, "timeout_sec": b.TimeoutSec,
+		"use_dict": b.UseDict == nil || *b.UseDict,
 	})
 	var jobID int64
 	if err := s.m.PG().QueryRow(
@@ -203,6 +223,16 @@ func (s *Server) runDirScan(jobID int64, base string, paths map[string]bool, tim
 	}
 	wg.Wait()
 	save()
+	// 命中回灌知识库路径字典（目录/API 统一，下次扫描直接联用）
+	host := ""
+	if u, err := url.Parse(base); err == nil {
+		host = u.Host
+	}
+	mu.Lock()
+	for _, h := range f.Hits {
+		s.dictRecordHit(h.Path, h.Status, host)
+	}
+	mu.Unlock()
 	_, _ = db.Exec("UPDATE scan_jobs SET status='done', updated_at=now() WHERE id=$1", jobID)
 }
 

@@ -675,6 +675,7 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 	tools = append(tools, t.webshellGen(), t.webshellExec()) // webshell 生成/连接（移植自 AI-PENTEST）
 	tools = append(tools, t.c2Tools()...) // C2 指挥（对接 goc2-server 管理 API）
 	tools = append(tools, t.kbSearchTool()) // 知识库检索（跨任务经验复用）
+	tools = append(tools, t.dictAddTool(), t.dictQueryTool()) // 字典中心：沉淀 + 查询
 	return tools
 }
 
@@ -711,6 +712,7 @@ func (t *ToolSet) MainAgentTools() []actool.CoreTool {
 	tools = append(tools, t.webshellGen(), t.webshellExec()) // webshell 生成/连接（移植自 AI-PENTEST）
 	tools = append(tools, t.c2Tools()...) // C2 指挥（对接 goc2-server 管理 API）
 	tools = append(tools, t.kbSearchTool()) // 知识库检索（跨任务经验复用）
+	tools = append(tools, t.dictAddTool(), t.dictQueryTool()) // 字典中心：沉淀 + 查询
 	return tools
 }
 

@@ -14,6 +14,7 @@ import (
 	"hash/crc32"
 	"log"
 	"math"
+	"net/url"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -91,7 +92,7 @@ type kbTaskInfo struct {
 	Status string
 }
 
-// kbFinding 蒸馏数据源里的一条漏洞。
+// kbFinding 蒸馏数据源里的一条漏洞。Target 字段承载原始请求包（packet 列）。
 type kbFinding struct {
 	Vulnclass, Summary, Severity, Target, Evidence string
 	Cvss                                         float64
@@ -129,10 +130,11 @@ func (s *Server) distillTask(taskID int64, source string) {
 	}
 	t.Goal, t.Descr = goal.String, descr.String
 
-	// findings（按 task_id，severity 排序）
+	// findings（按 task_id，severity 排序）。目标列不存在——目标上下文由 task.Descr 提供。
 	finds := []kbFinding{}
-	frows, err := db.Query(`SELECT COALESCE(vulnclass,''), COALESCE(summary,''), COALESCE(severity,''),
-		COALESCE(target,''), COALESCE(evidence,''), COALESCE(cvss,0) FROM findings WHERE task_id=$1
+	frows, err := db.Query(`SELECT COALESCE(vulnclass,''), COALESCE(CASE WHEN name <> '' THEN name ELSE summary END,''),
+		COALESCE(severity,''), COALESCE(packet,''), COALESCE(evidence,''), COALESCE(cvss,0)
+		FROM findings WHERE task_id=$1
 		ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2
 		WHEN 'low' THEN 3 ELSE 4 END, created_at DESC LIMIT 60`, taskID)
 	if err == nil {
@@ -145,10 +147,12 @@ func (s *Server) distillTask(taskID int64, source string) {
 		frows.Close()
 	}
 
-	// facts（探索图 kind='fact' 节点正文摘要 = 测试记忆）
+	// facts（探索图 kind='fact' 节点 payload.summary+detail = 测试记忆）
 	facts := []string{}
 	factRows, err := db.Query(`
-SELECT en.body FROM exploration_nodes en
+SELECT COALESCE(en.payload->>'summary','') || CASE WHEN COALESCE(en.payload->>'detail','') <> ''
+	THEN ' — ' || en.payload->>'detail' ELSE '' END
+FROM exploration_nodes en
 JOIN tasks t ON t.exploration_id = en.exploration_id
 WHERE t.id = $1 AND en.kind='fact' ORDER BY en.id DESC LIMIT 50`, taskID)
 	if err == nil {
@@ -161,10 +165,11 @@ WHERE t.id = $1 AND en.kind='fact' ORDER BY en.id DESC LIMIT 50`, taskID)
 		factRows.Close()
 	}
 
-	// worker 意图清单（任务做了什么）
+	// worker 意图清单（任务做了什么）：intent payload 的 summary/goal 文本
 	intents := []string{}
 	irows, err := db.Query(`
-SELECT en.body FROM exploration_nodes en
+SELECT COALESCE(en.payload->>'summary', COALESCE(en.payload->>'goal', en.payload->>'text', ''))
+FROM exploration_nodes en
 JOIN tasks t ON t.exploration_id = en.exploration_id
 WHERE t.id = $1 AND en.kind='intent' ORDER BY en.id LIMIT 30`, taskID)
 	if err == nil {
@@ -235,6 +240,18 @@ WHERE t.id = $1 AND en.kind='intent' ORDER BY en.id LIMIT 30`, taskID)
 		status = "failed"
 		errMsg = truncateStr(derr.Error(), 4000)
 	}
+
+	// ---- 字典沉淀（知识库二期）：findings 证据/facts 里的路径、凭据、参数名 ----
+	host := ""
+	if u, err := url.Parse(strings.TrimSpace(t.Descr)); err == nil && u.Host != "" {
+		host = u.Host
+	}
+	texts := make([]string, 0, len(finds)+len(facts))
+	for _, f := range finds {
+		texts = append(texts, f.Target, f.Evidence, f.Summary)
+	}
+	texts = append(texts, facts...)
+	s.dictExtractTexts(taskID, host, texts)
 
 	// ---- UPSERT + 切块索引 ----
 	_, _ = db.Exec(`INSERT INTO kb_summaries (task_id, title, task_status, status, source, model,

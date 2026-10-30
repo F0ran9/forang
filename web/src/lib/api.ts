@@ -1278,6 +1278,13 @@ export const api = {
   kbSearch: (q: string, topK = 5) =>
     get<{ data: { task_id: number; title: string; score: number; text: string }[]; total_chunks: number }>(
       `/kb/search?${new URLSearchParams({ q, top_k: String(topK) }).toString()}`),
+  kbDicts: (kind?: string, q?: string, source?: string) =>
+    get<{ data: DictEntry[]; counts: Record<string, number> }>(
+      `/kb/dicts?${new URLSearchParams({ ...(kind ? { kind } : {}), ...(q ? { q } : {}), ...(source ? { source } : {}) }).toString()}`),
+  kbDictCreate: (payload: { kind: string; values: string; note?: string }) =>
+    post<{ ok: boolean; added: number }>("/kb/dicts", payload),
+  kbDictDelete: (id: number) => del<{ ok: boolean }>(`/kb/dicts/${id}`),
+  kbDictExportUrl: (kind: string) => `/api/kb/dicts/export?kind=${kind}`,
   // ---- 漏洞中台报告导出 ----
   reportDocxUrl: (taskId: string) => `/api/tasks/${taskId}/report/docx`,
   reportMdUrl: (taskId: string) => `/api/tasks/${taskId}/report/markdown`,
@@ -1452,4 +1459,16 @@ export interface KBSummary {
 export interface KBSummaryDetail extends KBSummary {
   summary_md: string;
   error: string;
+}
+export interface DictEntry {
+  id: number;
+  kind: string;
+  value: string;
+  note: string;
+  context: string;
+  source: string;
+  task_id: number | null;
+  hit_count: number;
+  last_status: number;
+  updated_at: string;
 }
