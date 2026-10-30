@@ -1285,6 +1285,21 @@ export const api = {
     post<{ ok: boolean; added: number }>("/kb/dicts", payload),
   kbDictDelete: (id: number) => del<{ ok: boolean }>(`/kb/dicts/${id}`),
   kbDictExportUrl: (kind: string) => `/api/kb/dicts/export?kind=${kind}`,
+  // ---- Webshell 控制台 / C2 指挥台（UI 直连）----
+  webshellGenerate: (payload: { script_type: string; encoder: string; password: string; filename?: string }) =>
+    post<{ data: { path: string; filename: string; code: string; size: number } }>("/tools/webshell/generate", payload),
+  webshellExec: (payload: { url: string; password: string; encoder: string; script_type: string; op: string; cmd?: string; path?: string; content?: string; cwd?: string; timeout?: number }) =>
+    post<{ data: { ok: boolean; output: string; cwd: string; error: string; data_len: number } }>("/tools/webshell/exec", payload),
+  c2Status: () => get<{ data: { url: string; token_masked: string; reachable: boolean; beacons: number; error: string } }>("/tools/c2/status"),
+  c2Clients: () => get<{ data: Record<string, unknown>[] }>("/tools/c2/clients"),
+  c2Exec: (sessionId: string, cmd: string) =>
+    post<{ data: { task_id: string } }>("/tools/c2/exec", { session_id: sessionId, cmd }),
+  c2Tasks: (sessionId: string, taskId?: string) =>
+    get<{ data: Record<string, unknown>[] }>(`/tools/c2/tasks?${new URLSearchParams({ session_id: sessionId, ...(taskId ? { task_id: taskId } : {}) }).toString()}`),
+  c2Listeners: () => get<{ data: Record<string, unknown>[] }>("/tools/c2/listeners"),
+  c2SettingsGet: () => get<{ url: string; token_masked: string }>("/settings/c2"),
+  c2SettingsSet: (payload: { url?: string; token?: string }) =>
+    post<{ ok: boolean; status: string }>("/settings/c2", payload),
   // ---- 漏洞中台报告导出 ----
   reportDocxUrl: (taskId: string) => `/api/tasks/${taskId}/report/docx`,
   reportMdUrl: (taskId: string) => `/api/tasks/${taskId}/report/markdown`,

@@ -863,6 +863,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/kb/dicts", s.dictCreate)
 	mux.HandleFunc("DELETE /api/kb/dicts/{id}", s.dictDelete)
 	mux.HandleFunc("GET /api/kb/dicts/export", s.dictExport)
+	mux.HandleFunc("POST /api/tools/webshell/generate", s.webshellGenerateAPI) // Webshell 控制台（UI）
+	mux.HandleFunc("POST /api/tools/webshell/exec", s.webshellExecAPI)
+	mux.HandleFunc("GET /api/tools/c2/status", s.c2StatusAPI) // C2 指挥台（UI）
+	mux.HandleFunc("GET /api/tools/c2/clients", s.c2ClientsAPI)
+	mux.HandleFunc("POST /api/tools/c2/exec", s.c2ExecAPI)
+	mux.HandleFunc("GET /api/tools/c2/tasks", s.c2TasksAPI)
+	mux.HandleFunc("GET /api/tools/c2/listeners", s.c2ListenersAPI)
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
 	mux.HandleFunc("GET /api/exploration/findings/asset-tree", s.findingAssetTree)
