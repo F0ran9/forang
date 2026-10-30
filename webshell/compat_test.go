@@ -171,3 +171,32 @@ func TestEvasiveTemplates(t *testing.T) {
 		t.Fatal("未开启 evasive 应为原版模板")
 	}
 }
+
+func TestEvasiveDeepAndSelfCheck(t *testing.T) {
+	// 深度级：特征零泄露 + include 链仍在 + 垃圾膨胀生效
+	code, err := GenerateShellEvasive("php", "aes", "pw", GateOpts{}, EvasiveOpts{Enabled: true, Level: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := SelfCheck("php", code)
+	if !sc["passed"].(bool) {
+		leaked := sc["leaked"]
+		t.Fatalf("深度级特征泄露: %v", leaked)
+	}
+	if !strings.Contains(code, "include(") {
+		t.Fatal("深度级缺 include 链")
+	}
+	if !strings.Contains(code, "stream_get_contents") {
+		t.Fatal("深度级缺等价 API 替换")
+	}
+	if len(code) < 600 {
+		t.Fatalf("深度级应明显膨胀: %d", len(code))
+	}
+	// 普通版（无免杀）应检出特征（自检器有效性）
+	base, _ := GenerateShell("php", "aes", "pw")
+	scBase := SelfCheck("php", base)
+	if scBase["passed"].(bool) {
+		t.Fatal("自检器失效：普通版应命中特征")
+	}
+	// 深度版仍可用（真链回归在靶场）
+}

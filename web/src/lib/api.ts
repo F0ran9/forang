@@ -1290,8 +1290,8 @@ export const api = {
     post<{ data: { ok: boolean; output: string; cwd: string; error: string; data_len: number; data_b64?: string } }>("/tools/webshell/exec", payload),
   webshellExt: (payload: { url: string; password: string; encoder: string; script_type: string; op: string; headers?: string; timeout?: number; ext: Record<string, unknown> }) =>
     post<{ data: { ok: boolean; output: string; error: string; data_len: number; data_b64?: string } }>("/tools/webshell/ext", payload),
-  wsGenerate: (payload: { script_type: string; encoder: string; password: string; filename?: string; gate_header?: string; gate_value?: string; evasive?: boolean }) =>
-    post<{ data: { path: string; filename: string; code: string; size: number } }>("/tools/webshell/generate", payload),
+  wsGenerate: (payload: { script_type: string; encoder: string; password: string; filename?: string; gate_header?: string; gate_value?: string; evasive?: boolean; evasive_level?: number }) =>
+    post<{ data: { path: string; filename: string; code: string; size: number; self_check?: { script_type: string; checked: number; leaked: { name: string }[]; passed: boolean } } }>("/tools/webshell/generate", payload),
   wsTargets: (q?: string) =>
     get<{ data: WSTarget[] }>(`/tools/webshell/targets${q ? "?" + new URLSearchParams({ q }).toString() : ""}`),
   wsTargetSave: (payload: Partial<WSTarget>) => post<{ ok: boolean; id: number }>("/tools/webshell/targets", payload),

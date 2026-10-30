@@ -27,7 +27,8 @@ func (s *Server) webshellGenerateAPI(w http.ResponseWriter, r *http.Request) {
 		GateHeader string `json:"gate_header"`
 		GateValue  string `json:"gate_value"`
 	
-		Evasive    bool   `json:"evasive"` }
+		Evasive    bool   `json:"evasive"`
+		EvasiveLevel int  `json:"evasive_level"` }
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
 		return
@@ -41,7 +42,7 @@ func (s *Server) webshellGenerateAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	code, err := webshell.GenerateShellEvasive(b.ScriptType, b.Encoder, b.Password, webshell.GateOpts{
 		Header: b.GateHeader, Value: b.GateValue,
-	}, webshell.EvasiveOpts{Enabled: b.Evasive})
+	}, webshell.EvasiveOpts{Enabled: b.Evasive, Level: b.EvasiveLevel})
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -61,6 +62,7 @@ func (s *Server) webshellGenerateAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"data": map[string]any{
 		"path": p, "filename": name, "code": code, "size": len(code),
 		"script_type": b.ScriptType, "encoder": b.Encoder,
+		"self_check": webshell.SelfCheck(b.ScriptType, code),
 	}})
 }
 
