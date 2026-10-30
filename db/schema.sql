@@ -1702,3 +1702,13 @@ CREATE TABLE IF NOT EXISTS webshell_targets (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_ws_targets_group ON webshell_targets(group_name, id DESC);
+
+-- C2 插件（CS 后渗透动作库）：内置（builtin）+ 用户自定义。
+CREATE TABLE IF NOT EXISTS c2_plugins (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    commands JSONB NOT NULL DEFAULT '[]',   -- ["cmd1","cmd2"]（≤10 条）
+    builtin BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

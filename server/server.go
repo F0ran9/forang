@@ -231,6 +231,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 			return out, nil
 		})
 	s.seedDictBuiltins()          // 字典种子（幂等，只补缺失）
+	s.seedC2Plugins()             // C2 内置插件种子（幂等）
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。
 	s.applyRetryPolicy()
@@ -878,6 +879,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/tools/c2/clients/{id}/notes", s.c2NotesAPI) // CS 风格会话备注
 	mux.HandleFunc("POST /api/tools/c2/task", s.c2TaskAPI) // CS 通用任务（download/upload/sleep/…）
 	mux.HandleFunc("DELETE /api/tools/c2/clients/{id}", s.c2RemoveAPI) // CS Remove 下线
+	mux.HandleFunc("GET /api/tools/mumu/status", s.mumuStatus) // MuMu 一键启动（agent 在物理机）
+	mux.HandleFunc("POST /api/tools/mumu/launch", s.mumuLaunch)
+	mux.HandleFunc("POST /api/tools/mumu/connect", s.mumuConnect)
+	mux.HandleFunc("GET /api/tools/mumu/config", s.mumuConfigGet)
+	mux.HandleFunc("GET /api/tools/c2/plugins", s.c2PluginsList) // C2 插件（后渗透动作库）
+	mux.HandleFunc("POST /api/tools/c2/plugins", s.c2PluginsCreate)
+	mux.HandleFunc("DELETE /api/tools/c2/plugins/{id}", s.c2PluginsDelete)
+	mux.HandleFunc("POST /api/tools/c2/plugin/run", s.c2PluginRun)
+	mux.HandleFunc("POST /api/tools/mumu/config", s.mumuConfigSet)
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
 	mux.HandleFunc("GET /api/exploration/findings/asset-tree", s.findingAssetTree)

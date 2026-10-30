@@ -1290,7 +1290,7 @@ export const api = {
     post<{ data: { ok: boolean; output: string; cwd: string; error: string; data_len: number; data_b64?: string } }>("/tools/webshell/exec", payload),
   webshellExt: (payload: { url: string; password: string; encoder: string; script_type: string; op: string; headers?: string; timeout?: number; ext: Record<string, unknown> }) =>
     post<{ data: { ok: boolean; output: string; error: string; data_len: number; data_b64?: string } }>("/tools/webshell/ext", payload),
-  wsGenerate: (payload: { script_type: string; encoder: string; password: string; filename?: string; gate_header?: string; gate_value?: string }) =>
+  wsGenerate: (payload: { script_type: string; encoder: string; password: string; filename?: string; gate_header?: string; gate_value?: string; evasive?: boolean }) =>
     post<{ data: { path: string; filename: string; code: string; size: number } }>("/tools/webshell/generate", payload),
   wsTargets: (q?: string) =>
     get<{ data: WSTarget[] }>(`/tools/webshell/targets${q ? "?" + new URLSearchParams({ q }).toString() : ""}`),
@@ -1304,9 +1304,22 @@ export const api = {
   c2Tasks: (sessionId: string, taskId?: string) =>
     get<{ data: Record<string, unknown>[] }>(`/tools/c2/tasks?${new URLSearchParams({ session_id: sessionId, ...(taskId ? { task_id: taskId } : {}) }).toString()}`),
   c2Listeners: () => get<{ data: Record<string, unknown>[] }>("/tools/c2/listeners"),
+  c2Plugins: () => get<{ data: { id: number; name: string; description: string; commands: string[]; builtin: boolean }[] }>("/tools/c2/plugins"),
+  c2PluginCreate: (payload: { name: string; description?: string; commands: string[] }) =>
+    post<{ ok: boolean; id: number }>("/tools/c2/plugins", payload),
+  c2PluginDelete: (id: number) => del<{ ok: boolean }>(`/tools/c2/plugins/${id}`),
+  c2PluginRun: (sessionId: string, pluginId: number) =>
+    post<{ data: { plugin: string; steps: { cmd: string; output: string; error?: string; ms: number }[] } }>("/tools/c2/plugin/run", { session_id: sessionId, plugin_id: pluginId }),
   c2Task: (sessionId: string, type: string, args: Record<string, unknown>) =>
     post<{ data: { task_id: string } }>("/tools/c2/task", { session_id: sessionId, type, args }),
   c2Remove: (id: string) => del<{ ok: boolean }>(`/tools/c2/clients/${id}`),
+  // ---- MuMu 一键启动 ----
+  mumuStatus: () => get<{ data: { agent_online?: boolean; android_started?: boolean; process_started?: boolean; launch_path?: string; manager?: string; error?: string } }>("/tools/mumu/status"),
+  mumuLaunch: () => post<{ data: { launch?: Record<string, unknown>; adb?: Record<string, unknown> } }>("/tools/mumu/launch", {}),
+  mumuConnect: () => post<{ data: Record<string, unknown> }>("/tools/mumu/connect", {}),
+  mumuConfig: () => get<{ agent_url?: string; token_masked?: string; launch_path?: string }>("/tools/mumu/config"),
+  mumuConfigSet: (payload: { launch_path?: string; agent_url?: string; token?: string }) =>
+    post<{ ok: boolean }>("/tools/mumu/config", payload),
   c2SettingsGet: () => get<{ url: string; token_masked: string }>("/settings/c2"),
   c2SettingsSet: (payload: { url?: string; token?: string }) =>
     post<{ ok: boolean; status: string }>("/settings/c2", payload),

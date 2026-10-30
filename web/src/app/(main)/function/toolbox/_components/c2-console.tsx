@@ -13,8 +13,9 @@ import { api } from "@/lib/api";
 import {
   RefreshCw, SettingsIcon, PencilIcon, XIcon, ZapIcon,
   TerminalIcon, FolderIcon, CpuIcon, NetworkIcon, TrashIcon,
-  FolderUpIcon, FolderDownIcon, FolderPlusIcon,
+  FolderUpIcon, FolderDownIcon, FolderPlusIcon, PuzzleIcon,
 } from "lucide-react";
+import C2PluginsPanel from "./c2-plugins";
 
 interface BeaconRow {
   id: string;
@@ -31,7 +32,7 @@ interface BeaconRow {
   integrityLevel?: string;
 }
 
-type Panel = "interact" | "files" | "process" | "network";
+type Panel = "interact" | "files" | "process" | "network" | "plugins";
 
 // useTask 下发任务并轮询到 output（600ms 轮询，默认 15s 兜底）。
 function useTask(beaconId: string) {
@@ -247,6 +248,7 @@ function SessionPanel({ beacon, panel, setPanel, onClose, onRefresh }: {
     { key: "files", label: "Files", icon: <FolderIcon className="size-3.5" /> },
     { key: "process", label: "Process", icon: <CpuIcon className="size-3.5" /> },
     { key: "network", label: "Network", icon: <NetworkIcon className="size-3.5" /> },
+    { key: "plugins", label: "Plugins", icon: <PuzzleIcon className="size-3.5" /> },
   ];
   return (
     <div className="flex h-72 flex-col border-t border-zinc-700 bg-black">
@@ -266,6 +268,7 @@ function SessionPanel({ beacon, panel, setPanel, onClose, onRefresh }: {
         {panel === "files" && <FilesPanel beacon={beacon} />}
         {panel === "process" && <ProcessPanel beacon={beacon} />}
         {panel === "network" && <NetworkPanel beacon={beacon} />}
+        {panel === "plugins" && <C2PluginsPanel beaconId={beacon.id} />}
       </div>
     </div>
   );

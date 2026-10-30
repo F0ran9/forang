@@ -9,9 +9,10 @@ import { Input } from "@/components/ui/input";
 import { api, type RepHistoryItem, type ScanJob } from "@/lib/api";
 import {
   CameraIcon, HammerIcon, PlayIcon, SquareIcon, WandIcon, StarIcon, TrashIcon,
-  RadarIcon, FolderSearchIcon, ChefHatIcon, TerminalIcon, ShieldIcon,
+  RadarIcon, FolderSearchIcon, ChefHatIcon, TerminalIcon, ShieldIcon, SmartphoneIcon,
 } from "lucide-react";
 import WebshellConsole from "./_components/webshell-console";
+import MumuPanel from "./_components/mumu-panel";
 import C2Console from "./_components/c2-console";
 
 interface Hop {
@@ -89,7 +90,7 @@ function hlResponse(text: string): string {
 const defaultRaw =
   "GET / HTTP/1.1\nHost: example.com\nUser-Agent: FORANG-Repeater\nAccept: */*\nConnection: close";
 
-type Tab = "repeater" | "cyberchef" | "portscan" | "dirscan" | "webshell" | "c2";
+type Tab = "repeater" | "cyberchef" | "portscan" | "dirscan" | "webshell" | "c2" | "mumu";
 
 export default function ToolboxPage() {
   const [tab, setTab] = React.useState<Tab>("repeater");
@@ -100,6 +101,7 @@ export default function ToolboxPage() {
     { key: "dirscan", label: "目录扫描", icon: <FolderSearchIcon className="size-4" /> },
     { key: "webshell", label: "Webshell", icon: <ShieldIcon className="size-4" /> },
     { key: "c2", label: "C2 指挥", icon: <TerminalIcon className="size-4" /> },
+    { key: "mumu", label: "MuMu 模拟器", icon: <SmartphoneIcon className="size-4" /> },
   ];
   return (
     <div className="space-y-4 p-4">
@@ -126,6 +128,7 @@ export default function ToolboxPage() {
       {tab === "dirscan" && <DirScanTab />}
       {tab === "webshell" && <WebshellConsole />}
       {tab === "c2" && <C2Console />}
+      {tab === "mumu" && <MumuPanel />}
     </div>
   );
 }
