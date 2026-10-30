@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Autumn-27/artex/repeater"
 )
@@ -123,6 +124,9 @@ func (s *Server) startRepJob(kind string, body map[string]any) string {
 		if j.Ctx.Err() == context.Canceled {
 			return
 		}
+		// 二进制响应体改写为 hex 预览（移植自 AI-PENTEST：避免 JSON 序列化把非法
+		// UTF-8 打成 U+FFFD 后前端显示乱码）。[]byte(s) 无损取回原始字节。
+		repSanitizeBodies(res)
 		if kind == "send" {
 			j.mu.Lock()
 			j.Result = res
@@ -243,4 +247,56 @@ func (s *Server) repeaterStop(w http.ResponseWriter, r *http.Request) {
 	}
 	j.mu.Unlock()
 	writeJSON(w, 200, map[string]any{"ok": true, "state": "stopped"})
+}
+
+// repSanitizeBodies 把结果里的二进制响应体改写为 hex 预览文本（每跳 + 最终跳）。
+// 判定：非法 UTF-8 或不可打印控制字符占比 > 8%。
+func repSanitizeBodies(res *repeater.Result) {
+	if res == nil {
+		return
+	}
+	for i := range res.Hops {
+		res.Hops[i].Body = repHexIfBinary(res.Hops[i].Body)
+	}
+	res.Final.Body = repHexIfBinary(res.Final.Body)
+}
+
+func repHexIfBinary(b string) string {
+	if b == "" || isMostlyText(b) {
+		return b
+	}
+	raw := []byte(b)
+	sample := raw
+	if len(sample) > 512 {
+		sample = sample[:512]
+	}
+	const hexDigits = "0123456789abcdef"
+	hexBuf := make([]byte, 0, len(sample)*3)
+	for i, c := range sample {
+		if i > 0 {
+			hexBuf = append(hexBuf, ' ')
+		}
+		hexBuf = append(hexBuf, hexDigits[c>>4], hexDigits[c&0xf])
+	}
+	return fmt.Sprintf("(binary content, %d bytes total)\n\nHex preview (first %d bytes):\n%s",
+		len(raw), len(sample), string(hexBuf))
+}
+
+func isMostlyText(s string) bool {
+	bad := 0
+	total := len(s)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c < 0x20 && c != '\n' && c != '\r' && c != '\t' {
+			bad++
+		}
+	}
+	if total == 0 {
+		return true
+	}
+	// 非法 UTF-8：utf8.ValidString 判整体；控制字符按占比
+	if !utf8.ValidString(s) && float64(bad)/float64(total) > 0.02 {
+		return false
+	}
+	return float64(bad)/float64(total) <= 0.08
 }

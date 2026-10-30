@@ -1250,6 +1250,25 @@ export const api = {
   repeaterJob: (id: string) =>
     get<{ job_id: string; state: string; kind: string; result?: RepeaterResult; png?: string; html?: string; size?: number; error?: string }>(`/tools/repeater/job/${id}`),
   repeaterStop: (id: string) => post<{ ok: boolean; state: string }>("/tools/repeater/stop", { job_id: id }),
+  // ---- 工具箱（Repeater 历史，移植自 AI-PENTEST）----
+  repHistoryList: (q?: string, starred?: boolean) =>
+    get<{ data: RepHistoryItem[] }>(`/tools/repeater/history${q || starred ? "?" + new URLSearchParams({ ...(q ? { q } : {}), ...(starred ? { starred: "1" } : {}) }).toString() : ""}`),
+  repHistoryCreate: (payload: { title: string; raw: string; follow_redirect: boolean; force_https: boolean; max_body_kb: number; timeout_sec: number }) =>
+    post<{ data: { id: number } }>("/tools/repeater/history", payload),
+  repHistoryUpdate: (id: number, payload: Partial<{ title: string; raw: string; follow_redirect: boolean; force_https: boolean; max_body_kb: number; timeout_sec: number }>) =>
+    put<{ ok: boolean }>(`/tools/repeater/history/${id}`, payload),
+  repHistoryDelete: (id: number) => del<{ ok: boolean }>(`/tools/repeater/history/${id}`),
+  repHistoryStar: (id: number, starred: boolean) =>
+    post<{ ok: boolean }>(`/tools/repeater/history/${id}/star`, { starred }),
+  // ---- 工具箱（端口/目录扫描，移植自 AI-PENTEST scan_tools）----
+  portScanStart: (payload: { targets: string; ports?: string; timeout_sec?: number }) =>
+    post<{ data: { job_id: number; hosts: number; ports: number } }>("/tools/portscan", payload),
+  portScanList: () => get<{ data: ScanJob[] }>("/tools/portscan"),
+  portScanDetail: (id: number) => get<{ data: ScanJob }>(`/tools/portscan/${id}`),
+  dirScanStart: (payload: { base_url: string; wordlist?: string; extensions?: string; timeout_sec?: number }) =>
+    post<{ data: { job_id: number; paths: number } }>("/tools/dirscan", payload),
+  dirScanList: () => get<{ data: ScanJob[] }>("/tools/dirscan"),
+  dirScanDetail: (id: number) => get<{ data: ScanJob }>(`/tools/dirscan/${id}`),
   // ---- 漏洞中台报告导出 ----
   reportDocxUrl: (taskId: string) => `/api/tasks/${taskId}/report/docx`,
   reportMdUrl: (taskId: string) => `/api/tasks/${taskId}/report/markdown`,
@@ -1381,4 +1400,31 @@ export interface RepeaterResult {
   hops: RepeaterHop[];
   final: RepeaterHop;
   total_ms: number;
+}
+export interface RepHistoryItem {
+  id: number;
+  title: string;
+  raw: string;
+  preview: string;
+  follow_redirect: boolean;
+  force_https: boolean;
+  max_body_kb: number;
+  timeout_sec: number;
+  starred: boolean;
+  updated_at: string;
+}
+
+export interface ScanJob {
+  id: number;
+  targets: string;
+  status: string;
+  params?: Record<string, unknown>;
+  findings?: {
+    hosts?: { host: string; ports: number[] }[];
+    scanned?: number;
+    total?: number;
+    open_total?: number;
+    hits?: { path: string; status: number; size: number; location?: string }[];
+  };
+  created_at?: string;
 }

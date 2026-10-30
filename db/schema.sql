@@ -1601,3 +1601,36 @@ CREATE TABLE IF NOT EXISTS finding_evidence (
     note       TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (finding_id, seq)
 );
+
+-- ============================================================
+-- 工具箱扩展（2026-10-30，移植自 AI-PENTEST 工具模块）
+-- ============================================================
+
+-- Repeater 历史（保存/收藏/回填）：与 repeater 任务制发送解耦，显式保存。
+CREATE TABLE IF NOT EXISTS repeater_history (
+    id BIGSERIAL PRIMARY KEY,
+    title TEXT NOT NULL DEFAULT '',
+    raw TEXT NOT NULL DEFAULT '',
+    follow_redirect BOOLEAN NOT NULL DEFAULT TRUE,
+    force_https BOOLEAN NOT NULL DEFAULT FALSE,
+    max_body_kb INTEGER NOT NULL DEFAULT 1024,
+    timeout_sec INTEGER NOT NULL DEFAULT 30,
+    starred BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_repeater_history_updated ON repeater_history(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_repeater_history_starred ON repeater_history(starred) WHERE starred;
+
+-- 扫描任务（端口扫描 / 目录扫描共用一张任务表，kind 区分）
+CREATE TABLE IF NOT EXISTS scan_jobs (
+    id BIGSERIAL PRIMARY KEY,
+    kind TEXT NOT NULL,                    -- port / dir
+    targets TEXT NOT NULL DEFAULT '',      -- 原始目标输入（展示用）
+    params JSONB NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'pending', -- pending/running/done/error
+    findings JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_scan_jobs_kind ON scan_jobs(kind, id DESC);

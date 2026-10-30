@@ -798,6 +798,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tools/repeater/capture", s.repeaterCapture)
 	mux.HandleFunc("GET /api/tools/repeater/job/{id}", s.repeaterJob)
 	mux.HandleFunc("POST /api/tools/repeater/stop", s.repeaterStop)   // 工具箱·Repeater 发包
+	mux.HandleFunc("GET /api/tools/repeater/history", s.repHistoryList)     // Repeater 历史（移植自 AI-PENTEST）
+	mux.HandleFunc("POST /api/tools/repeater/history", s.repHistoryCreate)
+	mux.HandleFunc("PUT /api/tools/repeater/history/{id}", s.repHistoryUpdate)
+	mux.HandleFunc("DELETE /api/tools/repeater/history/{id}", s.repHistoryDelete)
+	mux.HandleFunc("POST /api/tools/repeater/history/{id}/star", s.repHistoryStar)
+	mux.HandleFunc("POST /api/tools/portscan", s.portScanStart) // 端口扫描（Go 原生并发 dial）
+	mux.HandleFunc("GET /api/tools/portscan", s.portScanList)
+	mux.HandleFunc("GET /api/tools/portscan/{id}", s.portScanDetail)
+	mux.HandleFunc("POST /api/tools/dirscan", s.dirScanStart) // 目录扫描（Go 原生并发探测）
+	mux.HandleFunc("GET /api/tools/dirscan", s.dirScanList)
+	mux.HandleFunc("GET /api/tools/dirscan/{id}", s.dirScanDetail)
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
 	mux.HandleFunc("GET /api/exploration/findings/asset-tree", s.findingAssetTree)
