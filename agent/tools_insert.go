@@ -674,6 +674,7 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 	tools = append(tools, t.apiModelTools()...) // 业务建模（操作员要求时 agent 合并 OpenAPI 文档）
 	tools = append(tools, t.webshellGen(), t.webshellExec()) // webshell 生成/连接（移植自 AI-PENTEST）
 	tools = append(tools, t.c2Tools()...) // C2 指挥（对接 goc2-server 管理 API）
+	tools = append(tools, t.kbSearchTool()) // 知识库检索（跨任务经验复用）
 	return tools
 }
 
@@ -709,6 +710,7 @@ func (t *ToolSet) MainAgentTools() []actool.CoreTool {
 	tools = append(tools, t.screenshotTool()) // 网页截图（漏洞证据）
 	tools = append(tools, t.webshellGen(), t.webshellExec()) // webshell 生成/连接（移植自 AI-PENTEST）
 	tools = append(tools, t.c2Tools()...) // C2 指挥（对接 goc2-server 管理 API）
+	tools = append(tools, t.kbSearchTool()) // 知识库检索（跨任务经验复用）
 	return tools
 }
 

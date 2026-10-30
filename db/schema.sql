@@ -1634,3 +1634,34 @@ CREATE TABLE IF NOT EXISTS scan_jobs (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_scan_jobs_kind ON scan_jobs(kind, id DESC);
+
+-- ============================================================
+-- 知识库（2026-10-30，移植自 AI-PENTEST knowledge 模块）
+-- 沉淀：任务终态自动蒸馏（LLM 四章总结，失败降级模板）
+-- 复用：kb_search agent 工具 + UI 检索（bigram BOW 余弦，零外部依赖）
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS kb_summaries (
+    task_id BIGINT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT '',
+    task_status TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'queued',  -- queued/running/done/failed
+    source TEXT NOT NULL DEFAULT 'auto',    -- auto/manual
+    model TEXT NOT NULL DEFAULT '',
+    vuln_count INTEGER NOT NULL DEFAULT 0,
+    fact_count INTEGER NOT NULL DEFAULT 0,
+    summary_md TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_kb_summaries_status ON kb_summaries(status);
+
+-- 检索块：蒸馏总结切块后的 bigram BOW 稀疏向量（JSONB {dim:weight}）
+CREATE TABLE IF NOT EXISTS kb_chunks (
+    id BIGSERIAL PRIMARY KEY,
+    task_id BIGINT NOT NULL,
+    seq INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    bow JSONB NOT NULL DEFAULT '{}',
+    UNIQUE (task_id, seq)
+);

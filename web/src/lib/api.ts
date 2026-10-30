@@ -1269,6 +1269,15 @@ export const api = {
     post<{ data: { job_id: number; paths: number } }>("/tools/dirscan", payload),
   dirScanList: () => get<{ data: ScanJob[] }>("/tools/dirscan"),
   dirScanDetail: (id: number) => get<{ data: ScanJob }>(`/tools/dirscan/${id}`),
+  // ---- 知识库（移植自 AI-PENTEST knowledge 模块）----
+  kbOverview: () => get<{ total: number; done: number; failed: number; vulns: number; chunks: number }>("/kb/overview"),
+  kbSummaries: (q?: string) =>
+    get<{ data: KBSummary[] }>(`/kb/summaries${q ? "?" + new URLSearchParams({ q }).toString() : ""}`),
+  kbSummaryDetail: (taskId: number) => get<{ data: KBSummaryDetail }>(`/kb/summaries/${taskId}`),
+  kbRegenerate: (taskId: number) => post<{ ok: boolean }>(`/kb/summaries/${taskId}/regenerate`, {}),
+  kbSearch: (q: string, topK = 5) =>
+    get<{ data: { task_id: number; title: string; score: number; text: string }[]; total_chunks: number }>(
+      `/kb/search?${new URLSearchParams({ q, top_k: String(topK) }).toString()}`),
   // ---- 漏洞中台报告导出 ----
   reportDocxUrl: (taskId: string) => `/api/tasks/${taskId}/report/docx`,
   reportMdUrl: (taskId: string) => `/api/tasks/${taskId}/report/markdown`,
@@ -1427,4 +1436,20 @@ export interface ScanJob {
     hits?: { path: string; status: number; size: number; location?: string }[];
   };
   created_at?: string;
+}
+export interface KBSummary {
+  task_id: number;
+  title: string;
+  task_status: string;
+  status: string;
+  source: string;
+  model: string;
+  vuln_count: number;
+  fact_count: number;
+  updated_at: string;
+}
+
+export interface KBSummaryDetail extends KBSummary {
+  summary_md: string;
+  error: string;
 }

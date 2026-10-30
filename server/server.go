@@ -186,6 +186,15 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	s.startPocSubLoop()
 	s.StartProxySubscriptionLoop() // 出口代理订阅轮询（未配置即静默）                            // POC 订阅定时同步（每分钟检查到期源）
 	s.syncC2Settings()             // goc2 连接配置：settings 覆盖默认（token 不进仓库）
+	s.startKBDistillLoop()          // 知识蒸馏：终态任务自动沉淀总结（移植自 AI-PENTEST）
+	agent.SetKBSearcher(func(q string, topK int) ([]agent.KBHit, int, error) {
+		res, total, err := s.kbSearchRetrieval(q, topK)
+		hits := make([]agent.KBHit, len(res))
+		for i, r := range res {
+			hits[i] = agent.KBHit{TaskID: r.TaskID, Title: r.Title, Score: r.Score, Text: r.Text}
+		}
+		return hits, total, err
+	})
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。
 	s.applyRetryPolicy()
@@ -809,6 +818,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tools/dirscan", s.dirScanStart) // 目录扫描（Go 原生并发探测）
 	mux.HandleFunc("GET /api/tools/dirscan", s.dirScanList)
 	mux.HandleFunc("GET /api/tools/dirscan/{id}", s.dirScanDetail)
+	mux.HandleFunc("GET /api/kb/overview", s.kbOverview) // 知识库：任务终态自动蒸馏沉淀+检索复用
+	mux.HandleFunc("GET /api/kb/summaries", s.kbSummariesList)
+	mux.HandleFunc("GET /api/kb/summaries/{task_id}", s.kbSummaryDetail)
+	mux.HandleFunc("POST /api/kb/summaries/{task_id}/regenerate", s.kbRegenerate)
+	mux.HandleFunc("GET /api/kb/search", s.kbSearchAPI)
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
 	mux.HandleFunc("GET /api/exploration/findings/asset-tree", s.findingAssetTree)
