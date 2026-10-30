@@ -250,3 +250,38 @@ func (c *Client) UpdateNotes(ctx context.Context, sessionID, notes string) error
 		map[string]any{"notes": notes})
 	return err
 }
+
+// ---- CS 会话功能封装（原生任务类型） ----
+
+// Download 下载文件：output 为 base64(文件内容)。
+func (c *Client) Download(ctx context.Context, sessionID, path string) (string, error) {
+	payload, err := c.Request(ctx, "POST", "/clients/"+url.PathEscape(sessionID)+"/tasks", nil,
+		map[string]any{"type": "download", "args": map[string]any{"path": path}})
+	if err != nil {
+		return "", err
+	}
+	id, _ := unwrap(payload)["taskId"].(string)
+	return id, nil
+}
+
+// Upload 上传文件：data 为 base64（goc2 字段名是 data，非 content）。
+func (c *Client) Upload(ctx context.Context, sessionID, path, b64 string) (string, error) {
+	payload, err := c.Request(ctx, "POST", "/clients/"+url.PathEscape(sessionID)+"/tasks", nil,
+		map[string]any{"type": "upload", "args": map[string]any{"path": path, "data": b64}})
+	if err != nil {
+		return "", err
+	}
+	id, _ := unwrap(payload)["taskId"].(string)
+	return id, nil
+}
+
+// Sleep 调整心跳间隔。
+func (c *Client) Sleep(ctx context.Context, sessionID string, interval float64, jitter float64) (string, error) {
+	payload, err := c.Request(ctx, "POST", "/clients/"+url.PathEscape(sessionID)+"/tasks", nil,
+		map[string]any{"type": "sleep", "args": map[string]any{"interval": interval, "jitter": jitter}})
+	if err != nil {
+		return "", err
+	}
+	id, _ := unwrap(payload)["taskId"].(string)
+	return id, nil
+}

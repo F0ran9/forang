@@ -118,3 +118,47 @@ func (s *Server) c2NotesAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
+
+// POST /api/tools/c2/task — 通用任务下发（CS 功能面）：body {session_id, type, args}。
+// type: exec / download / upload / sleep / 自定义；args 原样透传 goc2。
+func (s *Server) c2TaskAPI(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		SessionID string         `json:"session_id"`
+		Type      string         `json:"type"`
+		Args      map[string]any `json:"args"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		writeErr(w, 400, "bad json: "+err.Error())
+		return
+	}
+	if b.SessionID == "" || b.Type == "" {
+		writeErr(w, 400, "session_id 与 type 必填")
+		return
+	}
+	payload, err := c2Client().Request(r.Context(), "POST",
+		"/clients/"+b.SessionID+"/tasks", nil,
+		map[string]any{"type": b.Type, "args": b.Args})
+	if err != nil {
+		writeErr(w, 502, "任务下发失败: "+err.Error())
+		return
+	}
+	var id string
+	if d, ok := payload["data"].(map[string]any); ok {
+		id, _ = d["taskId"].(string)
+	}
+	writeJSON(w, 200, map[string]any{"data": map[string]any{"task_id": id}})
+}
+
+// DELETE /api/tools/c2/clients/{id} — 下线会话（CS Remove）。
+func (s *Server) c2RemoveAPI(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeErr(w, 400, "bad id")
+		return
+	}
+	if err := c2Client().DeleteClient(r.Context(), id); err != nil {
+		writeErr(w, 502, "下线失败: "+err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}

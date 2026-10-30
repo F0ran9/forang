@@ -1304,6 +1304,9 @@ export const api = {
   c2Tasks: (sessionId: string, taskId?: string) =>
     get<{ data: Record<string, unknown>[] }>(`/tools/c2/tasks?${new URLSearchParams({ session_id: sessionId, ...(taskId ? { task_id: taskId } : {}) }).toString()}`),
   c2Listeners: () => get<{ data: Record<string, unknown>[] }>("/tools/c2/listeners"),
+  c2Task: (sessionId: string, type: string, args: Record<string, unknown>) =>
+    post<{ data: { task_id: string } }>("/tools/c2/task", { session_id: sessionId, type, args }),
+  c2Remove: (id: string) => del<{ ok: boolean }>(`/tools/c2/clients/${id}`),
   c2SettingsGet: () => get<{ url: string; token_masked: string }>("/settings/c2"),
   c2SettingsSet: (payload: { url?: string; token?: string }) =>
     post<{ ok: boolean; status: string }>("/settings/c2", payload),

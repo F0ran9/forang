@@ -876,6 +876,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tools/c2/tasks", s.c2TasksAPI)
 	mux.HandleFunc("GET /api/tools/c2/listeners", s.c2ListenersAPI)
 	mux.HandleFunc("PUT /api/tools/c2/clients/{id}/notes", s.c2NotesAPI) // CS 风格会话备注
+	mux.HandleFunc("POST /api/tools/c2/task", s.c2TaskAPI) // CS 通用任务（download/upload/sleep/…）
+	mux.HandleFunc("DELETE /api/tools/c2/clients/{id}", s.c2RemoveAPI) // CS Remove 下线
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
 	mux.HandleFunc("GET /api/exploration/findings/asset-tree", s.findingAssetTree)
