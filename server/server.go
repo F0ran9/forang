@@ -185,6 +185,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	go s.cleanupOrphanContainers()                // 启动清理无主任务容器
 	s.startPocSubLoop()
 	s.StartProxySubscriptionLoop() // 出口代理订阅轮询（未配置即静默）                            // POC 订阅定时同步（每分钟检查到期源）
+	s.syncC2Settings()             // goc2 连接配置：settings 覆盖默认（token 不进仓库）
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。
 	s.applyRetryPolicy()
@@ -856,6 +857,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/settings/proxy-subscription", s.proxySubGet)
 	mux.HandleFunc("POST /api/settings/proxy-subscription", s.proxySubSet)
 	mux.HandleFunc("GET /api/settings/proxy-subscription/check", s.proxySubCheck)
+	mux.HandleFunc("GET /api/settings/c2", s.c2SettingsGet)
+	mux.HandleFunc("POST /api/settings/c2", s.c2SettingsSet)
 	mux.HandleFunc("POST /api/settings/web-search/test", s.testWebSearch)
 	mux.HandleFunc("GET /api/report", s.getReport)
 	mux.HandleFunc("GET /api/chat/mentions", s.searchChatMentions)

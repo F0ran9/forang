@@ -18,6 +18,10 @@ func (failingFindingRecorder) Record(context.Context, db.RecordFindingInput, []d
 	return nil, errors.New("fixture persistence failed")
 }
 
+func (failingFindingRecorder) AppendFindingEvidence(int64, db.FindingEvidence) error {
+	return errors.New("fixture persistence failed")
+}
+
 func TestReportFindingOptionalTrafficWithoutCapture(t *testing.T) {
 	d := testDB(t)
 	defer d.Close()
