@@ -97,3 +97,24 @@ func (s *Server) c2ListenersAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"data": listeners})
 }
+
+// PUT /api/tools/c2/clients/{id}/notes — 会话备注（CS 备注）。
+func (s *Server) c2NotesAPI(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeErr(w, 400, "bad id")
+		return
+	}
+	var b struct {
+		Notes string `json:"notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		writeErr(w, 400, "bad json: "+err.Error())
+		return
+	}
+	if err := c2Client().UpdateNotes(r.Context(), id, truncateStr(b.Notes, 500)); err != nil {
+		writeErr(w, 502, "更新备注失败: "+err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}

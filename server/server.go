@@ -875,6 +875,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tools/c2/exec", s.c2ExecAPI)
 	mux.HandleFunc("GET /api/tools/c2/tasks", s.c2TasksAPI)
 	mux.HandleFunc("GET /api/tools/c2/listeners", s.c2ListenersAPI)
+	mux.HandleFunc("PUT /api/tools/c2/clients/{id}/notes", s.c2NotesAPI) // CS 风格会话备注
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
 	mux.HandleFunc("GET /api/exploration/findings/asset-tree", s.findingAssetTree)

@@ -243,3 +243,10 @@ func (c *Client) ListCredentials(ctx context.Context) ([]any, error) {
 	}
 	return []any{}, nil
 }
+
+// UpdateNotes PUT /clients/{id}/notes — 会话备注（CS 备注）。
+func (c *Client) UpdateNotes(ctx context.Context, sessionID, notes string) error {
+	_, err := c.Request(ctx, "PUT", "/clients/"+url.PathEscape(sessionID)+"/notes", nil,
+		map[string]any{"notes": notes})
+	return err
+}

@@ -12,6 +12,7 @@ import {
   RadarIcon, FolderSearchIcon, ChefHatIcon, TerminalIcon, ShieldIcon,
 } from "lucide-react";
 import WebshellConsole from "./_components/webshell-console";
+import C2Console from "./_components/c2-console";
 
 interface Hop {
   request_sent: string;
@@ -124,7 +125,7 @@ export default function ToolboxPage() {
       {tab === "portscan" && <PortScanTab />}
       {tab === "dirscan" && <DirScanTab />}
       {tab === "webshell" && <WebshellConsole />}
-      {tab === "c2" && <C2Tab />}
+      {tab === "c2" && <C2Console />}
     </div>
   );
 }
@@ -932,188 +933,6 @@ function DirScanTab() {
           </CardContent>
         </Card>
       </div>
-    </div>
-  );
-}
-
-// ==================== C2 指挥 ====================
-
-function C2Tab() {
-  const [status, setStatus] = React.useState<{ url: string; token_masked: string; reachable: boolean; beacons: number; error: string } | null>(null);
-  const [clients, setClients] = React.useState<Record<string, unknown>[]>([]);
-  const [listeners, setListeners] = React.useState<Record<string, unknown>[]>([]);
-  const [sel, setSel] = React.useState<string>("");
-  const [cmd, setCmd] = React.useState("id; hostname");
-  const [out, setOut] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
-  const [cfgOpen, setCfgOpen] = React.useState(false);
-  const [cfgUrl, setCfgUrl] = React.useState("");
-  const [cfgToken, setCfgToken] = React.useState("");
-  const pollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const load = React.useCallback(async () => {
-    try {
-      const st = await api.c2Status();
-      setStatus(st.data);
-      if (st.data.reachable) {
-        const [c, l] = await Promise.all([api.c2Clients(), api.c2Listeners()]);
-        setClients(c.data || []);
-        setListeners(l.data || []);
-      } else {
-        setClients([]);
-        setListeners([]);
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  React.useEffect(() => {
-    load();
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [load]);
-
-  const exec = async () => {
-    if (!sel || !cmd.trim()) return void window.alert("先选 beacon，输入命令");
-    setBusy(true);
-    setOut("");
-    try {
-      const r = await api.c2Exec(sel, cmd);
-      const tid = r.data?.task_id;
-      if (!tid) throw new Error("服务端未返回 taskId");
-      if (pollRef.current) clearInterval(pollRef.current);
-      pollRef.current = setInterval(async () => {
-        try {
-          const t = await api.c2Tasks(sel, tid);
-          const arr = t.data || [];
-          for (const it of arr) {
-            const m = it as Record<string, unknown>;
-            if ((m.taskId as string) !== tid && (m.taskId as string) !== "") continue;
-            const stt = String(m.status || "");
-            const o = String(m.output || m.result || "");
-            if (o || stt === "completed" || stt === "done") {
-              if (pollRef.current) clearInterval(pollRef.current);
-              setOut(`[任务 ${tid}] ${stt}\n${o}`);
-              setBusy(false);
-              load();
-              return;
-            }
-          }
-        } catch {
-          if (pollRef.current) clearInterval(pollRef.current);
-          setBusy(false);
-        }
-      }, 2000);
-      // 40s 超时兜底
-      setTimeout(() => {
-        if (pollRef.current) {
-          clearInterval(pollRef.current);
-          setBusy(false);
-          setOut((o) => o || `[任务 ${tid}] 40s 内未取到结果（beacon 可能休眠），稍后刷新看任务列表。`);
-        }
-      }, 40000);
-    } catch (e) {
-      setOut("[错误] " + (e instanceof Error ? e.message : String(e)));
-      setBusy(false);
-    }
-  };
-
-  const saveCfg = async () => {
-    try {
-      const r = await api.c2SettingsSet({ url: cfgUrl || undefined, token: cfgToken || undefined });
-      window.alert(r.ok ? "已保存并探活成功" : "已保存，但探活失败: " + r.status);
-      setCfgOpen(false);
-      load();
-    } catch (e) {
-      window.alert("保存失败: " + (e instanceof Error ? e.message : String(e)));
-    }
-  };
-
-  const g = (m: Record<string, unknown>, k: string) => String(m[k] ?? "");
-
-  return (
-    <div className="space-y-3">
-      <Card>
-        <CardContent className="flex flex-wrap items-center gap-3 py-3 text-sm">
-          {status && (
-            <>
-              <span className={`rounded px-2 py-0.5 ${status.reachable ? "bg-green-500/15 text-green-600" : "bg-red-500/15 text-red-500"}`}>
-                {status.reachable ? "goc2 在线" : "不可达"}
-              </span>
-              <span className="font-mono text-xs text-muted-foreground">{status.url} · token {status.token_masked}</span>
-              <span className="text-xs text-muted-foreground">beacon {status.beacons} / 监听器 {listeners.length}</span>
-              {!status.reachable && status.error && <span className="text-xs text-red-400">{status.error}</span>}
-            </>
-          )}
-          <div className="ml-auto flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setCfgOpen(!cfgOpen)}>goc2 配置</Button>
-            <Button variant="outline" size="sm" onClick={load}>刷新</Button>
-          </div>
-        </CardContent>
-        {cfgOpen && (
-          <CardContent className="space-y-2 border-t p-3 text-sm">
-            <div className="grid grid-cols-2 gap-2">
-              <Input placeholder="goc2 admin URL（http://172.25.0.1:18400）" value={cfgUrl} onChange={(e) => setCfgUrl(e.target.value)} />
-              <Input placeholder="admin token（留空=不修改）" value={cfgToken} onChange={(e) => setCfgToken(e.target.value)} />
-            </div>
-            <Button size="sm" onClick={saveCfg}>保存并探活</Button>
-            <div className="text-xs text-muted-foreground">token 只存服务端 settings，不下发前端。</div>
-          </CardContent>
-        )}
-      </Card>
-
-      <div className="grid gap-3 lg:grid-cols-5">
-        <Card className="lg:col-span-2">
-          <CardHeader className="py-2"><CardTitle className="text-sm">Beacon 会话（{clients.length}）</CardTitle></CardHeader>
-          <CardContent className="max-h-[420px] space-y-1 overflow-auto p-2 text-xs">
-            {clients.length === 0 && <div className="py-6 text-center text-muted-foreground">无会话</div>}
-            {clients.map((c) => (
-              <div
-                key={g(c, "id")}
-                className={`cursor-pointer rounded border p-1.5 font-mono hover:bg-muted/60 ${sel === g(c, "id") ? "border-primary bg-muted" : ""}`}
-                onClick={() => setSel(g(c, "id"))}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-blue-400">{g(c, "hostname")}</span>
-                  <span className="text-[10px] text-muted-foreground">{g(c, "osType")} / {g(c, "arch")}</span>
-                </div>
-                <div className="flex items-center justify-between text-muted-foreground">
-                  <span>{g(c, "internalIp")}</span>
-                  <span>{String(c.lastBeacon || "").slice(5, 16)}</span>
-                </div>
-                <div className="truncate text-[10px] text-muted-foreground">{g(c, "id")}</div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-3">
-          <CardHeader className="py-2"><CardTitle className="text-sm">命令下发{sel ? ` → ${sel.slice(0, 18)}…` : ""}</CardTitle></CardHeader>
-          <CardContent className="space-y-2 p-3 text-sm">
-            <div className="flex gap-2">
-              <Input value={cmd} onChange={(e) => setCmd(e.target.value)} placeholder="id; hostname" disabled={!sel || busy} />
-              <Button size="sm" onClick={exec} disabled={!sel || busy}>
-                <PlayIcon className="mr-1 size-4" /> {busy ? "等待回连…" : "下发"}
-              </Button>
-            </div>
-            <div className="text-xs text-muted-foreground">任务下发后轮询结果（beacon 心跳间隔影响回显延迟）。仅用于授权测试。</div>
-            {out && <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-[11px]">{out}</pre>}
-          </CardContent>
-        </Card>
-      </div>
-
-      {listeners.length > 0 && (
-        <Card>
-          <CardHeader className="py-2"><CardTitle className="text-sm">监听器（{listeners.length}）</CardTitle></CardHeader>
-          <CardContent className="p-2">
-            <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
-              {JSON.stringify(listeners, null, 2)}
-            </pre>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
