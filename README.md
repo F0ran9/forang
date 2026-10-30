@@ -20,8 +20,10 @@
 | ![仪表盘](screenshots/dashboard.png) | ![任务](screenshots/tasks.png) |
 | **漏洞中台**（发现汇总 / 评审 / 复测 / 导出） | **工具箱 · Repeater**（原始报文重放 + 留证截图） |
 | ![漏洞中台](screenshots/findings.png) | ![工具箱](screenshots/toolbox.png) |
-| **系统配置**（测绘 / 插件 / 更新 / 流量捕获） | |
-| ![系统配置](screenshots/settings.png) | |
+| **Webshell 管理器**（哥斯拉式目标表 + 会话工作台） | **C2 指挥台**（CS 式会话表 + Beacon Console） |
+| ![Webshell](screenshots/webshell.png) | ![C2](screenshots/c2.png) |
+| **知识库 · 字典中心**（五类字典沉淀复用） | **系统配置**（测绘 / 插件 / 更新 / 流量捕获） |
+| ![知识库](screenshots/dict.png) | ![系统配置](screenshots/settings.png) |
 
 ---
 
@@ -108,7 +110,13 @@ FOFA / Quake / Hunter 三平台集成：
 - **脱壳**：`droid_unpack` 多时机内存扫描提取 DEX 并打包拉回。
 - 兼容性提示：Frida 服务端与 CLI 需配对（如 MuMu 环境用 16.7.19）。
 
-## 八、LLM 中枢
+## 八、LLM 中枢（国产大模型友好）
+
+> 协议为 OpenAI 兼容，**智谱 GLM、DeepSeek、通义千问 Qwen、Kimi、豆包**等国产模型开箱即用，
+> 无需科学上网：多 profile 热切换（planner/worker/评审员可各用不同模型）、按量 Token 记账、
+> 守门模型（推荐 qwen-flash 等按量付费档）做破坏性命令审批。
+
+
 
 - **多档案管理**：任意数量 LLM 档案（anthropic / openai / openai-responses 三种协议），
   各自独立配置模型、BaseURL、Key、上下文窗口、思考模式、推理强度、输出上限、流式开关。
@@ -157,7 +165,47 @@ FOFA / Quake / Hunter 三平台集成：
 - 任务探索图与全量活动流水：每个结论可回溯到原始证据。
 - 技能与知识库：平台技能 + 用户自建技能持续沉淀方法论。
 
-## 十四、系统运维
+## 十四、工具箱（专业工具形态）
+
+工具箱六大页签，全部与 agent 工具共用同一后端内核：
+
+| 页签 | 形态 | 能力 |
+|------|------|------|
+| **Repeater** | Burp 式双栏 | 原始报文 TCP 直写忠实重放（chunked 还原 / gzip 解压 / 3xx 跟随）、请求历史与收藏、二进制响应 hex 预览、重定向链、带北京时间面板的取证截图（直接作为漏洞证据入报告） |
+| **综合解码** | CyberChef 中文版 v10.5.2 | 数百种编码 / 加密 / 哈希操作，纯前端本地运算，零数据外发 |
+| **端口扫描** | Go 原生并发探测 | 目标支持逗号 / 区间 / CIDR，端口 top100 内置或自定义；任务落库可回看 |
+| **目录扫描** | Go 原生并发探测 | **默认联用知识库路径字典**（历史命中多的优先测），非 404 即命中，301/302 标注跳转；命中自动回灌字典 |
+| **Webshell** | 哥斯拉风格 | 见下「十五」 |
+| **C2 指挥** | Cobalt Strike 风格 | 见下「十六」 |
+
+## 十五、Webshell 管理器（哥斯拉式）
+
+- **目标管理**：分组 / 搜索 / 批量测活（连接 / 断开 / 未测三态），附加头 JSON 同时承载 Header Gate 与 UA 伪装。
+- **生成器**：7 种载荷（php / jsp / jspx / asp / aspx / py / node）× 3 种加密（raw 蚁剑 / aes 冰蝎 3.0 / xor 哥斯拉）+ 一句话协议；**Header Gate**（缺校验头直接 404，对抗扫描器）。
+- **会话工作台**（按载荷动态显示页签）：
+  - 终端（cwd 跟随 / 命令历史）、文件管理（浏览 / 读 / 写 / 删 / 改名 / 上传下载 / 新建）
+  - 数据库（PHP PDO：mysql / pgsql / sqlite；JSP JDBC）、内网端口扫描、进程管理
+  - **内存马**（JSP / Tomcat：Filter 注入 · 枚举 · 移除，godzilla 姿势，无文件驻留重启失效）
+  - Servlet / Filter 枚举、Jar 动态加载（URLClassLoader）、远程屏幕（Robot）、PHP 工具（phpinfo / 可写目录 / WebShell 扫描）、会话笔记
+- 已在本地靶场（PHP cli-server / Tomcat 9 + JDK21）完成全量真机验证，与蚁剑 / 冰蝎 / 哥斯拉客户端协议字节级兼容。
+
+## 十六、C2 指挥台（Cobalt Strike 风格）
+
+对接独立部署的 goc2 teamserver（管理 API），界面与交互对齐 CS：
+
+- **会话表**：外部 IP / 内部 IP / 主机名 / 操作系统 / 架构 / 用户 / 心跳 / 最后回连 / 备注，5s 自动刷新；行操作 Note / Remove（下线）。
+- **Interact（Beacon Console）**：黑底 `beacon>` 提示符，shell/sh 前缀剥离，内置 `sleep N`（调心跳）/ `getuid` / `ps` / `screenshot`（远程截屏）/ `persist`（systemd 持久化）；600ms 轮询，全链回显秒级。
+- **Files**：远程文件浏览器（ls 解析表格），**原生 upload/download 任务**（二进制安全，download 直接落本地磁盘）。
+- **Process**：ps aux 表格 + 行内 Kill。
+- **Network**：以目标机为跳板的内网端口扫描（bash /dev/tcp）+ netstat。
+- agent 侧同源工具：`c2_beacons` / `c2_exec` / `c2_tasks` / `c2_listeners`（任务内自动指挥）。
+
+## 十七、知识库与字典中心（跨任务沉淀复用）
+
+- **经验总结**：任务终态自动蒸馏成四章知识总结（执行概况 / 漏洞与可复用手法 / 经验教训 / 下次建议），LLM 失败自动降级模板；bigram 余弦检索，agent 用 `kb_search` 在新任务里查过往沉淀复用。
+- **字典中心**：五类字典——**路径**（目录与 API 统一）/ 用户名 / 密码 / 敏感参数 / 子域名。内置种子 300+ 条，三路沉淀（任务蒸馏自动提取 findings/facts 里的路径与凭据、目录扫描命中回灌、agent `dict_add` 主动记录）、两路复用（目录扫描默认联用、agent `dict_query` 查询），可导出 txt 直接喂 hydra / dirsearch / Intruder。
+
+## 十八、系统运维
 
 - **部署**：单二进制（前端已内嵌），`./forang -addr :8787 -proxy 127.0.0.1:8788`；
   配置文件指向 PostgreSQL；`config.json` 支持 skill_dir 等。
@@ -196,9 +244,20 @@ FOFA / Quake / Hunter 三平台集成：
 
 ## 版本
 
-当前版本：**v0.4.9-forang**（2026-10-28）。
+当前版本：**v0.5.0-forang**（2026-10-31）。
 
 近期重要变更：
+- **Webshell 管理器**（哥斯拉式）：目标管理 / 生成器（Header Gate）/ 会话工作台（文件 / 数据库 /
+  内存马 / Servlet / Jar / 截屏 / PHP 工具），四载荷协议字节级兼容，靶场真机全量验证
+- **C2 指挥台**（CS 式）：会话表 / Beacon Console（sleep / screenshot / persist 内置）/
+  Files（原生上传下载）/ Process（Kill）/ Network（跳板扫描），对接 goc2 teamserver
+- **知识库 + 字典中心**：任务终态自动蒸馏、bigram 检索、五类字典三路沉淀两路复用可导出
+- **工具箱扩容**：CyberChef 中文版内嵌、Go 原生端口 / 目录扫描、Repeater 历史 + 收藏 +
+  二进制预览 + 重定向链
+- agent 新工具：webshell_gen / webshell_exec、c2_beacons / c2_exec、kb_search、
+  dict_add / dict_query
+
+v0.4.9 变更：
 - 工具箱 Repeater（原始报文手工重放页 + agent 发包/留证工具，取代 replayd 外部服务；
   取证截图带北京时间面板，模型视觉自检 + 对话内联渲染）
 - bind_finding_evidence：截图/输出一键绑定漏洞证据，报告附录与 Word 自动嵌图
@@ -227,6 +286,18 @@ LLM 审批链、破坏性命令拦截、最小影响原则条令。使用者需�
 > go.mod 已 `replace github.com/Autumn-27/norma => ../norma`。不需要视觉功能时也可还原上游 norma，但截图视觉自检与对话内联渲染将不可用。
 
 ### 宿主机二进制（推荐）
+
+国内网络建议先配置镜像加速：
+
+```bash
+# Go 模块代理（七牛云）
+go env -w GOPROXY=https://goproxy.cn,direct
+# npm 混合镜像（淘宝源）
+npm config set registry https://registry.npmmirror.com
+# Docker 镜像加速：/etc/docker/daemon.json 配置国内 registry-mirrors 后 systemctl restart docker
+```
+
+构建：
 
 ```bash
 cd web && npm ci && NEXT_EXPORT=1 npx next build && cd ..
