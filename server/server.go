@@ -865,6 +865,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/kb/dicts/export", s.dictExport)
 	mux.HandleFunc("POST /api/tools/webshell/generate", s.webshellGenerateAPI) // Webshell 控制台（UI）
 	mux.HandleFunc("POST /api/tools/webshell/exec", s.webshellExecAPI)
+	mux.HandleFunc("POST /api/tools/webshell/ext", s.webshellExtAPI) // 插件（db/扫描/内存马/…）
+	mux.HandleFunc("GET /api/tools/webshell/targets", s.wsTargetsList) // 目标管理（参考 morelian）
+	mux.HandleFunc("POST /api/tools/webshell/targets", s.wsTargetsSave)
+	mux.HandleFunc("DELETE /api/tools/webshell/targets/{id}", s.wsTargetsDelete)
+	mux.HandleFunc("POST /api/tools/webshell/targets/check", s.wsTargetsCheck)
 	mux.HandleFunc("GET /api/tools/c2/status", s.c2StatusAPI) // C2 指挥台（UI）
 	mux.HandleFunc("GET /api/tools/c2/clients", s.c2ClientsAPI)
 	mux.HandleFunc("POST /api/tools/c2/exec", s.c2ExecAPI)

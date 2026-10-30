@@ -60,3 +60,4 @@ Thumbs.db
 /Dockerfile.bench.v2
 # 前端静态导出产物（构建时嵌入，不入库）
 /web/out/
+scripts/patch_*.py

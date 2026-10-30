@@ -146,6 +146,8 @@ type Client struct {
 	Timeout    time.Duration
 	VerifyTLS  bool
 	Cwd        string
+	// ExtraHeaders 附加请求头：Header Gate（服务端生成时校验的触发头）与 UA 伪装等。
+	ExtraHeaders map[string]string
 }
 
 // RoundTrip 构造 payload → 加密往返 → 解密响应 → 解析。
@@ -183,6 +185,11 @@ func (c *Client) RoundTrip(op string, params P) (Result, error) {
 	if ct := enc.ContentType(); ct != "" {
 		req.Header.Set("Content-Type", ct)
 	}
+	for k, v := range c.ExtraHeaders {
+		if k != "" && v != "" {
+			req.Header.Set(k, v)
+		}
+	}
 	resp, err := cli.Do(req)
 	if err != nil {
 		return Result{}, fmt.Errorf("请求失败: %w", err)
@@ -217,4 +224,64 @@ func (c *Client) ReadFile(path string) (Result, error) { return c.RoundTrip("rea
 // WriteFile 写文件（文本或 base64 二进制 data）。
 func (c *Client) WriteFile(path, content string, b64Data string) (Result, error) {
 	return c.RoundTrip("write", P{Path: path, Content: content, B64Data: b64Data})
+}
+
+// RoundTripExt 插件操作往返：ExtBuild 构造 payload → 加密 → 解析。
+// screenshot 特例：输出 IMG:<base64>，剥前缀填入 Data。
+func (c *Client) RoundTripExt(op string, p ExtParams) (Result, error) {
+	code, err := ExtBuild(c.ScriptType, op, p)
+	if err != nil {
+		return Result{}, err
+	}
+	enc, err := GetEncoder(c.Encoder)
+	if err != nil {
+		return Result{}, err
+	}
+	body, err := enc.Encrypt([]byte(code), c.Password)
+	if err != nil {
+		return Result{}, err
+	}
+	timeout := c.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	tr := &http.Transport{}
+	if !c.VerifyTLS {
+		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+	}
+	cli := &http.Client{Timeout: timeout, Transport: tr}
+	req, err := http.NewRequest(http.MethodPost, c.URL, strings.NewReader(string(body)))
+	if err != nil {
+		return Result{}, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "*/*")
+	if ct := enc.ContentType(); ct != "" {
+		req.Header.Set("Content-Type", ct)
+	}
+	for k, v := range c.ExtraHeaders {
+		if k != "" && v != "" {
+			req.Header.Set(k, v)
+		}
+	}
+	resp, err := cli.Do(req)
+	if err != nil {
+		return Result{}, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	if err != nil {
+		return Result{}, err
+	}
+	dec := enc.Decrypt(raw, c.Password)
+	if !strings.Contains(smartDecode(dec), EndMarker) && strings.Contains(smartDecode(raw), EndMarker) {
+		dec = raw
+	}
+	res := Parse(dec, op)
+	// 插件输出约定：非 test 操作统一以 JSON/文本进 Output；screenshot 剥 IMG: 前缀
+	if strings.HasPrefix(res.Output, "IMG:") {
+		res.Data, _ = base64.StdEncoding.DecodeString(strings.TrimPrefix(res.Output, "IMG:"))
+		res.Output = ""
+	}
+	return res, nil
 }

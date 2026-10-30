@@ -1684,3 +1684,21 @@ CREATE TABLE IF NOT EXISTS dict_entries (
     UNIQUE (kind, value)
 );
 CREATE INDEX IF NOT EXISTS idx_dict_kind ON dict_entries(kind, updated_at DESC);
+
+-- Webshell 目标管理（2026-10-30，参考 morelian 默连）：保存连接配置、分组、存活状态。
+CREATE TABLE IF NOT EXISTS webshell_targets (
+    id BIGSERIAL PRIMARY KEY,
+    group_name TEXT NOT NULL DEFAULT 'default',
+    name TEXT NOT NULL DEFAULT '',
+    url TEXT NOT NULL,
+    password TEXT NOT NULL DEFAULT '',
+    encoder TEXT NOT NULL DEFAULT 'raw',      -- raw/aes/xor/form-cmd
+    script_type TEXT NOT NULL DEFAULT 'php',  -- php/jsp/jspx/asp/aspx/py/node
+    note TEXT NOT NULL DEFAULT '',
+    headers TEXT NOT NULL DEFAULT '',         -- 附加请求头 JSON（含 Header Gate / UA 伪装）
+    alive BOOLEAN NOT NULL DEFAULT false,
+    last_check TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_ws_targets_group ON webshell_targets(group_name, id DESC);

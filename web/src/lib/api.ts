@@ -1286,10 +1286,17 @@ export const api = {
   kbDictDelete: (id: number) => del<{ ok: boolean }>(`/kb/dicts/${id}`),
   kbDictExportUrl: (kind: string) => `/api/kb/dicts/export?kind=${kind}`,
   // ---- Webshell 控制台 / C2 指挥台（UI 直连）----
-  webshellGenerate: (payload: { script_type: string; encoder: string; password: string; filename?: string }) =>
+  webshellExec: (payload: { url: string; password: string; encoder: string; script_type: string; op: string; cmd?: string; path?: string; content?: string; content_b64?: string; cwd?: string; timeout?: number; headers?: string }) =>
+    post<{ data: { ok: boolean; output: string; cwd: string; error: string; data_len: number; data_b64?: string } }>("/tools/webshell/exec", payload),
+  webshellExt: (payload: { url: string; password: string; encoder: string; script_type: string; op: string; headers?: string; timeout?: number; ext: Record<string, unknown> }) =>
+    post<{ data: { ok: boolean; output: string; error: string; data_len: number; data_b64?: string } }>("/tools/webshell/ext", payload),
+  wsGenerate: (payload: { script_type: string; encoder: string; password: string; filename?: string; gate_header?: string; gate_value?: string }) =>
     post<{ data: { path: string; filename: string; code: string; size: number } }>("/tools/webshell/generate", payload),
-  webshellExec: (payload: { url: string; password: string; encoder: string; script_type: string; op: string; cmd?: string; path?: string; content?: string; cwd?: string; timeout?: number }) =>
-    post<{ data: { ok: boolean; output: string; cwd: string; error: string; data_len: number } }>("/tools/webshell/exec", payload),
+  wsTargets: (q?: string) =>
+    get<{ data: WSTarget[] }>(`/tools/webshell/targets${q ? "?" + new URLSearchParams({ q }).toString() : ""}`),
+  wsTargetSave: (payload: Partial<WSTarget>) => post<{ ok: boolean; id: number }>("/tools/webshell/targets", payload),
+  wsTargetDelete: (id: number) => del<{ ok: boolean }>(`/tools/webshell/targets/${id}`),
+  wsTargetsCheck: (ids?: number[]) => post<{ data: { id: number; alive: boolean; error: string }[] }>("/tools/webshell/targets/check", { ids: ids || [] }),
   c2Status: () => get<{ data: { url: string; token_masked: string; reachable: boolean; beacons: number; error: string } }>("/tools/c2/status"),
   c2Clients: () => get<{ data: Record<string, unknown>[] }>("/tools/c2/clients"),
   c2Exec: (sessionId: string, cmd: string) =>
@@ -1475,6 +1482,21 @@ export interface KBSummaryDetail extends KBSummary {
   summary_md: string;
   error: string;
 }
+export interface WSTarget {
+  id: number;
+  group: string;
+  name: string;
+  url: string;
+  password: string;
+  encoder: string;
+  script_type: string;
+  note: string;
+  headers: string;
+  alive: boolean;
+  last_check: string;
+  updated_at: string;
+}
+
 export interface DictEntry {
   id: number;
   kind: string;
