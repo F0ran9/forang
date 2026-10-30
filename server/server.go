@@ -183,7 +183,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	s.wireDoctrineResolver()                       // 指挥条令 doc:<id> 复用预设注入管道
 	workRoot = m.dir                             // 容器同路径挂载的平台根
 	go s.cleanupOrphanContainers()                // 启动清理无主任务容器
-	s.startPocSubLoop()                            // POC 订阅定时同步（每分钟检查到期源）
+	s.startPocSubLoop()
+	s.StartProxySubscriptionLoop() // 出口代理订阅轮询（未配置即静默）                            // POC 订阅定时同步（每分钟检查到期源）
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。
 	s.applyRetryPolicy()
@@ -852,6 +853,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/notify/channels/{id}/test", s.notifyTestChannel)
 	mux.HandleFunc("GET /api/notify/deliveries", s.notifyListDeliveries)
 	mux.HandleFunc("POST /api/notify/deliveries/{id}/retry", s.notifyRetryDelivery)
+	mux.HandleFunc("GET /api/settings/proxy-subscription", s.proxySubGet)
+	mux.HandleFunc("POST /api/settings/proxy-subscription", s.proxySubSet)
+	mux.HandleFunc("GET /api/settings/proxy-subscription/check", s.proxySubCheck)
 	mux.HandleFunc("POST /api/settings/web-search/test", s.testWebSearch)
 	mux.HandleFunc("GET /api/report", s.getReport)
 	mux.HandleFunc("GET /api/chat/mentions", s.searchChatMentions)
