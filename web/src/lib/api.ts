@@ -1308,6 +1308,20 @@ export const api = {
   c2PluginCreate: (payload: { name: string; description?: string; commands: string[] }) =>
     post<{ ok: boolean; id: number }>("/tools/c2/plugins", payload),
   c2PluginDelete: (id: number) => del<{ ok: boolean }>(`/tools/c2/plugins/${id}`),
+  c2Schedule: (sessionId: string, action: string, opts?: { interval_sec?: number; cmd?: string; job_id?: number }) =>
+    post<{ data: { output: string } }>("/tools/c2/schedule", { session_id: sessionId, action, ...opts }),
+  c2KillSwitch: (sessionId?: string) =>
+    post<{ data: { session_id: string; status: string }[] }>("/tools/c2/kill", { session_id: sessionId || "" }),
+  c2Sysinfo: (sessionId: string) =>
+    post<{ data: { report: string } }>("/tools/c2/sysinfo", { session_id: sessionId }, ),
+  c2Sensitive: (sessionId: string) =>
+    post<{ data: { report: string } }>("/tools/c2/sensitive", { session_id: sessionId }),
+  c2ScanDeploy: (sessionId: string, action: string, opts?: { url?: string; args?: string }) =>
+    post<{ data: { output: string } }>("/tools/c2/scan", { session_id: sessionId, action, ...opts }),
+  c2Report: (sessionId: string) =>
+    get<{ data: { report: string } }>(`/tools/c2/report?session_id=${sessionId}`),
+  c2AuditList: (limit?: number) =>
+    get<{ data: { id: number; session_id: string; hostname: string; action: string; detail: string; created_at: string }[] }>(`/tools/c2/audit?limit=${limit || 50}`),
   c2PluginRun: (sessionId: string, pluginId: number) =>
     post<{ data: { plugin: string; steps: { cmd: string; output: string; error?: string; ms: number }[] } }>("/tools/c2/plugin/run", { session_id: sessionId, plugin_id: pluginId }),
   c2Task: (sessionId: string, type: string, args: Record<string, unknown>) =>

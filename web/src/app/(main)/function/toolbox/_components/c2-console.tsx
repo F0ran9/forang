@@ -14,8 +14,10 @@ import {
   RefreshCw, SettingsIcon, PencilIcon, XIcon, ZapIcon,
   TerminalIcon, FolderIcon, CpuIcon, NetworkIcon, TrashIcon,
   FolderUpIcon, FolderDownIcon, FolderPlusIcon, PuzzleIcon,
+  InfoIcon, ClockIcon, ScrollTextIcon,
 } from "lucide-react";
 import C2PluginsPanel from "./c2-plugins";
+import { SysInfoPanel, SchedulePanel, AuditPanel } from "./c2-panels";
 
 interface BeaconRow {
   id: string;
@@ -32,7 +34,7 @@ interface BeaconRow {
   integrityLevel?: string;
 }
 
-type Panel = "interact" | "files" | "process" | "network" | "plugins";
+type Panel = "interact" | "files" | "process" | "network" | "plugins" | "sysinfo" | "schedule" | "audit";
 
 // useTask 下发任务并轮询到 output（600ms 轮询，默认 15s 兜底）。
 function useTask(beaconId: string) {
@@ -249,6 +251,9 @@ function SessionPanel({ beacon, panel, setPanel, onClose, onRefresh }: {
     { key: "process", label: "Process", icon: <CpuIcon className="size-3.5" /> },
     { key: "network", label: "Network", icon: <NetworkIcon className="size-3.5" /> },
     { key: "plugins", label: "Plugins", icon: <PuzzleIcon className="size-3.5" /> },
+    { key: "sysinfo", label: "SysInfo", icon: <InfoIcon className="size-3.5" /> },
+    { key: "schedule", label: "Schedule", icon: <ClockIcon className="size-3.5" /> },
+    { key: "audit", label: "Audit", icon: <ScrollTextIcon className="size-3.5" /> },
   ];
   return (
     <div className="flex h-72 flex-col border-t border-zinc-700 bg-black">
@@ -269,6 +274,9 @@ function SessionPanel({ beacon, panel, setPanel, onClose, onRefresh }: {
         {panel === "process" && <ProcessPanel beacon={beacon} />}
         {panel === "network" && <NetworkPanel beacon={beacon} />}
         {panel === "plugins" && <C2PluginsPanel beaconId={beacon.id} />}
+        {panel === "sysinfo" && <SysInfoPanel beaconId={beacon.id} />}
+        {panel === "schedule" && <SchedulePanel beaconId={beacon.id} />}
+        {panel === "audit" && <AuditPanel />}
       </div>
     </div>
   );

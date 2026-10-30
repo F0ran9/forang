@@ -232,6 +232,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		})
 	s.seedDictBuiltins()          // 字典种子（幂等，只补缺失）
 	s.seedC2Plugins()             // C2 内置插件种子（幂等）
+	s.ensureC2AuditTable()        // C2 审计日志表（幂等）
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。
 	s.applyRetryPolicy()
@@ -887,6 +888,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tools/c2/plugins", s.c2PluginsCreate)
 	mux.HandleFunc("DELETE /api/tools/c2/plugins/{id}", s.c2PluginsDelete)
 	mux.HandleFunc("POST /api/tools/c2/plugin/run", s.c2PluginRun)
+	mux.HandleFunc("POST /api/tools/c2/schedule", s.c2Schedule)     // C2 定时任务
+	mux.HandleFunc("POST /api/tools/c2/kill", s.c2KillSwitch)       // C2 Kill Switch
+	mux.HandleFunc("POST /api/tools/c2/sysinfo", s.c2Sysinfo)       // C2 系统信息快照
+	mux.HandleFunc("POST /api/tools/c2/sensitive", s.c2Sensitive)   // C2 敏感文件搜集
+	mux.HandleFunc("POST /api/tools/c2/scan", s.c2ScanDeploy)       // C2 扫描下发
+	mux.HandleFunc("GET /api/tools/c2/report", s.c2Report)          // C2 会话报告
+	mux.HandleFunc("GET /api/tools/c2/audit", s.c2AuditList)        // C2 审计日志
 	mux.HandleFunc("POST /api/tools/mumu/config", s.mumuConfigSet)
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
