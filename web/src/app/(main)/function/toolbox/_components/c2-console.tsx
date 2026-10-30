@@ -68,7 +68,8 @@ export default function C2Console() {
 
   React.useEffect(() => {
     load();
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    const auto = setInterval(load, 5000); // 会话表自动刷新（CS 体感：last seen 活的）
+    return () => { clearInterval(auto); if (pollRef.current) clearInterval(pollRef.current); };
   }, [load, reload]);
 
   const saveCfg = async () => {
@@ -230,13 +231,14 @@ function BeaconConsole({ beacon, onClose, pollRef, onRefresh }: {
       const tid = r.data?.task_id;
       if (!tid) throw new Error("无 taskId");
       if (pollRef.current) clearInterval(pollRef.current);
-      pollRef.current = setInterval(async () => {
+      const poll = async () => {
         try {
           const t = await api.c2Tasks(beacon.id, tid);
           const arr = t.data || [];
           for (const it of arr) {
             const m = it as Record<string, unknown>;
-            if ((m.taskId as string) !== tid && (m.taskId as string) !== "") continue;
+            const mid = String(m.id ?? m.taskId ?? "");
+            if (mid !== "" && mid !== tid) continue;
             const st = String(m.status || "");
             const o = String(m.output || m.result || "");
             if (o || st === "completed" || st === "done") {
@@ -251,14 +253,16 @@ function BeaconConsole({ beacon, onClose, pollRef, onRefresh }: {
           if (pollRef.current) clearInterval(pollRef.current);
           setBusy(false);
         }
-      }, 2000);
+      };
+      setTimeout(poll, 400);
+      pollRef.current = setInterval(poll, 600);
       setTimeout(() => {
         if (pollRef.current) {
           clearInterval(pollRef.current);
           setBusy(false);
-          append(`[*] 任务 ${tid} 40s 内未回显（心跳间隔 ${beacon.interval || "?"}s），稍后 Refresh 看任务。`);
+          append(`[*] 任务 ${tid} 15s 内未回显（心跳 ${beacon.interval || "?"}s），稍后 Refresh 看任务。`);
         }
-      }, 40000);
+      }, 15000);
     } catch (e) {
       append(`[!] 下发失败: ${e instanceof Error ? e.message : String(e)}`);
       setBusy(false);
@@ -271,7 +275,7 @@ function BeaconConsole({ beacon, onClose, pollRef, onRefresh }: {
         <span className="font-semibold text-red-400">Beacon Console</span>
         <span className="font-mono text-blue-400">{beacon.hostname}</span>
         <span className="text-zinc-500">{beacon.id.slice(0, 18)}…</span>
-        {busy && <span className="animate-pulse text-amber-400">等待回连…</span>}
+        {busy && <span className="animate-pulse text-amber-400">已下发 · 600ms 轮询结果…</span>}
         <button className="ml-auto text-zinc-500 hover:text-red-400" onClick={onClose}><XIcon className="size-3.5" /></button>
       </div>
       <pre ref={outRef} className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap px-3 py-1.5 font-mono text-[11px] leading-relaxed text-zinc-300">{out}</pre>
