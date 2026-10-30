@@ -1712,3 +1712,27 @@ CREATE TABLE IF NOT EXISTS c2_plugins (
     builtin BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- C2 攻击链路图（参考 oktos GoalManagement + FORANG 探索图）：
+-- 节点=会话/命令/资产/凭据/横向目标，边=执行/发现/移动/提权。
+-- AI 驱动：LLM 分析命令输出 → 自动建节点/边 → 建议下一步。
+CREATE TABLE IF NOT EXISTS c2_graph_nodes (
+    id BIGSERIAL PRIMARY KEY,
+    session_id TEXT NOT NULL DEFAULT '',
+    parent_id BIGINT REFERENCES c2_graph_nodes(id) ON DELETE CASCADE,
+    node_type TEXT NOT NULL DEFAULT 'cmd',    -- beacon/cmd/asset/cred/lateral/ai_insight
+    label TEXT NOT NULL DEFAULT '',
+    detail TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'done',      -- pending/running/done/failed
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_c2gn_session ON c2_graph_nodes(session_id, id);
+
+CREATE TABLE IF NOT EXISTS c2_graph_edges (
+    id BIGSERIAL PRIMARY KEY,
+    session_id TEXT NOT NULL DEFAULT '',
+    from_node BIGINT NOT NULL REFERENCES c2_graph_nodes(id) ON DELETE CASCADE,
+    to_node BIGINT NOT NULL REFERENCES c2_graph_nodes(id) ON DELETE CASCADE,
+    edge_type TEXT NOT NULL DEFAULT 'executed' -- executed/discovered/moved/escalated/ai_suggested
+);
+CREATE INDEX IF NOT EXISTS idx_c2ge_session ON c2_graph_edges(session_id);

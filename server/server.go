@@ -233,6 +233,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	s.seedDictBuiltins()          // 字典种子（幂等，只补缺失）
 	s.seedC2Plugins()             // C2 内置插件种子（幂等）
 	s.ensureC2AuditTable()        // C2 审计日志表（幂等）
+	s.ensureC2GraphTables()       // C2 攻击链路图（幂等）
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。
 	s.applyRetryPolicy()
@@ -895,6 +896,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tools/c2/scan", s.c2ScanDeploy)       // C2 扫描下发
 	mux.HandleFunc("GET /api/tools/c2/report", s.c2Report)          // C2 会话报告
 	mux.HandleFunc("GET /api/tools/c2/audit", s.c2AuditList)        // C2 审计日志
+	mux.HandleFunc("GET /api/tools/c2/graph", s.c2GraphGet)         // C2 攻击链路图
+	mux.HandleFunc("POST /api/tools/c2/graph/node", s.c2GraphNodeAdd)
+	mux.HandleFunc("POST /api/tools/c2/graph/edge", s.c2GraphEdgeAdd)
+	mux.HandleFunc("DELETE /api/tools/c2/graph/{session_id}", s.c2GraphClear)
+	mux.HandleFunc("POST /api/tools/c2/ai", s.c2AIDrive)            // AI 驱动 C2
+	mux.HandleFunc("GET /api/tools/c2/ai/suggestions", s.c2AISuggest)
 	mux.HandleFunc("POST /api/tools/mumu/config", s.mumuConfigSet)
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)

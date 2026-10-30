@@ -1320,6 +1320,16 @@ export const api = {
     post<{ data: { output: string } }>("/tools/c2/scan", { session_id: sessionId, action, ...opts }),
   c2Report: (sessionId: string) =>
     get<{ data: { report: string } }>(`/tools/c2/report?session_id=${sessionId}`),
+  c2Graph: (sessionId: string) =>
+    get<{ data: unknown[] }>(`/tools/c2/graph?session_id=${sessionId}`),
+  c2GraphNodeAdd: (payload: { session_id: string; parent_id?: number; node_type?: string; label: string; detail?: string }) =>
+    post<{ data: { id: number } }>("/tools/c2/graph/node", payload),
+  c2GraphClear: (sessionId: string) =>
+    fetch(`/api/tools/c2/graph/${sessionId}`, { method: "DELETE" }),
+  c2AIDrive: (sessionId: string, instruction: string) =>
+    post<{ data: { ai_reply?: string; executed?: number; results?: { node_id: number; cmd: string; label: string; output: string; reason: string; ok: boolean }[] } }>("/tools/c2/ai", { session_id: sessionId, instruction }),
+  c2AISuggest: (sessionId: string) =>
+    get<{ data: { suggestions: string } }>(`/tools/c2/ai/suggestions?session_id=${sessionId}`),
   c2AuditList: (limit?: number) =>
     get<{ data: { id: number; session_id: string; hostname: string; action: string; detail: string; created_at: string }[] }>(`/tools/c2/audit?limit=${limit || 50}`),
   c2PluginRun: (sessionId: string, pluginId: number) =>

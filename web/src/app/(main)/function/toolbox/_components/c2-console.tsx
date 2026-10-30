@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import C2PluginsPanel from "./c2-plugins";
 import { SysInfoPanel, SchedulePanel, AuditPanel } from "./c2-panels";
+import C2GraphPanel from "./c2-graph-panel";
 
 interface BeaconRow {
   id: string;
@@ -34,7 +35,7 @@ interface BeaconRow {
   integrityLevel?: string;
 }
 
-type Panel = "interact" | "files" | "process" | "network" | "plugins" | "sysinfo" | "schedule" | "audit";
+type Panel = "interact" | "files" | "process" | "network" | "plugins" | "sysinfo" | "schedule" | "audit" | "graph";
 
 // useTask 下发任务并轮询到 output（600ms 轮询，默认 15s 兜底）。
 function useTask(beaconId: string) {
@@ -254,6 +255,7 @@ function SessionPanel({ beacon, panel, setPanel, onClose, onRefresh }: {
     { key: "sysinfo", label: "SysInfo", icon: <InfoIcon className="size-3.5" /> },
     { key: "schedule", label: "Schedule", icon: <ClockIcon className="size-3.5" /> },
     { key: "audit", label: "Audit", icon: <ScrollTextIcon className="size-3.5" /> },
+    { key: "graph", label: "链路图", icon: <NetworkIcon className="size-3.5" /> },
   ];
   return (
     <div className="flex h-72 flex-col border-t border-zinc-700 bg-black">
@@ -277,6 +279,7 @@ function SessionPanel({ beacon, panel, setPanel, onClose, onRefresh }: {
         {panel === "sysinfo" && <SysInfoPanel beaconId={beacon.id} />}
         {panel === "schedule" && <SchedulePanel beaconId={beacon.id} />}
         {panel === "audit" && <AuditPanel />}
+        {panel === "graph" && <C2GraphPanel beaconId={beacon.id} />}
       </div>
     </div>
   );
