@@ -942,7 +942,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/backup/restore", s.backupRestore)      // 恢复
 	mux.HandleFunc("GET /api/tools/c2/audit/verify", s.c2AuditVerify) // 审计防篡校验
 	mux.HandleFunc("GET /api/tools/fingerprint", s.fingerprintAPI)               // 指纹识别
-	mux.HandleFunc("POST /api/tools/fingerprint/autotest", s.fingerprintAutoTest) // 指纹→POC→AI任务
+	mux.HandleFunc("POST /api/tools/fingerprint/autotest", s.fingerprintAutoTest)
+	mux.HandleFunc("POST /api/batch/create", s.batchCreate)            // 批量资产渗透
+	mux.HandleFunc("GET /api/batch", s.batchList)
+	mux.HandleFunc("GET /api/batch/{id}", s.batchDetail) // 指纹→POC→AI任务
 	mux.HandleFunc("POST /api/tools/c2/tunnel/stop", s.c2TunnelStopEnhanced) // 增强：全清理
 	mux.HandleFunc("POST /api/tools/mumu/config", s.mumuConfigSet)
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
