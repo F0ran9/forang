@@ -28,6 +28,7 @@ import (
 	"github.com/Autumn-27/artex/survey"
 	"github.com/Autumn-27/artex/report"
 	"github.com/Autumn-27/artex/traffic"
+	"github.com/Autumn-27/artex/webshell"
 	"github.com/Autumn-27/norma/llm"
 	actool "github.com/Autumn-27/norma/tool"
 	"github.com/Autumn-27/norma/transcript"
@@ -195,6 +196,19 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		}
 		return hits, total, err
 	})
+	agent.SetEscalateHooks(
+		func(ctx context.Context, vulnType, targetURL string, params map[string]any) (string, error) {
+			return s.escalateDeploy(ctx, vulnType, targetURL, params)
+		},
+		func(ctx context.Context, url, password, encoder, scriptType string) (bool, string, error) {
+			cli := &webshell.Client{URL: url, Password: password, Encoder: encoder, ScriptType: scriptType, Timeout: 15 * time.Second}
+			res, err := cli.Test()
+			if err != nil {
+				return false, "", err
+			}
+			return res.OK, res.Output, nil
+		},
+	)
 	agent.SetDictHooks(
 		func(kind, value, note string) error {
 			if !validDictKind(kind) {
