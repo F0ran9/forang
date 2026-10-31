@@ -14,12 +14,13 @@ import {
   RefreshCw, SettingsIcon, PencilIcon, XIcon, ZapIcon,
   TerminalIcon, FolderIcon, CpuIcon, NetworkIcon, TrashIcon,
   FolderUpIcon, FolderDownIcon, FolderPlusIcon, PuzzleIcon,
-  InfoIcon, ClockIcon, ScrollTextIcon, TerminalSquareIcon, PackageIcon,
+  InfoIcon, ClockIcon, ScrollTextIcon, TerminalSquareIcon, PackageIcon, GlobeIcon,
 } from "lucide-react";
 import C2PluginsPanel from "./c2-plugins";
 import { SysInfoPanel, SchedulePanel, AuditPanel } from "./c2-panels";
 import C2GraphPanel from "./c2-graph-panel";
 import { C2ShellPanel, C2AgentBuilder } from "./c2-shell-panel";
+import C2TunnelPanel from "./c2-tunnel-panel";
 
 interface BeaconRow {
   id: string;
@@ -36,7 +37,7 @@ interface BeaconRow {
   integrityLevel?: string;
 }
 
-type Panel = "interact" | "files" | "process" | "network" | "plugins" | "sysinfo" | "schedule" | "audit" | "graph" | "shell";
+type Panel = "interact" | "files" | "process" | "network" | "plugins" | "sysinfo" | "schedule" | "audit" | "graph" | "shell" | "tunnel";
 
 // useTask 下发任务并轮询到 output（600ms 轮询，默认 15s 兜底）。
 function useTask(beaconId: string) {
@@ -274,6 +275,7 @@ function SessionPanel({ beacon, panel, setPanel, onClose, onRefresh }: {
     { key: "audit", label: "审计日志", icon: <ScrollTextIcon className="size-3.5" /> },
     { key: "graph", label: "攻击链路图", icon: <NetworkIcon className="size-3.5" /> },
     { key: "shell", label: "反弹Shell", icon: <TerminalSquareIcon className="size-3.5" /> },
+    { key: "tunnel", label: "内网穿透", icon: <GlobeIcon className="size-3.5" /> },
   ];
   return (
     <div className="flex h-72 flex-col border-t border-zinc-700 bg-black">
@@ -299,6 +301,7 @@ function SessionPanel({ beacon, panel, setPanel, onClose, onRefresh }: {
         {panel === "audit" && <AuditPanel />}
         {panel === "graph" && <C2GraphPanel beaconId={beacon.id} />}
         {panel === "shell" && <C2ShellPanel beaconId={beacon.id} />}
+        {panel === "tunnel" && <C2TunnelPanel beaconId={beacon.id} hostname={beacon.hostname || ""} internalIP={beacon.internalIp || ""} />}
       </div>
     </div>
   );

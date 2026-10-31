@@ -908,6 +908,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tools/c2/shell/ws", s.c2ShellWS)       // 反弹 Shell（SSE 流）
 	mux.HandleFunc("POST /api/tools/c2/shell/cmd", s.c2ShellCmd)   // 反弹 Shell 命令
 	mux.HandleFunc("DELETE /api/tools/c2/shell/{shell_id}", s.c2ShellClose)
+	mux.HandleFunc("POST /api/tools/c2/tunnel/start", s.c2TunnelStart)  // 内网穿透
+	mux.HandleFunc("POST /api/tools/c2/tunnel/stop", s.c2TunnelStop)
+	mux.HandleFunc("GET /api/tools/c2/tunnel/status", s.c2TunnelStatus)
+	mux.HandleFunc("GET /api/tools/c2/tunnel/chains", s.c2TunnelChains)
 	mux.HandleFunc("POST /api/tools/mumu/config", s.mumuConfigSet)
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
