@@ -14,11 +14,12 @@ import {
   RefreshCw, SettingsIcon, PencilIcon, XIcon, ZapIcon,
   TerminalIcon, FolderIcon, CpuIcon, NetworkIcon, TrashIcon,
   FolderUpIcon, FolderDownIcon, FolderPlusIcon, PuzzleIcon,
-  InfoIcon, ClockIcon, ScrollTextIcon,
+  InfoIcon, ClockIcon, ScrollTextIcon, TerminalSquareIcon, PackageIcon,
 } from "lucide-react";
 import C2PluginsPanel from "./c2-plugins";
 import { SysInfoPanel, SchedulePanel, AuditPanel } from "./c2-panels";
 import C2GraphPanel from "./c2-graph-panel";
+import { C2ShellPanel, C2AgentBuilder } from "./c2-shell-panel";
 
 interface BeaconRow {
   id: string;
@@ -35,7 +36,7 @@ interface BeaconRow {
   integrityLevel?: string;
 }
 
-type Panel = "interact" | "files" | "process" | "network" | "plugins" | "sysinfo" | "schedule" | "audit" | "graph";
+type Panel = "interact" | "files" | "process" | "network" | "plugins" | "sysinfo" | "schedule" | "audit" | "graph" | "shell";
 
 // useTask 下发任务并轮询到 output（600ms 轮询，默认 15s 兜底）。
 function useTask(beaconId: string) {
@@ -108,6 +109,7 @@ export default function C2Console() {
   const [sel, setSel] = React.useState<string>("");
   const [panel, setPanel] = React.useState<Panel>("interact");
   const [cfgOpen, setCfgOpen] = React.useState(false);
+  const [builderOpen, setBuilderOpen] = React.useState(false);
   const [cfgUrl, setCfgUrl] = React.useState("");
   const [cfgToken, setCfgToken] = React.useState("");
   const [reload, setReload] = React.useState(0);
@@ -127,10 +129,15 @@ export default function C2Console() {
     } catch { /* ignore */ }
   }, []);
 
+  // SSE 实时推送（替代 5s 轮询）+ 10s 兜底刷新
   React.useEffect(() => {
     load();
-    const auto = setInterval(load, 5000);
-    return () => clearInterval(auto);
+    const es = new EventSource(`/api/tools/c2/stream`);
+    es.addEventListener("sessions", () => load());
+    es.addEventListener("graph_update", () => load());
+    es.onerror = () => { /* SSE 断开后靠兜底 */ };
+    const fallback = setInterval(load, 10000); // SSE 断了兜底
+    return () => { es.close(); clearInterval(fallback); };
   }, [load, reload]);
 
   const saveCfg = async () => {
@@ -178,11 +185,21 @@ export default function C2Console() {
           <button className="flex items-center gap-1 rounded border border-zinc-600 px-2 py-1 text-[11px] hover:bg-zinc-700" onClick={() => setCfgOpen(!cfgOpen)}>
             <SettingsIcon className="size-3.5" /> Preferences
           </button>
+          <button className="flex items-center gap-1 rounded border border-zinc-600 px-2 py-1 text-[11px] hover:bg-zinc-700" onClick={() => setBuilderOpen(!builderOpen)}>
+            <PackageIcon className="size-3.5" /> 生成器
+          </button>
           <button className="flex items-center gap-1 rounded border border-zinc-600 px-2 py-1 text-[11px] hover:bg-zinc-700" onClick={() => setReload((n) => n + 1)}>
             <RefreshCw className="size-3.5" /> Refresh
           </button>
         </div>
       </div>
+      {builderOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setBuilderOpen(false)}>
+          <div className="rounded-lg border border-zinc-600 bg-zinc-900 p-4" onClick={(e) => e.stopPropagation()}>
+            <C2AgentBuilder />
+          </div>
+        </div>
+      )}
       {cfgOpen && (
         <div className="flex flex-wrap items-center gap-2 border-b border-zinc-700 bg-zinc-800/70 px-3 py-2 text-xs">
           <Input className="h-7 w-64 border-zinc-600 bg-zinc-800 font-mono text-[11px] text-zinc-200" placeholder="goc2 admin URL" value={cfgUrl} onChange={(e) => setCfgUrl(e.target.value)} />
@@ -256,6 +273,7 @@ function SessionPanel({ beacon, panel, setPanel, onClose, onRefresh }: {
     { key: "schedule", label: "定时任务", icon: <ClockIcon className="size-3.5" /> },
     { key: "audit", label: "审计日志", icon: <ScrollTextIcon className="size-3.5" /> },
     { key: "graph", label: "攻击链路图", icon: <NetworkIcon className="size-3.5" /> },
+    { key: "shell", label: "反弹Shell", icon: <TerminalSquareIcon className="size-3.5" /> },
   ];
   return (
     <div className="flex h-72 flex-col border-t border-zinc-700 bg-black">
@@ -280,6 +298,7 @@ function SessionPanel({ beacon, panel, setPanel, onClose, onRefresh }: {
         {panel === "schedule" && <SchedulePanel beaconId={beacon.id} />}
         {panel === "audit" && <AuditPanel />}
         {panel === "graph" && <C2GraphPanel beaconId={beacon.id} />}
+        {panel === "shell" && <C2ShellPanel beaconId={beacon.id} />}
       </div>
     </div>
   );

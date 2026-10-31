@@ -905,6 +905,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tools/c2/stream", s.c2SSEStream)       // SSE 实时推送
 	mux.HandleFunc("POST /api/tools/c2/batch", s.c2BatchExec)       // 批量执行
 	mux.HandleFunc("GET /api/tools/c2/tokens", s.c2TokenStats)      // AI 用量统计
+	mux.HandleFunc("GET /api/tools/c2/shell/ws", s.c2ShellWS)       // 反弹 Shell（SSE 流）
+	mux.HandleFunc("POST /api/tools/c2/shell/cmd", s.c2ShellCmd)   // 反弹 Shell 命令
+	mux.HandleFunc("DELETE /api/tools/c2/shell/{shell_id}", s.c2ShellClose)
 	mux.HandleFunc("POST /api/tools/mumu/config", s.mumuConfigSet)
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
