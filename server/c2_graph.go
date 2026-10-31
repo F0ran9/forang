@@ -201,11 +201,8 @@ func (s *Server) c2AIDrive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1) 获取图上下文（已有节点摘要）
-	ctxText := s.c2GraphContext(b.SessionID)
-
-	// 2) AI 规划
-	plan, err := s.c2AIPlan(ctxText, b.Instruction)
+	// AI 规划（注入知识库经验 + 图上下文）
+	plan, err := s.c2AIPlanWithKB(b.SessionID, b.Instruction)
 	if err != nil {
 		writeErr(w, 502, "AI 规划失败: "+err.Error())
 		return
@@ -263,6 +260,8 @@ func (s *Server) c2AIDrive(w http.ResponseWriter, r *http.Request) {
 
 		results = append(results, execResult{NodeID: nodeID, Cmd: item.Cmd, Label: item.Label, Output: out, Reason: item.Reason, OK: err == nil})
 		s.c2Audit(b.SessionID, "", "ai_exec", fmt.Sprintf("%s → %s", item.Label, item.Cmd))
+		// AI 分析输出 → 自动识别安全问题 → 提交漏洞中台
+		go s.c2AnalyzeAndReport(context.Background(), b.SessionID, "", item.Cmd, out)
 	}
 
 	writeJSON(w, 200, map[string]any{"data": map[string]any{

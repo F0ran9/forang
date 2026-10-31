@@ -59,6 +59,7 @@ func (s *Server) wsTargetsList(w http.ResponseWriter, r *http.Request) {
 			&it.ScriptType, &it.Note, &it.Headers, &it.Alive, &it.LastCheck, &ts); err != nil {
 			continue
 		}
+		it.Password = s.wsDecryptPassword(it.Password)
 		if ts.Valid {
 			it.UpdatedAt = ts.Time.Format("2006-01-02 15:04")
 		}
@@ -104,7 +105,7 @@ func (s *Server) wsTargetsSave(w http.ResponseWriter, r *http.Request) {
 	if b.ID > 0 {
 		_, err := s.m.PG().Exec(`UPDATE webshell_targets SET group_name=$2,name=$3,url=$4,password=$5,
 			encoder=$6,script_type=$7,note=$8,headers=$9,updated_at=now() WHERE id=$1`,
-			b.ID, b.Group, b.Name, b.URL, b.Password, b.Encoder, b.ScriptType, truncateStr(b.Note, 4000), b.Headers)
+			b.ID, b.Group, b.Name, b.URL, s.wsEncryptPassword(b.Password), b.Encoder, b.ScriptType, truncateStr(b.Note, 4000), b.Headers)
 		if err != nil {
 			writeErr(w, 500, err.Error())
 			return
@@ -115,7 +116,7 @@ func (s *Server) wsTargetsSave(w http.ResponseWriter, r *http.Request) {
 	var id int64
 	err := s.m.PG().QueryRow(`INSERT INTO webshell_targets (group_name,name,url,password,encoder,script_type,note,headers)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-		b.Group, b.Name, b.URL, b.Password, b.Encoder, b.ScriptType, truncateStr(b.Note, 4000), b.Headers).Scan(&id)
+		b.Group, b.Name, b.URL, s.wsEncryptPassword(b.Password), b.Encoder, b.ScriptType, truncateStr(b.Note, 4000), b.Headers).Scan(&id)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -157,6 +158,7 @@ func (s *Server) wsTargetsCheck(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var t trow
 		if rows.Scan(&t.id, &t.url, &t.pw, &t.enc, &t.st, &t.headers) == nil {
+			t.pw = s.wsDecryptPassword(t.pw)
 			all = append(all, t)
 		}
 	}
