@@ -40,6 +40,7 @@ import type {
   UsageStats,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import RealtimePanel from "./_components/realtime-panel";
 
 // ── chart constants ───────────────────────────────────────────────────────────
 
@@ -493,6 +494,8 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-4 pb-6">
+      {/* 实时仪表盘面板（SSE 驱动全平台态势：C2/Webshell/知识库/AI/隧道/资产） */}
+      <RealtimePanel />
       {/* ── Header ── */}
       <div>
         <div>

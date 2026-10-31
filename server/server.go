@@ -932,6 +932,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tools/c2/autopilot/chain", s.autopilotChain) // AI 漏洞链推断
 	mux.HandleFunc("POST /api/tools/c2/autopilot/match", s.autopilotMatch) // 指纹→载荷匹配
 	mux.HandleFunc("POST /api/tools/c2/autopilot/report", s.autopilotReport) // AI 报告增强
+	mux.HandleFunc("GET /api/dashboard/enhanced", s.dashboardEnhanced) // 实时仪表盘
+	mux.HandleFunc("GET /api/dashboard/stream", s.dashboardStream)     // 仪表盘 SSE
 	mux.HandleFunc("POST /api/tools/c2/tunnel/stop", s.c2TunnelStopEnhanced) // 增强：全清理
 	mux.HandleFunc("POST /api/tools/mumu/config", s.mumuConfigSet)
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
