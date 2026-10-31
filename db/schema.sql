@@ -1671,7 +1671,7 @@ CREATE TABLE IF NOT EXISTS kb_chunks (
 -- 两路复用：dirscan 默认联用字典、agent dict_query 查询；可导出 txt 供外部工具。
 CREATE TABLE IF NOT EXISTS dict_entries (
     id BIGSERIAL PRIMARY KEY,
-    kind TEXT NOT NULL CHECK (kind IN ('path','user','pass','param','subdomain')),
+    kind TEXT NOT NULL CHECK (kind IN ('path','user','pass','param','subdomain','fingerprint')),
     value TEXT NOT NULL,
     note TEXT NOT NULL DEFAULT '',
     context TEXT NOT NULL DEFAULT '',        -- 出现的宿主/目标（host 或 base_url）

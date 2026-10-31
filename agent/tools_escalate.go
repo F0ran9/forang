@@ -318,12 +318,12 @@ func (t *ToolSet) saveWebshellTarget(url, password, encoder, scriptType string) 
 // fingerprintTool 指纹识别工具（Agent 可调）。
 func (t *ToolSet) fingerprintTool() actool.CoreTool {
 	return readTool("fingerprint",
-		`识别目标网站的技术栈指纹（框架/CMS/语言/容器），并自动匹配 POC 库模板。
+		`识别目标网站的技术栈指纹（框架/CMS/语言/容器），自动匹配 POC 库模板和知识库经验。
 
-返回：指纹描述 + 匹配的 POC 列表 + 建议的后续操作。
-识别结果自动入库（assets），POC 匹配后可直接用 run_poc_verify 验证。
+三路入库：assets（资产）+ dict_entries(fingerprint)（字典，供 dict_query 复用）+ kb_summaries 检索（知识库经验）。
 
-使用场景：渗透任务开始时先识别目标指纹，然后根据指纹选择针对性的攻击手段。`,
+返回：指纹 + POC 匹配 + 知识库同类经验 + 建议后续操作。
+使用场景：渗透任务开始时先识别指纹，根据指纹+POC+知识库经验选择针对性攻击手段，减少重复侦察。`,
 		obj(map[string]any{
 			"url": str("目标 URL（http://target:port/）"),
 		}, "url"),
@@ -356,6 +356,7 @@ func (t *ToolSet) fingerprintTool() actool.CoreTool {
 						Server      string `json:"server"`
 						XPower      string `json:"x_powered_by"`
 					} `json:"fingerprint"`
+					KBExperience string `json:"kb_experience"`
 					POCMatches []struct {
 						Name   string `json:"name"`
 						Reason string `json:"reason"`

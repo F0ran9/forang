@@ -96,7 +96,7 @@ func nilIfZero(n int64) any {
 
 func validDictKind(k string) bool {
 	switch k {
-	case "path", "user", "pass", "param", "subdomain":
+	case "path", "user", "pass", "param", "subdomain", "fingerprint":
 		return true
 	}
 	return false

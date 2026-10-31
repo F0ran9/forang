@@ -115,13 +115,35 @@ func (s *Server) fingerprintAPI(w http.ResponseWriter, r *http.Request) {
 		ON CONFLICT DO NOTHING`,
 		targetURL, fp.Fingerprint)
 
+	// 入库字典中心（kind=fingerprint，供 Agent dict_query 复用+知识库沉淀）
+	s.fingerprintToDict(fp)
+
 	// POC 匹配
 	matches := s.matchPOCByFingerprint(fp)
+
+	// 查知识库：同类指纹的历史经验
+	kbHits := s.c2KBSearchCached(fp.Fingerprint)
 
 	writeJSON(w, 200, map[string]any{"data": map[string]any{
 		"fingerprint": fp,
 		"poc_matches": matches,
+		"kb_experience": kbHits,
 	}})
+}
+
+// fingerprintToDict 指纹结果入库字典中心（kind=fingerprint）。
+// 每个 tag 作为独立条目沉淀，Agent 可 dict_query kind=fingerprint q=Nacos 查询。
+func (s *Server) fingerprintToDict(fp *FingerPrint) {
+	tags := strings.Split(fp.Fingerprint, " / ")
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" || tag == "Unknown" {
+			continue
+		}
+		note := fmt.Sprintf("URL:%s Server:%s X-Powered-By:%s",
+			truncateStr(fp.URL, 100), fp.Server, fp.XPower)
+		s.dictAdd("fingerprint", tag, note, truncateStr(fp.URL, 100), "fingerprint", 0, 0)
+	}
 }
 
 // doFingerprint 执行指纹识别。
