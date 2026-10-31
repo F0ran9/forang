@@ -44,6 +44,7 @@ func (s *Server) c2ClientsAPI(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "goc2 不可达: "+err.Error())
 		return
 	}
+	go s.c2CheckNewSessions(clients) // 新 beacon 上线 → 钉钉/飞书推送
 	writeJSON(w, 200, map[string]any{"data": clients})
 }
 

@@ -9,6 +9,8 @@ package agent
 //   场景 3：已有 webshell → auto_escalate("shell", url, password, encoder) → C2 beacon
 
 import (
+	"net/http"
+	"net/url"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -311,4 +313,74 @@ func (t *ToolSet) saveWebshellTarget(url, password, encoder, scriptType string) 
 		"script_type": scriptType, "group": "auto", "name": "Auto " + filepath.Base(url),
 	}
 	_ = target // 实际由 server 侧的 SetEscalateHooks 处理
+}
+
+// fingerprintTool 指纹识别工具（Agent 可调）。
+func (t *ToolSet) fingerprintTool() actool.CoreTool {
+	return readTool("fingerprint",
+		`识别目标网站的技术栈指纹（框架/CMS/语言/容器），并自动匹配 POC 库模板。
+
+返回：指纹描述 + 匹配的 POC 列表 + 建议的后续操作。
+识别结果自动入库（assets），POC 匹配后可直接用 run_poc_verify 验证。
+
+使用场景：渗透任务开始时先识别目标指纹，然后根据指纹选择针对性的攻击手段。`,
+		obj(map[string]any{
+			"url": str("目标 URL（http://target:port/）"),
+		}, "url"),
+		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
+			var a struct {
+				URL string `json:"url"`
+			}
+			if err := json.Unmarshal(in, &a); err != nil || a.URL == "" {
+				return actool.Errorf("url 必填"), nil
+			}
+			// 调平台 API
+			token := os.Getenv("FORANG_TOKEN")
+			if token == "" {
+				return actool.Errorf("平台 token 未设置（FORANG_TOKEN）"), nil
+			}
+			req, err := http.NewRequest("GET", "http://127.0.0.1:8787/api/tools/fingerprint?url="+url.QueryEscape(a.URL), nil)
+			if err != nil {
+				return actool.Errorf("请求构造失败"), nil
+			}
+			req.Header.Set("Authorization", "Bearer "+token)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return actool.Errorf("请求失败: "+err.Error()), nil
+			}
+			defer resp.Body.Close()
+			var result struct {
+				Data struct {
+					Fingerprint struct {
+						Fingerprint string `json:"fingerprint"`
+						Server      string `json:"server"`
+						XPower      string `json:"x_powered_by"`
+					} `json:"fingerprint"`
+					POCMatches []struct {
+						Name   string `json:"name"`
+						Reason string `json:"reason"`
+					} `json:"poc_matches"`
+				} `json:"data"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return actool.Errorf("解析失败"), nil
+			}
+
+			var b strings.Builder
+			fmt.Fprintf(&b, "指纹: %s (Server: %s, X-Powered-By: %s)\n",
+				result.Data.Fingerprint.Fingerprint, result.Data.Fingerprint.Server, result.Data.Fingerprint.XPower)
+			if len(result.Data.POCMatches) > 0 {
+				fmt.Fprintf(&b, "匹配 POC (%d 个):\n", len(result.Data.POCMatches))
+				for i, m := range result.Data.POCMatches {
+					if i >= 5 {
+						break
+					}
+					fmt.Fprintf(&b, "  %d. %s — %s\n", i+1, m.Name, m.Reason)
+				}
+				b.WriteString("\n建议：用 run_poc_verify 逐个验证匹配的 POC。\n")
+			} else {
+				b.WriteString("\n未匹配到 POC，建议手动探测常见漏洞。\n")
+			}
+			return actool.Text(b.String()), nil
+		})
 }

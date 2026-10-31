@@ -677,6 +677,7 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 	tools = append(tools, t.kbSearchTool()) // 知识库检索（跨任务经验复用）
 	tools = append(tools, t.dictAddTool(), t.dictQueryTool()) // 字典中心：沉淀 + 查询
 	tools = append(tools, t.autoEscalateTool()) // 渗透↔工具箱自动联动（发现漏洞→自动攻击链）
+	tools = append(tools, t.fingerprintTool()) // 指纹识别→POC匹配→渗透建议
 	return tools
 }
 
@@ -715,6 +716,7 @@ func (t *ToolSet) MainAgentTools() []actool.CoreTool {
 	tools = append(tools, t.kbSearchTool()) // 知识库检索（跨任务经验复用）
 	tools = append(tools, t.dictAddTool(), t.dictQueryTool()) // 字典中心：沉淀 + 查询
 	tools = append(tools, t.autoEscalateTool()) // 渗透↔工具箱自动联动（发现漏洞→自动攻击链）
+	tools = append(tools, t.fingerprintTool()) // 指纹识别→POC匹配→渗透建议
 	return tools
 }
 
