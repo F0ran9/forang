@@ -98,17 +98,8 @@ func (s *Server) c2AIPlanWithKB(sessionID, instruction string) (string, error) {
 	// 获取图上下文
 	graphCtx := s.c2GraphContext(sessionID)
 
-	// 查知识库（用指令关键词）
-	kbCtx := "（知识库无相关经验）"
-	if results, _, err := s.kbSearchRetrieval(instruction, 3); err == nil && len(results) > 0 {
-		var sb strings.Builder
-		sb.WriteString("知识库过往经验（同类目标的已验证手法）：\n")
-		for i, r := range results {
-			sb.WriteString(fmt.Sprintf("%d. 任务#%d %s（相关度 %.2f）\n%s\n\n",
-				i+1, r.TaskID, r.Title, r.Score, truncateStr(r.Text, 300)))
-		}
-		kbCtx = sb.String()
-	}
+	// 查知识库（带缓存，5 分钟 TTL）
+	kbCtx := s.c2KBSearchCached(instruction)
 
 	profileID := s.reviewerProfileID()
 	if profileID == 0 {
@@ -123,6 +114,15 @@ func (s *Server) c2AIPlanWithKB(sessionID, instruction string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
+	// 规划缓存（同类指令 2 分钟内复用）
+	cacheKey := fmt.Sprintf("%s|%s", sessionID, instruction)
+	planCacheMu.RLock()
+	if entry, ok := planCache[cacheKey]; ok && time.Now().Before(entry.expires) {
+		planCacheMu.RUnlock()
+		return entry.plan, nil
+	}
+	planCacheMu.RUnlock()
+
 	userPrompt := fmt.Sprintf(`当前图上下文：
 %s
 
@@ -131,7 +131,13 @@ func (s *Server) c2AIPlanWithKB(sessionID, instruction string) (string, error) {
 用户指令：%s
 
 请规划要执行的命令（参考知识库经验，避免重复已有节点的侦察）：`, graphCtx, kbCtx, instruction)
-	return streamCollectText(ctx, prov, c2AISystemPrompt, userPrompt)
+	result, err := streamCollectText(ctx, prov, c2AISystemPrompt, userPrompt)
+	if err == nil {
+		planCacheMu.Lock()
+		planCache[cacheKey] = planCacheEntry{plan: result, expires: time.Now().Add(planCacheTTL)}
+		planCacheMu.Unlock()
+	}
+	return result, err
 }
 
 // ---- 3) Webshell 密码加密 ----

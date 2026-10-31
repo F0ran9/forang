@@ -902,6 +902,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/tools/c2/graph/{session_id}", s.c2GraphClear)
 	mux.HandleFunc("POST /api/tools/c2/ai", s.c2AIDrive)            // AI 驱动 C2
 	mux.HandleFunc("GET /api/tools/c2/ai/suggestions", s.c2AISuggest)
+	mux.HandleFunc("GET /api/tools/c2/stream", s.c2SSEStream)       // SSE 实时推送
+	mux.HandleFunc("POST /api/tools/c2/batch", s.c2BatchExec)       // 批量执行
+	mux.HandleFunc("GET /api/tools/c2/tokens", s.c2TokenStats)      // AI 用量统计
 	mux.HandleFunc("POST /api/tools/mumu/config", s.mumuConfigSet)
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
