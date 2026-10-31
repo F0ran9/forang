@@ -247,15 +247,15 @@ function SessionPanel({ beacon, panel, setPanel, onClose, onRefresh }: {
   onRefresh: () => void;
 }) {
   const tabs: { key: Panel; label: string; icon: React.ReactNode }[] = [
-    { key: "interact", label: "Interact", icon: <TerminalIcon className="size-3.5" /> },
-    { key: "files", label: "Files", icon: <FolderIcon className="size-3.5" /> },
-    { key: "process", label: "Process", icon: <CpuIcon className="size-3.5" /> },
-    { key: "network", label: "Network", icon: <NetworkIcon className="size-3.5" /> },
-    { key: "plugins", label: "Plugins", icon: <PuzzleIcon className="size-3.5" /> },
-    { key: "sysinfo", label: "SysInfo", icon: <InfoIcon className="size-3.5" /> },
-    { key: "schedule", label: "Schedule", icon: <ClockIcon className="size-3.5" /> },
-    { key: "audit", label: "Audit", icon: <ScrollTextIcon className="size-3.5" /> },
-    { key: "graph", label: "链路图", icon: <NetworkIcon className="size-3.5" /> },
+    { key: "interact", label: "交互终端", icon: <TerminalIcon className="size-3.5" /> },
+    { key: "files", label: "文件管理", icon: <FolderIcon className="size-3.5" /> },
+    { key: "process", label: "进程管理", icon: <CpuIcon className="size-3.5" /> },
+    { key: "network", label: "网络探测", icon: <NetworkIcon className="size-3.5" /> },
+    { key: "plugins", label: "后渗透插件", icon: <PuzzleIcon className="size-3.5" /> },
+    { key: "sysinfo", label: "系统信息", icon: <InfoIcon className="size-3.5" /> },
+    { key: "schedule", label: "定时任务", icon: <ClockIcon className="size-3.5" /> },
+    { key: "audit", label: "审计日志", icon: <ScrollTextIcon className="size-3.5" /> },
+    { key: "graph", label: "攻击链路图", icon: <NetworkIcon className="size-3.5" /> },
   ];
   return (
     <div className="flex h-72 flex-col border-t border-zinc-700 bg-black">
