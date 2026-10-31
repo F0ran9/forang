@@ -52,6 +52,12 @@ var (
 
 // seedDictBuiltins 幂等种子：只补 (kind,value) 缺失的行，不动已沉淀数据。
 func (s *Server) seedDictBuiltins() {
+	// 旧库迁移：早期建表时 kind CHECK 不含 fingerprint，schema.sql 更新后已存在的表
+	// 不会跟着变（实测线上库约束仍是旧版，INSERT kind=fingerprint 被 CHECK 拒绝）。
+	// 幂等重建约束到与 schema.sql 一致。
+	_, _ = s.m.PG().Exec(`ALTER TABLE dict_entries DROP CONSTRAINT IF EXISTS dict_entries_kind_check`)
+	_, _ = s.m.PG().Exec(`ALTER TABLE dict_entries ADD CONSTRAINT dict_entries_kind_check
+		CHECK (kind IN ('path','user','pass','param','subdomain','fingerprint'))`)
 	seeds := map[string][]string{
 		"user": builtinUsers, "pass": builtinPasses,
 		"param": builtinParams, "subdomain": builtinSubdomains,

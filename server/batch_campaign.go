@@ -10,9 +10,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Autumn-27/artex/db"
 )
 
 // ensureBatchTables 幂等建表。
@@ -84,6 +88,11 @@ func (s *Server) batchCreate(w http.ResponseWriter, r *http.Request) {
 			tag := ""
 			if err == nil && fp != nil {
 				tag = fp.Fingerprint
+				// 指纹三路入库（与 /api/tools/fingerprint 一致）：
+				// assets 资产 + dict(fingerprint) 字典 + KB 经验
+				_, _ = s.m.PG().Exec(`INSERT INTO assets (type, value, source, metadata)
+					VALUES ('service', $1, 'fingerprint', $2) ON CONFLICT DO NOTHING`, url, fp.Fingerprint)
+				s.fingerprintToDict(fp)
 			}
 			ch <- fpResult{idx: i, fp: tag}
 		}(i, t.URL)
@@ -93,34 +102,26 @@ func (s *Server) batchCreate(w http.ResponseWriter, r *http.Request) {
 		targets[res.idx].Fingerprint = res.fp
 	}
 
-	// 创建任务
+	// 创建任务：必须走 Manager.CreateTaskWithOptions + launchTask（与任务页新建完全一致），
+	// 直接 SQL INSERT 只落库不进内存注册表，引擎不会执行（tokens=0、findings=0 的根因）。
 	created := 0
 	for i := range targets {
 		goal := strings.ReplaceAll(b.GoalTemplate, "{URL}", targets[i].URL)
 		goal = strings.ReplaceAll(goal, "{FINGERPRINT}", targets[i].Fingerprint)
 		taskName := fmt.Sprintf("%s [%d/%d]", b.Name, i+1, len(targets))
 
-		var expID int64
-		if err := s.m.PG().QueryRow(
-			`INSERT INTO explorations(description, goal) VALUES ($1,$2) RETURNING id`,
-			targets[i].URL, goal).Scan(&expID); err != nil {
-			continue
-		}
-		payload, _ := json.Marshal(map[string]any{
-			"summary":     "批量任务：" + targets[i].URL,
-			"description": targets[i].URL,
-			"goal":        goal,
+		t, err := s.m.CreateTaskWithOptions(targets[i].URL, goal, db.TaskCreateOptions{
+			Name: taskName,
 		})
-		_, _ = s.m.PG().Exec(`INSERT INTO exploration_nodes(exploration_id, kind, payload, priority, state, origin)
-			VALUES ($1, 'fact', $2, 0, 'origin', 'system')`, expID, string(payload))
-
-		var taskID int64
-		if err := s.m.PG().QueryRow(
-			`INSERT INTO tasks (name, description, goal, exploration_id)
-			VALUES ($1, $2, $3, $4) RETURNING id`,
-			taskName, targets[i].URL, goal, expID).Scan(&taskID); err != nil {
+		if err != nil {
+			log.Printf("[batch] 任务创建失败 %s: %v", targets[i].URL, err)
 			continue
 		}
+		// seed + 后台目标分解 + engine.Run，与 server.go createTask 相同的建后流程。
+		// admitTask 自带并发槽位控制，超出并发的任务自动排队。
+		s.launchTask(t, targets[i].URL+" "+goal, false)
+
+		taskID, _ := strconv.ParseInt(t.ID, 10, 64)
 		targets[i].TaskID = &taskID
 		targets[i].Status = "created"
 		created++

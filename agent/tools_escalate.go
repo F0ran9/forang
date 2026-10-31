@@ -122,7 +122,15 @@ func (t *ToolSet) escalateUpload(ctx context.Context, targetURL string, params m
 	}
 	report.WriteString(fmt.Sprintf("  ✅ %s/%s %d 字节 密码=%s\n", scriptType, encoder, len(code), password))
 
-	// 2) 部署（通过上传或注入）
+	// 2) 部署（通过上传或注入）——把 shell 三要素透传给服务端，
+	// 服务端部署成功后据此把目标写进 Webshell 管理器（密码必须是真实生成值）。
+	if params == nil {
+		params = map[string]any{}
+	}
+	params["shell_content"] = code
+	params["shell_password"] = password
+	params["shell_encoder"] = encoder
+	params["shell_script_type"] = scriptType
 	report.WriteString("[2/4] 部署 Payload\n")
 	if escalateHook.deployPayload == nil {
 		return actool.Errorf("部署回调未注入"), nil
