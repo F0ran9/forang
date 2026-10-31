@@ -934,6 +934,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tools/c2/autopilot/report", s.autopilotReport) // AI 报告增强
 	mux.HandleFunc("GET /api/dashboard/enhanced", s.dashboardEnhanced) // 实时仪表盘
 	mux.HandleFunc("GET /api/dashboard/stream", s.dashboardStream)     // 仪表盘 SSE
+	mux.HandleFunc("GET /api/tools/c2/ws", s.c2WSDuplex)             // WS 双向通信
+	mux.HandleFunc("POST /api/tools/c2/ws/cmd", s.c2WSCmd)           // WS 发命令
+	mux.HandleFunc("GET /api/tools/c2/queue", s.c2QueueStatus)       // C2 命令队列
+	mux.HandleFunc("POST /api/tools/c2/queue/clear", s.c2QueueClear)
+	mux.HandleFunc("GET /api/backup", s.backupFull)                   // 全量备份
+	mux.HandleFunc("POST /api/backup/restore", s.backupRestore)      // 恢复
+	mux.HandleFunc("GET /api/tools/c2/audit/verify", s.c2AuditVerify) // 审计防篡校验
 	mux.HandleFunc("POST /api/tools/c2/tunnel/stop", s.c2TunnelStopEnhanced) // 增强：全清理
 	mux.HandleFunc("POST /api/tools/mumu/config", s.mumuConfigSet)
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
