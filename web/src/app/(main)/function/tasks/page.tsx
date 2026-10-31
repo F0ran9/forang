@@ -3191,8 +3191,8 @@ function CreateTaskSheet({
         <Button size="sm">
           <PlusIcon /> 新建任务
         </Button>
-        <BatchCreateSheet onCreated={() => { /* trigger task list refresh */ }} />
       </SheetTrigger>
+      <BatchCreateSheet onCreated={() => {}} />
       {/* 45vw 宽的右侧抽屉:整屏高度可滚动,长表单不再受弹窗高度限制。窄屏退化为全宽。
             内容为 flex 列:头/脚固定,中间字段区 flex-1 独立滚动。 */}
       <SheetContent
