@@ -5,7 +5,7 @@
 //   多层：beacon A(DMZ) → beacon B(内网1) → beacon C(内网2) → 链式隧道
 import React from "react";
 import { api } from "@/lib/api";
-import { GlobeIcon, LayersIcon, PlayIcon, SquareIcon, RefreshCw, ArrowRightIcon } from "lucide-react";
+import { GlobeIcon, LayersIcon, PlayIcon, SquareIcon, RefreshCw, ArrowRightIcon, ZapIcon } from "lucide-react";
 
 interface TunnelEntry {
   session_id: string;
@@ -27,6 +27,8 @@ export default function C2TunnelPanel({ beaconId, hostname, internalIP }: { beac
   const [state, setState] = React.useState<TunnelState | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState("");
+  const [aiResults, setAiResults] = React.useState<{ step: string; detail: string; output?: string; ok: boolean }[]>([]);
+  const [aiBusy, setAiBusy] = React.useState(false);
   const [socksPort, setSocksPort] = React.useState(11080);
 
   const load = React.useCallback(async () => {
@@ -39,6 +41,26 @@ export default function C2TunnelPanel({ beaconId, hostname, internalIP }: { beac
     } catch { /* ignore */ }
   }, []);
   React.useEffect(() => { load(); }, [load]);
+
+  const aiAuto = async () => {
+    setAiBusy(true);
+    setAiResults([]);
+    setMsg("AI 一键穿透中…（信息收集 → AI 分析 → 自动建隧道 → 内网探测）");
+    try {
+      const r = await fetch("/api/tools/c2/tunnel/auto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("forang_token") || ""}` },
+        body: JSON.stringify({ session_id: beaconId, hostname, internal_ip: internalIP }),
+      });
+      const j = await r.json() as { data?: { step: string; detail: string; output?: string; ok: boolean }[] };
+      setAiResults(j.data || []);
+      const last = (j.data || []).slice(-1)[0];
+      if (last?.ok) setMsg(last.detail);
+      load();
+    } catch (e) {
+      setMsg("AI 穿透失败: " + (e instanceof Error ? e.message : String(e)));
+    } finally { setAiBusy(false); }
+  };
 
   const start = async () => {
     setBusy(true);
@@ -91,11 +113,18 @@ export default function C2TunnelPanel({ beaconId, hostname, internalIP }: { beac
           placeholder="端口"
         />
         <button
+          className="flex items-center gap-1 rounded border border-purple-500 bg-purple-500/10 px-2.5 py-0.5 font-semibold text-purple-300 hover:bg-purple-500/20 disabled:opacity-40"
+          onClick={aiAuto}
+          disabled={aiBusy}
+        >
+          <ZapIcon className={`size-3 ${aiBusy ? "animate-pulse" : ""}`} /> {aiBusy ? "AI 穿透中…" : "⚡ AI 一键穿透"}
+        </button>
+        <button
           className="flex items-center gap-1 rounded border border-blue-500 bg-blue-500/10 px-2 py-0.5 text-blue-300 hover:bg-blue-500/20 disabled:opacity-40"
           onClick={start}
           disabled={busy}
         >
-          <PlayIcon className="size-3" /> 建立隧道
+          <PlayIcon className="size-3" /> 手动建立
         </button>
         <button
           className="flex items-center gap-1 rounded border border-red-800 bg-red-950/50 px-2 py-0.5 text-red-300 hover:bg-red-900/50 disabled:opacity-40"
@@ -112,6 +141,18 @@ export default function C2TunnelPanel({ beaconId, hostname, internalIP }: { beac
       {/* 消息 */}
       {msg && (
         <div className="border-b border-zinc-800 bg-blue-950/30 px-2 py-1 text-[10px] text-blue-300">{msg}</div>
+      )}
+      {aiResults.length > 0 && (
+        <div className="max-h-40 overflow-auto border-b border-zinc-800 bg-black/30">
+          {aiResults.map((r, i) => (
+            <div key={i} className={`flex items-start gap-1.5 px-2 py-0.5 ${r.ok ? "text-zinc-300" : "text-red-400"}`}>
+              <span className="shrink-0">{r.ok ? "✓" : "✗"}</span>
+              <span className="font-semibold text-blue-300">{r.step}</span>
+              <span className="text-zinc-400">{r.detail}</span>
+              {r.output && <span className="font-mono text-[9px] text-zinc-600">{r.output.slice(0, 80)}</span>}
+            </div>
+          ))}
+        </div>
       )}
 
       {/* 链路可视化 */}
