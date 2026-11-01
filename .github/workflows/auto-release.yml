@@ -10,6 +10,7 @@ on:
       - "**.md"
       - "screenshots/**"
       - ".github/**"
+  workflow_dispatch: # 手动触发（首次验证/补发版用）
 
 permissions:
   contents: write # 打 tag 需要
