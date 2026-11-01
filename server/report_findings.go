@@ -164,8 +164,10 @@ func (s *Server) findingsAppendixMarkdown(tID string) string {
 			own = append(own, f)
 		}
 	}
+	// 0 findings 但有攻击动作的任务（纯扫描/侦察类）也要出动作痕迹附录。
+	actionMD := s.taskActionRowsMarkdown(pid)
 	if len(own) == 0 {
-		return ""
+		return actionMD
 	}
 	sortFindingsBySeverity(own)
 	var sb strings.Builder
@@ -192,14 +194,43 @@ func (s *Server) findingsAppendixMarkdown(tID string) string {
 		if f.Evidence != "" {
 			fmt.Fprintf(&sb, "```\n%s\n```\n\n", f.Evidence)
 		}
-		if evs, eerr := s.ListFindingEvidence(f.ID); eerr == nil {
-			for _, e := range evs {
-				if e.Kind == "screenshot" && e.Path != "" {
-					fmt.Fprintf(&sb, "![证据截图](/api/evidence/file?path=%s)\n\n", url.QueryEscape(e.Path))
+			if evs, eerr := s.ListFindingEvidence(f.ID); eerr == nil {
+				for _, e := range evs {
+					if e.Kind == "screenshot" && e.Path != "" {
+						fmt.Fprintf(&sb, "![证据截图](/api/evidence/file?path=%s)\n\n", url.QueryEscape(e.Path))
+					}
 				}
 			}
 		}
+		// 攻击动作痕迹附录（kind=action 节点，webshell 落地/C2/扫描等执行留痕）
+		if rows := s.taskActionRowsMarkdown(pid); rows != "" {
+			sb.WriteString(rows)
+		}
+		return sb.String()
 	}
+
+// taskActionRowsMarkdown 攻击动作痕迹（markdown 版）：按任务 id 查探索图
+// kind=action 节点，输出与 Word 报告「四. 攻击动作痕迹」同源的时间线表格。
+func (s *Server) taskActionRowsMarkdown(pid int64) string {
+	var expID int64
+	if err := s.m.PG().QueryRow(`SELECT exploration_id FROM tasks WHERE id=$1`, pid).Scan(&expID); err != nil {
+		return ""
+	}
+	t := &Task{ExpID: expID}
+	rows := s.taskActionRows(t)
+	if len(rows) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("## 攻击动作痕迹\n\n")
+	fmt.Fprintf(&sb, "本任务执行链路上的关键攻击动作（自动留痕），共 %d 条：\n\n", len(rows))
+	sb.WriteString("| 时间 | 动作类型 | 动作内容 | 目标 | 结果 |\n|---|---|---|---|---|\n")
+	for _, r := range rows {
+		summary := strings.ReplaceAll(r.Summary, "|", "\\|")
+		detail := strings.ReplaceAll(r.Detail, "|", "\\|")
+		fmt.Fprintf(&sb, "| %s | %s | %s | %s | %s |\n", r.TS, r.Type, summary, detail, r.Result)
+	}
+	sb.WriteString("\n")
 	return sb.String()
 }
 

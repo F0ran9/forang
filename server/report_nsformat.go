@@ -6,6 +6,7 @@ package server
 // | 加固建议）→ 建议总结。无第三方品牌标识。
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -73,9 +74,25 @@ func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 		s.buildNSVulnSection(doc, i+1, f)
 	}
 
-	// ===== 四. 建议总结 =====
+	// ===== 四. 攻击动作痕迹 =====
 	doc.PageBreak()
-	doc.Heading(1, "四. 建议总结")
+	doc.Heading(1, "四. 攻击动作痕迹")
+	doc.HRule()
+	actions := s.taskActionRows(t)
+	if len(actions) == 0 {
+		doc.Paragraph("本任务无记录在案的攻击动作（纯侦察/人工验证类任务）。")
+	} else {
+		doc.Paragraph(fmt.Sprintf("以下为本任务执行链路上的关键攻击动作（探索链路图自动留痕，含 webshell 落地/命令执行/C2 指挥/扫描侦察等），共 %d 条，按时间排列：", len(actions)))
+		rows := make([][]string, 0, len(actions))
+		for _, a := range actions {
+			rows = append(rows, []string{a.TS, a.Type, a.Summary, a.Detail, a.Result})
+		}
+		doc.Table([]string{"时间", "动作类型", "动作内容", "目标", "结果"}, rows)
+	}
+
+	// ===== 五. 建议总结 =====
+	doc.PageBreak()
+	doc.Heading(1, "五. 建议总结")
 	doc.HRule()
 	doc.Paragraph("针对本次测试发现的安全问题，建议从以下方面加强系统安全防护：")
 	doc.Paragraph("1. 及时修复本报告列出的各漏洞项，优先处理高危与严重等级问题；对涉及默认凭据、未授权访问的服务，立即收紧访问控制并轮换相关凭据。")
@@ -84,6 +101,72 @@ func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 	doc.Paragraph("4. 完善日志审计与备份策略，将关键日志外发至独立日志服务器，防止单点破坏。")
 	doc.Paragraph("注: Web 漏洞会随时间推移而变化，基于评估严谨性考虑，本报告仅具备两个月的时效性。")
 	return doc
+}
+
+// actionRow 报告里的攻击动作行。
+type actionRow struct {
+	TS      string
+	Type    string
+	Summary string
+	Detail  string
+	Result  string
+}
+
+// actionLabelCN action 类型 → 中文标签（与前端 ACTION_LABELS 一致）。
+var actionLabelCN = map[string]string{
+	"webshell_gen":  "WebShell 生成",
+	"webshell_exec": "WebShell 执行",
+	"auto_escalate": "自动升级",
+	"c2_exec":       "C2 指挥",
+	"c2_beacon":     "C2 Beacon",
+	"fingerprint":   "指纹识别",
+	"port_scan":     "端口扫描",
+	"dir_scan":      "目录扫描",
+}
+
+// taskActionRows 读取本任务探索图的攻击动作节点（kind=action），按时间升序。
+// 上限 80 条——webshell_exec 密集任务防表格失控，超出部分截断标注。
+func (s *Server) taskActionRows(t *Task) []actionRow {
+	rows, err := s.m.PG().Query(
+		`SELECT payload, created_at FROM exploration_nodes
+		 WHERE exploration_id=$1 AND kind='action' ORDER BY id ASC LIMIT 80`, t.ExpID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := []actionRow{}
+	for rows.Next() {
+		var payload []byte
+		var ts time.Time
+		if err := rows.Scan(&payload, &ts); err != nil {
+			continue
+		}
+		var p struct {
+			Action  string `json:"action"`
+			Summary string `json:"summary"`
+			Target  string `json:"target"`
+			Result  string `json:"result"`
+		}
+		_ = json.Unmarshal(payload, &p)
+		label := actionLabelCN[p.Action]
+		if label == "" {
+			label = p.Action
+		}
+		res := p.Result
+		switch res {
+		case "ok", "":
+			res = "成功"
+		case "fail":
+			res = "失败"
+		case "pending":
+			res = "进行中"
+		}
+		out = append(out, actionRow{
+			TS: ts.Format("01-02 15:04:05"), Type: label,
+			Summary: p.Summary, Detail: truncateStr(p.Target, 60), Result: res,
+		})
+	}
+	return out
 }
 
 // buildNSVulnSection 单个漏洞章节：标题 + 字段表 + 截图。
