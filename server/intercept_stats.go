@@ -22,6 +22,8 @@ type InterceptStats struct {
 	ModelDecisions int            `json:"model_decisions"`
 	ModelAvgMs     int64          `json:"model_avg_ms"`
 	WindowHours    int            `json:"window_hours"`
+	CallTotal      int64          `json:"call_total"`     // 窗口内全部工具调用（真实口径分母）
+	TrueDenyRate   float64        `json:"true_deny_rate"` // denied/call_total：真实拦截率
 }
 
 func (s *Server) interceptStats(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +112,35 @@ func (s *Server) interceptStats(w http.ResponseWriter, r *http.Request) {
 	if modelMsN > 0 {
 		st.ModelAvgMs = modelMsSum / modelMsN
 	}
+	// 真实拦截率口径：denied / 窗口内全部工具调用（activity kind='tool_use'）。
+	// DenyRate 只是「留痕判定里的拒占比」——judge 启用前未命中规则的放行
+	// 调用不入 intercept_pending，历史 allowed 严重欠采样，DenyRate 会虚高
+	// （实测曾显示 77%，真实 <1%）。CallTotal/TrueDenyRate 才是运营口径。
+	if calls := s.statsWindowToolCalls(window); calls > 0 {
+		st.CallTotal = calls
+		st.TrueDenyRate = float64(st.Denied) / float64(calls)
+	}
 	writeJSON(w, 200, map[string]any{"stats": st})
+}
+
+// statsWindowToolCalls 统计窗口内全部工具调用次数（activity 表 tool_use 事件，
+// 含所有 agent：planner/worker/main）。window=0 表示全部时间。
+func (s *Server) statsWindowToolCalls(window int) int64 {
+	pg := s.m.PG()
+	if pg == nil {
+		return 0
+	}
+	q := `SELECT COUNT(*) FROM activity WHERE kind='tool_use'`
+	var args []any
+	if window > 0 {
+		q += ` AND created_at >= $1`
+		args = append(args, time.Now().Add(-time.Duration(window)*time.Hour))
+	}
+	var n int64
+	if err := pg.QueryRow(q, args...).Scan(&n); err != nil {
+		return 0
+	}
+	return n
 }
 
 func parseWindowHours(raw string) int {

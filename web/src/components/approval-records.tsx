@@ -934,6 +934,8 @@ interface InterceptStatsView {
   model_decisions: number;
   model_avg_ms: number;
   window_hours: number;
+  call_total?: number;
+  true_deny_rate?: number;
 }
 
 function InterceptStatsCards({ stats }: { stats: InterceptStatsView }) {
@@ -942,9 +944,17 @@ function InterceptStatsCards({ stats }: { stats: InterceptStatsView }) {
     { label: "总判定", value: String(stats.total) },
     {
       label: "拦截率",
-      value: decided ? `${(stats.deny_rate * 100).toFixed(1)}%` : "—",
-      hint: `denied ${stats.denied} / allowed ${stats.allowed} / timeout ${stats.timeout}`,
-      warn: decided > 0 && stats.deny_rate >= 0.5,
+      value:
+        stats.call_total && stats.call_total > 0
+          ? `${((stats.true_deny_rate ?? 0) * 100).toFixed(2)}%`
+          : decided
+            ? `${(stats.deny_rate * 100).toFixed(1)}%`
+            : "—",
+      hint:
+        stats.call_total && stats.call_total > 0
+          ? `拦截 ${stats.denied} / 全部调用 ${stats.call_total}（留痕拒占比 ${(stats.deny_rate * 100).toFixed(1)}%）`
+          : `denied ${stats.denied} / allowed ${stats.allowed} / timeout ${stats.timeout}`,
+      warn: (stats.true_deny_rate ?? 0) >= 0.2 || (decided > 0 && stats.call_total === 0 && stats.deny_rate >= 0.5),
     },
     { label: "待审批", value: String(stats.pending) },
     {
