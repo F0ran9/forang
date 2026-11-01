@@ -1,9 +1,9 @@
 package server
 
 import (
+	"database/sql"
 	"net/http"
 	"time"
-
 )
 
 // 审批统计聚合（守门审计）：拦截率、按状态/来源/工具分布、模型判定平均耗时。
@@ -30,18 +30,33 @@ func (s *Server) interceptStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	window := parseWindowHours(r.URL.Query().Get("hours"))
-	since := time.Now().Add(-time.Duration(window) * time.Hour)
-
-	rows, err := pg.Query(`
-		SELECT status,
-		       COALESCE(NULLIF(decision_source,''),
-		        CASE WHEN rule_id IS NOT NULL THEN 'rule'
-		             WHEN reason LIKE '[模型]%' THEN 'model' ELSE 'unknown' END) AS src,
-		       tool_name,
-		       CASE WHEN decided_at IS NOT NULL
-		            THEN EXTRACT(EPOCH FROM (decided_at - created_at)) * 1000 END AS ms
-		FROM intercept_pending
-		WHERE created_at >= $1`, since)
+	// window=0 语义是「全部」：不带时间过滤。此前 since=now 让 WHERE created_at>=now
+	// 恒空——页面不传 hours 时统计卡全 0 而表格有数据（实测踩坑）。
+	var rows *sql.Rows
+	var err error
+	if window > 0 {
+		since := time.Now().Add(-time.Duration(window) * time.Hour)
+		rows, err = pg.Query(`
+			SELECT status,
+			       COALESCE(NULLIF(decision_source,''),
+			        CASE WHEN rule_id IS NOT NULL THEN 'rule'
+			             WHEN reason LIKE '[模型]%' THEN 'model' ELSE 'unknown' END) AS src,
+			       tool_name,
+			       CASE WHEN decided_at IS NOT NULL
+			            THEN EXTRACT(EPOCH FROM (decided_at - created_at)) * 1000 END AS ms
+			FROM intercept_pending
+			WHERE created_at >= $1`, since)
+	} else {
+		rows, err = pg.Query(`
+			SELECT status,
+			       COALESCE(NULLIF(decision_source,''),
+			        CASE WHEN rule_id IS NOT NULL THEN 'rule'
+			             WHEN reason LIKE '[模型]%' THEN 'model' ELSE 'unknown' END) AS src,
+			       tool_name,
+			       CASE WHEN decided_at IS NOT NULL
+			            THEN EXTRACT(EPOCH FROM (decided_at - created_at)) * 1000 END AS ms
+			FROM intercept_pending`)
+	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
