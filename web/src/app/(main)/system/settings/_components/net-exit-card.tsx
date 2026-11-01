@@ -76,7 +76,7 @@ export function NetExitCard() {
               <div key={i} className="flex flex-wrap items-center gap-2 rounded-md border p-2">
                 <Input className="h-8 w-32 shrink-0" placeholder="名称" value={e.name} onChange={(ev) => patchExit(i, { name: ev.target.value })} />
                 <select
-                  className="h-8 w-40 shrink-0 rounded-md border bg-transparent px-2 text-sm"
+                  className="h-8 w-48 shrink-0 rounded-md border bg-transparent px-2 text-sm"
                   value={e.type}
                   onChange={(ev) => patchExit(i, { type: ev.target.value as NetExit["type"] })}
                 >
