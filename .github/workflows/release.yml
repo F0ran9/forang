@@ -101,6 +101,7 @@ jobs:
         run: sha256sum *.zip > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }} # workflow_call 复用时 ref 在 main，必须显式传 tag
           files: |
             dist/*.zip
             dist/SHA256SUMS
