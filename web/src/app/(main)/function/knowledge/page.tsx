@@ -156,7 +156,17 @@ function SummariesModule() {
             )}
           </CardHeader>
           <CardContent className="p-2">
-            {!cur && <div className="py-16 text-center text-sm text-muted-foreground">（左侧选择一条总结查看）</div>}
+            {!cur && <div className="py-16 text-center text-sm text-muted-foreground">（左侧选择一条总结查看）
+              {list.length === 0 ? (
+                <div className="mt-4 rounded-md border border-dashed p-3 text-left text-xs text-muted-foreground">
+                  <p className="mb-1.5 font-medium text-foreground">还没有知识沉淀 —— 三种方式开始：</p>
+                  <ol className="list-decimal space-y-1 pl-4">
+                    <li>跑完一个渗透任务，终态自动蒸馏四章节总结（执行概况/可复用手法/经验教训/下次建议）</li>
+                    <li>对话里让 Agent 用 <code className="rounded bg-muted px-1">kb_search</code> 复用历史经验、<code className="rounded bg-muted px-1">dict_query</code> 查生长字典</li>
+                    <li>任务报告交付后，同类目标再测时自动带上这些经验，越用越准</li>
+                  </ol>
+                </div>
+              ) : null}</div>}
             {cur && (
               <>
                 {cur.status === "failed" && cur.error && (

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { FindingRetestDialog } from "@/components/finding-retest-dialog";
 import { StatusBadge } from "@/components/status-badge";
 import { TablePagination } from "@/components/table-pagination";
@@ -39,6 +40,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { api } from "@/lib/api";
+import type { FindingDuplicateGroup } from "@/lib/types";
 import { getLocalStorageValue, setLocalStorageValue } from "@/lib/local-storage.client";
 import { statusMeta } from "@/lib/status";
 import type {
@@ -250,6 +252,11 @@ export default function FindingsPage() {
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
   // 导出弹窗状态:范围(当前筛选/全部/选中) × 格式(md 单文件/md 分文件 zip/csv/json)。
   const [exportOpen, setExportOpen] = React.useState(false);
+  // 查重面板:疑似重复分组 + 合并操作。
+  const [dedupOpen, setDedupOpen] = React.useState(false);
+  const [dedupGroups, setDedupGroups] = React.useState<FindingDuplicateGroup[]>([]);
+  const [dedupLoading, setDedupLoading] = React.useState(false);
+  const [dedupBusy, setDedupBusy] = React.useState(false);
   const [exportScope, setExportScope] = React.useState<"filtered" | "all" | "selected">("filtered");
   const [exportFormat, setExportFormat] = React.useState<"md-single" | "md-zip" | "csv" | "json">("md-single");
   const [exporting, setExporting] = React.useState(false);
@@ -953,6 +960,21 @@ export default function FindingsPage() {
             {selectedIds.size > 0 && (
               <span className="text-xs text-muted-foreground tabular-nums">已选 {selectedIds.size} 条</span>
             )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setDedupOpen(true);
+                setDedupLoading(true);
+                api
+                  .findingDuplicates()
+                  .then((g) => setDedupGroups(g))
+                  .catch((e) => toast.error(`查重失败：${(e as Error).message}`))
+                  .finally(() => setDedupLoading(false));
+              }}
+            >
+              <TriangleAlertIcon /> 查重
+            </Button>
             <Button size="sm" variant="outline" onClick={openExport}>
               <DownloadIcon /> 导出
             </Button>
@@ -1127,6 +1149,80 @@ export default function FindingsPage() {
           </div>
         )}
       </div>
+
+      {/* 查重面板：疑似重复分组 + 人工确认合并 */}
+      <Dialog open={dedupOpen} onOpenChange={setDedupOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <TriangleAlertIcon className="size-4 text-amber-500" /> 重复发现治理
+            </DialogTitle>
+            <DialogDescription>
+              按「漏洞类 + 目标 + 路径」标记疑似重复（仅提示，合并需人工确认）。合并会把证据与截图迁到主条目，重复条目置为「重复」。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[55vh] space-y-3 overflow-y-auto">
+            {dedupLoading ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">分析中…</div>
+            ) : dedupGroups.length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">未发现疑似重复 —— 当前发现都是唯一的。</div>
+            ) : (
+              dedupGroups.map((g) => (
+                <div key={g.key} className="rounded-md border p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      同一目标路径 · {g.count} 条疑似重复 · 建议主条目 #{g.suggested_primary}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={dedupBusy}
+                      onClick={() => {
+                        const dupIds = g.member_ids.filter((id) => id !== g.suggested_primary);
+                        if (dupIds.length === 0) return;
+                        setDedupBusy(true);
+                        api
+                          .mergeFindings(g.suggested_primary, dupIds)
+                          .then((r) => {
+                            toast.success(r.message);
+                            setDedupGroups((gs) => gs.filter((x) => x.key !== g.key));
+                            void loadFlat();
+                          })
+                          .catch((e) => toast.error((e as Error).message))
+                          .finally(() => setDedupBusy(false));
+                      }}
+                    >
+                      {dedupBusy ? "合并中…" : `合并到 #${g.suggested_primary}`}
+                    </Button>
+                  </div>
+                  <div className="space-y-1.5">
+                    {g.members.map((m, i) => (
+                      <div key={m.id} className="flex items-start gap-2 text-xs">
+                        <Badge
+                          variant="outline"
+                          className={
+                            m.severity === "critical"
+                              ? "shrink-0 border-rose-300 text-rose-600"
+                              : m.severity === "high"
+                                ? "shrink-0 border-orange-300 text-orange-600"
+                                : "shrink-0"
+                          }
+                        >
+                          {m.severity === "critical" ? "严重" : m.severity === "high" ? "高危" : m.severity === "medium" ? "中危" : m.severity || "-"}
+                        </Badge>
+                        <span className="min-w-0 flex-1 truncate">
+                          {i === 0 ? <span className="mr-1 text-emerald-600">[主]</span> : null}
+                          <span className="font-mono text-muted-foreground">#{m.id}</span> {m.name || m.vulnclass || m.summary}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {retestFinding?.finding_id ? (
         <FindingRetestDialog

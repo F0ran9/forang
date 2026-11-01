@@ -7,6 +7,7 @@ import type { ChatMention } from "@/lib/chat-mentions";
 import { MOCK } from "@/lib/mock/enabled";
 import { mockHandle } from "@/lib/mock/handler";
 import type {
+  FindingDuplicateGroup,
   NetExitConfig,
   ActiveFindingRetest,
   Activity,
@@ -1419,6 +1420,13 @@ export const api = {
   netExitCheck: (exitName: string) =>
     post<{ data: { ok: boolean; detail?: string; error?: string; ms?: number } }>("/network/check", {
       exit_name: exitName, // 自检目标用出口保存的 probe_host/port（独立），空则兜底公网 DNS
+    }).then((r) => r.data),
+  // ---- 漏洞查重/合并 ----
+  findingDuplicates: () =>
+    get<{ data: FindingDuplicateGroup[] }>("/exploration/findings/duplicates").then((r) => r.data ?? []),
+  mergeFindings: (primaryId: number, duplicateIds: number[]) =>
+    post<{ data: { merged: string[]; skipped: string[]; message: string } }>("/exploration/findings/merge", {
+      primary_id: primaryId, duplicate_ids: duplicateIds,
     }).then((r) => r.data),
   interceptGetJudgeConfig: () => get<JudgeConfig>("/intercept/judge"),
   interceptSetJudgeConfig: (cfg: JudgeConfig) => put<{ ok: boolean }>("/intercept/judge", cfg),

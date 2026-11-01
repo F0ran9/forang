@@ -1667,3 +1667,21 @@ export interface NetExitConfig {
   routes: NetRoute[];
   default_exit: string;
 }
+
+export interface FindingDuplicateMember {
+  id: number;
+  task_id?: number | null;
+  vulnclass?: string;
+  name?: string;
+  severity?: string;
+  summary?: string;
+  status?: string;
+  created_at?: string;
+}
+export interface FindingDuplicateGroup {
+  key: string;
+  count: number;
+  members: FindingDuplicateMember[];
+  member_ids: number[];
+  suggested_primary: number;
+}
