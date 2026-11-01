@@ -18,6 +18,7 @@ import type { Settings } from "@/lib/types";
 import { UpdateCard } from "./_components/update-card";
 import { IntegrationsCards } from "./_components/integrations-card";
 import { NetExitCard } from "./_components/net-exit-card";
+import { ReportCoverCard } from "./_components/report-cover-card";
 import { P2IntegrationCards } from "./_components/p2-cards";
 
 export default function SystemSettingsPage() {
@@ -287,6 +288,7 @@ export default function SystemSettingsPage() {
       <div className="columns-1 gap-4 md:gap-6 lg:columns-2">
         <IntegrationsCards />
         <NetExitCard />
+        <ReportCoverCard />
         <P2IntegrationCards />
         <UpdateCard />
 

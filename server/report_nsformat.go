@@ -30,11 +30,25 @@ func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 	doc.Paragraph("")
 	target := t.Description
 	doc.Heading(2, target)
-	doc.Paragraph("文档编号: FORANG-" + t.ID + "-" + time.Now().Format("20060102"))
-	doc.Paragraph("密级: 内部资料")
+	// 封面要素可配（设置页「报告封面」卡）：org=机构署名、密级、编号前缀。
+	// 缺省保持 FORANG 内部资料默认，交付给客户前按需改。
+	org := "FORANG 自主渗透测试平台"
+	classification := "内部资料"
+	prefix := "FORANG"
+	if v, ok, _ := s.m.pg.GetSetting("report.cover_org"); ok && strings.TrimSpace(v) != "" {
+		org = strings.TrimSpace(v)
+	}
+	if v, ok, _ := s.m.pg.GetSetting("report.cover_classification"); ok && strings.TrimSpace(v) != "" {
+		classification = strings.TrimSpace(v)
+	}
+	if v, ok, _ := s.m.pg.GetSetting("report.cover_prefix"); ok && strings.TrimSpace(v) != "" {
+		prefix = strings.TrimSpace(v)
+	}
+	doc.Paragraph("文档编号: " + prefix + "-" + t.ID + "-" + time.Now().Format("20060102"))
+	doc.Paragraph("密级: " + classification)
 	doc.Paragraph("版本编号: V1.0")
 	doc.Paragraph("日期: " + time.Now().Format("2006-01-02"))
-	doc.Paragraph("© " + time.Now().Format("2006") + " FORANG 自主渗透测试平台")
+	doc.Paragraph("© " + time.Now().Format("2006") + " " + org)
 	doc.PageBreak()
 
 	// ===== 一. 目标信息 =====

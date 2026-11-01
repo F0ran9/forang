@@ -3546,6 +3546,10 @@ func (s *Server) settingsPayload() map[string]any {
 		"web_search_proxy":         proxy,                       // 独立出口代理(http/https/socks5)，空=直连
 		"global_proxy":             s.m.GlobalProxy(),           // 全局出口代理(http/https/socks5)，所有目标流量走它，空=直连
 		"python_interpreter":       strings.TrimSpace(pyStored), // 用户/自动设的值(空=用运行时检测)
+		// 报告封面要素（nsformat 封面读取；空=FORANG 内部资料默认）
+		"report_cover_org":            getSettingDefault(s.m.pg, "report.cover_org", ""),
+		"report_cover_classification": getSettingDefault(s.m.pg, "report.cover_classification", "内部资料"),
+		"report_cover_prefix":         getSettingDefault(s.m.pg, "report.cover_prefix", "FORANG"),
 		"workers":                  s.m.Workers(),               // 并发工作 agent 数(默认3)；对之后启动的任务生效
 		"task_concurrency_enabled": concOn,                      // 任务并发上限开关(默认关)
 		"task_concurrency_limit":   concLimit,                   // 同时运行任务上限(开启后默认5)
@@ -3604,6 +3608,14 @@ func (s *Server) pgDetectPython(w http.ResponseWriter, r *http.Request) {
 // putSettings applies a settings change. Toggling traffic_capture rebuilds the
 // agents (applyLLM) so the new proxy/traffic-tools/prompt state takes hold — when
 // off, agents get no proxy config, no traffic tools, and no proxy prompt content.
+// getSettingDefault 读 settings KV，缺失/空返回默认值。
+func getSettingDefault(pg *db.DB, key, def string) string {
+	if v, ok, _ := pg.GetSetting(key); ok && strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+	return def
+}
+
 func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TrafficCapture      *bool `json:"traffic_capture"`
@@ -3636,6 +3648,10 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		NotifyEnabled    *bool   `json:"notify_enabled"`
 		NotifyBaseURL    *string `json:"notify_public_base_url"`
 		NotifyDigestMins *int    `json:"notify_digest_interval_min"`
+		// 报告封面要素（机构署名/密级/文档编号前缀）。生成报告时读取；""=恢复默认。
+		ReportCoverOrg           *string `json:"report_cover_org"`
+		ReportCoverClassification *string `json:"report_cover_classification"`
+		ReportCoverPrefix         *string `json:"report_cover_prefix"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, err.Error())
@@ -3687,6 +3703,24 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.m.pg.SetSetting(settingNotifyDigestMinutes, strconv.Itoa(*req.NotifyDigestMins)); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+	}
+	if req.ReportCoverOrg != nil {
+		if err := s.m.pg.SetSetting("report.cover_org", strings.TrimSpace(*req.ReportCoverOrg)); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+	}
+	if req.ReportCoverClassification != nil {
+		if err := s.m.pg.SetSetting("report.cover_classification", strings.TrimSpace(*req.ReportCoverClassification)); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+	}
+	if req.ReportCoverPrefix != nil {
+		if err := s.m.pg.SetSetting("report.cover_prefix", strings.TrimSpace(*req.ReportCoverPrefix)); err != nil {
 			writeErr(w, 500, err.Error())
 			return
 		}

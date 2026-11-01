@@ -185,13 +185,13 @@ export default function C2Console() {
         <span className="rounded bg-zinc-700 px-1.5 text-[10px]">Listeners {listeners.length}</span>
         <div className="ml-auto flex gap-1">
           <button className="flex items-center gap-1 rounded border border-zinc-600 px-2 py-1 text-[11px] hover:bg-zinc-700" onClick={() => setCfgOpen(!cfgOpen)}>
-            <SettingsIcon className="size-3.5" /> Preferences
+            <SettingsIcon className="size-3.5" /> 偏好设置
           </button>
           <button className="flex items-center gap-1 rounded border border-zinc-600 px-2 py-1 text-[11px] hover:bg-zinc-700" onClick={() => setBuilderOpen(!builderOpen)}>
             <PackageIcon className="size-3.5" /> 生成器
           </button>
           <button className="flex items-center gap-1 rounded border border-zinc-600 px-2 py-1 text-[11px] hover:bg-zinc-700" onClick={() => setReload((n) => n + 1)}>
-            <RefreshCw className="size-3.5" /> Refresh
+            <RefreshCw className="size-3.5" /> 刷新
           </button>
         </div>
       </div>

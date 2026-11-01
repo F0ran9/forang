@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -1238,10 +1239,17 @@ export default function ChatPage() {
 
   const selected = React.useMemo(() => convs.find((c) => c.id === selectedId) ?? null, [convs, selectedId]);
   const agentByKey = React.useMemo(() => new Map(agents.map((agent) => [agent.key, agent])), [agents]);
-  const filteredConversations = React.useMemo(
-    () => (agentFilter === null ? convs : convs.filter((conversation) => conversation.agent_key === agentFilter)),
-    [convs, agentFilter],
-  );
+  // 标题搜索：工具触发会话一多（报告撰写组能到 99 条），靠 Agent 筛选不够，
+  // 加一个跨组标题搜索把真实对话捞出来。
+  const [convQuery, setConvQuery] = React.useState("");
+  const filteredConversations = React.useMemo(() => {
+    const q = convQuery.trim().toLowerCase();
+    return convs.filter((conversation) => {
+      if (agentFilter !== null && conversation.agent_key !== agentFilter) return false;
+      if (!q) return true;
+      return (conversation.title ?? "").toLowerCase().includes(q);
+    });
+  }, [convs, agentFilter, convQuery]);
   const visibleConversations = React.useMemo(
     () => filteredConversations.slice(0, visibleConversationCount),
     [filteredConversations, visibleConversationCount],
@@ -1440,6 +1448,15 @@ export default function ChatPage() {
                 </SelectGroup>
               </SelectContent>
             </Select>
+            {convs.length > 10 && (
+              <Input
+                value={convQuery}
+                onChange={(e) => setConvQuery(e.target.value)}
+                placeholder="搜索对话标题…"
+                className="h-8 text-xs"
+                aria-label="搜索对话标题"
+              />
+            )}
             {convs.length > 0 &&
               (selectionMode ? (
                 <div className="flex items-center gap-2 px-1">
