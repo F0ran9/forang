@@ -102,11 +102,11 @@ jobs:
 
   # ④ 多架构镜像 → 推 Docker Hub（复用 binaries 编好的 Linux 二进制，
   #    镜像里只装工具 + 放二进制；arm64 仅需模拟 apt 层，构建快很多）。
-  #    FORANG 仓库未配置 Docker Hub 凭据（上游镜像属 autumn27/artex）——
-  #    secrets 缺失时跳过，不影响 Release 发布。
+  #    仅上游仓库执行：镜像属 autumn27/artex，FORANG 仓库无 Docker Hub
+  #    凭据（job 级 if 不支持 secrets 上下文，用仓库名判定）。
   docker:
     needs: binaries
-    if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+    if: github.repository == 'Autumn-27/artex'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4 # 取 Dockerfile 与 skills/
