@@ -57,16 +57,28 @@ while :; do
 	fi
 	child=0
 
+	# 退出码 75（更新/回滚请求重启）优先级最高：一键更新过程中同进程组的
+	# 兄弟进程收尾可能让本脚本收到过 TERM（stopping=1），若先判 stopping
+	# 会把"请求重启"误判成"已停止"，新版本永远换不上（实测踩坑）。
+	case "$code" in
+		"$RESTART_CODE")
+			# 更新/回滚已就绪：重跑后 artex 会在启动时完成换装（见 selfupdate.Bootstrap）。
+			echo "[artex] 请求重启（应用新版本）…"
+			stopping=0
+			delay=1
+			;;
+		0)
+			echo "[artex] 正常退出"
+			exit 0
+			;;
+	esac
+
 	if [ "$stopping" -eq 1 ]; then
 		echo "[artex] 已停止"
 		exit 0
 	fi
 
 	case "$code" in
-		0)
-			echo "[artex] 正常退出"
-			exit 0
-			;;
 		"$RESTART_CODE")
 			# 更新/回滚已就绪：重跑后 artex 会在启动时完成换装（见 selfupdate.Bootstrap）。
 			echo "[artex] 请求重启（应用新版本）…"
