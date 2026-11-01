@@ -471,6 +471,24 @@ export default function DashboardPage() {
 
   const dailyTokenData = tokenVersion === "new" ? dailyTokenDataNew : dailyTokenDataOld;
 
+  // Y 轴显式刻度：recharts 自动 niceTicks 在大数值区间会出现重复/乱序刻度
+  // （实测顶部 600M 位置渲染成 300.0M）——按数据峰值算整刻度兜底。
+  const tokenYAxis = React.useMemo(() => {
+    let max = 0;
+    for (const d of dailyTokenData) {
+      const total = (d.input ?? 0) + (d.output ?? 0) + (d.cacheRead ?? 0);
+      if (total > max) max = total;
+    }
+    if (max <= 0) return { domain: [0, 1] as [number, number], ticks: [0, 1] };
+    const rawStep = max / 4;
+    const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= rawStep) ?? mag * 10;
+    const top = Math.ceil(max / step) * step;
+    const ticks: number[] = [];
+    for (let v = 0; v <= top + 1; v += step) ticks.push(v);
+    return { domain: [0, top] as [number, number], ticks };
+  }, [dailyTokenData]);
+
   // activity kind label
   function kindLabel(a: Activity): string {
     if (a.kind === "tool_use") return a.tool ?? "tool_use";
@@ -814,6 +832,8 @@ export default function DashboardPage() {
                     interval="preserveStartEnd"
                   />
                   <YAxis
+                    domain={tokenYAxis.domain}
+                    ticks={tokenYAxis.ticks}
                     tickFormatter={(v) => fmtTokens(Number(v))}
                     tickLine={false}
                     axisLine={false}

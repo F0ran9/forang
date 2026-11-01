@@ -89,7 +89,7 @@ function SurveyCard() {
                 </div>
                 <div>
                   <Label className="text-xs">BaseURL（可选反代前缀，留空官方）</Label>
-                  <Input value={bases[p] ?? ""} onChange={(e) => setBases((b) => ({ ...b, [p]: e.target.value }))} placeholder="https://your-proxy/fofa" />
+                  <Input value={bases[p] ?? ""} onChange={(e) => setBases((b) => ({ ...b, [p]: e.target.value }))} placeholder={`https://your-proxy/${p}`} />
                 </div>
               </div>
               {c?.syntax && <p className="mt-1 text-xs text-muted-foreground">语法：{c.syntax}</p>}

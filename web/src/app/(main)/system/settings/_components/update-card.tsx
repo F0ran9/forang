@@ -294,7 +294,11 @@ export function UpdateCard() {
             disabled={busy || restarting || !info?.has_update || info?.asset_available === false}
           >
             <DownloadIcon className="size-4" />
-            {info?.has_update ? `更新到 ${info.latest}` : "立即更新"}
+            {info?.has_update
+              ? `更新到 ${info.latest}`
+              : info?.comparable && !info?.error
+                ? "已是最新"
+                : "立即更新"}
           </Button>
           {info?.has_backup && (
             <Button variant="ghost" size="sm" onClick={doRollback} disabled={busy || restarting}>

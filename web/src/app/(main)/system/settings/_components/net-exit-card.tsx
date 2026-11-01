@@ -25,8 +25,6 @@ const TYPES: [NetExit["type"], string][] = [
 
 export function NetExitCard() {
   const [cfg, setCfg] = React.useState<NetExitConfig>({ exits: [], routes: [], default_exit: "" });
-  const [probeHost, setProbeHost] = React.useState("");
-  const [probePort, setProbePort] = React.useState("");
   const [checking, setChecking] = React.useState("");
   const [result, setResult] = React.useState<Record<string, string>>({});
 
@@ -48,7 +46,7 @@ export function NetExitCard() {
 
   const check = (name: string) => {
     setChecking(name);
-    api.netExitCheck(name, probeHost, Number(probePort) || 0)
+    api.netExitCheck(name)
       .then((r) => {
         setResult((s) => ({ ...s, [name]: r.ok ? `✅ ${r.detail ?? "连通"}` : `❌ ${r.error ?? "失败"}` }));
         if (r.ok) toast.success(`${name} 连通（${r.ms}ms）`);
@@ -94,6 +92,18 @@ export function NetExitCard() {
                   <input type="radio" name="default-exit" checked={cfg.default_exit === e.name} onChange={() => setCfg((c) => ({ ...c, default_exit: e.name }))} />
                   默认
                 </label>
+                <Input
+                  className="h-8 w-36 shrink-0"
+                  placeholder="自检目标 IP"
+                  value={e.probe_host ?? ""}
+                  onChange={(ev) => patchExit(i, { probe_host: ev.target.value })}
+                />
+                <Input
+                  className="h-8 w-20 shrink-0"
+                  placeholder="端口"
+                  value={e.probe_port ?? ""}
+                  onChange={(ev) => patchExit(i, { probe_port: Number(ev.target.value) || undefined })}
+                />
                 <Button size="sm" variant="outline" className="h-8" disabled={checking === e.name} onClick={() => check(e.name)}>
                   <ZapIcon className="mr-1 size-3" />{checking === e.name ? "检测中…" : "自检"}
                 </Button>
@@ -135,13 +145,9 @@ export function NetExitCard() {
         </div>
 
         <div className="flex flex-wrap items-end gap-2">
-          <div>
-            <Label className="mb-1 block text-xs">自检目标（可选，默认探公网 DNS）</Label>
-            <div className="flex gap-2">
-              <Input className="h-8 w-44" placeholder="如 192.168.1.1" value={probeHost} onChange={(e) => setProbeHost(e.target.value)} />
-              <Input className="h-8 w-20" placeholder="端口" value={probePort} onChange={(e) => setProbePort(e.target.value)} />
-            </div>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            各出口的「自检目标 IP/端口」随配置保存：互联网出口留空探公网 DNS；内网出口填网关地址（如 192.168.1.1:80）验证内网线。
+          </p>
           <Button onClick={save}>保存出口配置</Button>
         </div>
       </CardContent>

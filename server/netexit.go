@@ -36,6 +36,10 @@ type NetExit struct {
 	Type string `json:"type"` // direct | socks5 | http
 	Addr string `json:"addr"` // direct 留空；proxy 填完整 URL
 	Note string `json:"note"`
+	// ProbeHost/ProbePort 该出口的自检目标（独立保存；空 = direct 探公网 DNS，
+	// 代理出口探平台出口侧的连通性）。网线插好后填内网网关验证内网线。
+	ProbeHost string `json:"probe_host,omitempty"`
+	ProbePort int    `json:"probe_port,omitempty"`
 }
 
 // NetRoute 网段 → 出口。有序匹配：命中即用；都没中用默认出口（DefaultExit）。
@@ -262,7 +266,11 @@ func (s *Server) netExitCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if b.ProbeHost == "" {
-		b.ProbeHost = "223.5.5.5" // direct 出口默认探公网 DNS TCP
+		b.ProbeHost = e.ProbeHost // 出口保存的独立自检目标优先
+		b.ProbePort = e.ProbePort
+	}
+	if b.ProbeHost == "" {
+		b.ProbeHost = "223.5.5.5" // 兜底：公网 DNS TCP
 		if b.ProbePort == 0 {
 			b.ProbePort = 53
 		}

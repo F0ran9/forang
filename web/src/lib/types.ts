@@ -1655,6 +1655,8 @@ export interface NetExit {
   type: "direct" | "socks5" | "http" | "https";
   addr: string;
   note: string;
+  probe_host?: string;
+  probe_port?: number;
 }
 export interface NetRoute {
   cidr: string;

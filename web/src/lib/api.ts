@@ -1416,9 +1416,9 @@ export const api = {
   // ---- 测试网络出口（内网/互联网分线）----
   netExitsGet: () => get<{ data: NetExitConfig }>("/network/exits").then((r) => r.data),
   netExitsSet: (cfg: NetExitConfig) => put<{ data: NetExitConfig }>("/network/exits", cfg).then((r) => r.data),
-  netExitCheck: (exitName: string, probeHost?: string, probePort?: number) =>
+  netExitCheck: (exitName: string) =>
     post<{ data: { ok: boolean; detail?: string; error?: string; ms?: number } }>("/network/check", {
-      exit_name: exitName, probe_host: probeHost ?? "", probe_port: probePort ?? 0,
+      exit_name: exitName, // 自检目标用出口保存的 probe_host/port（独立），空则兜底公网 DNS
     }).then((r) => r.data),
   interceptGetJudgeConfig: () => get<JudgeConfig>("/intercept/judge"),
   interceptSetJudgeConfig: (cfg: JudgeConfig) => put<{ ok: boolean }>("/intercept/judge", cfg),
