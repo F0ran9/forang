@@ -44,6 +44,10 @@ jobs:
         with:
           go-version: "1.26"
           cache: true
+      # go.mod replace norma => ../norma（LLM 图片块扩展依赖本仓库的 image-blocks
+      # 分支）：checkout 之外单独克隆到工作区上一级，go build 才能解析 replace。
+      - name: Clone norma (image-blocks) for go.mod replace
+        run: git clone --depth 1 -b image-blocks https://github.com/Autumn-27/norma.git ../norma
       - uses: actions/download-artifact@v4
         with:
           name: web-dist
@@ -97,9 +101,12 @@ jobs:
           generate_release_notes: true
 
   # ④ 多架构镜像 → 推 Docker Hub（复用 binaries 编好的 Linux 二进制，
-  #    镜像里只装工具 + 放二进制；arm64 仅需模拟 apt 层，构建快很多）
+  #    镜像里只装工具 + 放二进制；arm64 仅需模拟 apt 层，构建快很多）。
+  #    FORANG 仓库未配置 Docker Hub 凭据（上游镜像属 autumn27/artex）——
+  #    secrets 缺失时跳过，不影响 Release 发布。
   docker:
     needs: binaries
+    if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4 # 取 Dockerfile 与 skills/
