@@ -1,0 +1,69 @@
+name: auto-release
+# 推送到 main 后自动发版：取最新 tag，patch+1（v0.5.0 → v0.5.1），打 tag 复用
+# release.yml 完成前端构建 + 五平台编译 + SHA256SUMS + GitHub Release。
+# 已是最新 tag 提交（无新代码）时跳过；tag 已存在（手动发过）时 bump 到下一个。
+
+on:
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - "**.md"
+      - "screenshots/**"
+      - ".github/**"
+
+permissions:
+  contents: write # 打 tag 需要
+
+concurrency:
+  group: auto-release-${{ github.ref }}
+  cancel-in-progress: false # 发版不互相打断，排队执行
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+      skipped: ${{ steps.bump.outputs.skipped }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 需要历史来取最新 tag
+      - name: Bump patch tag
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST=$(gh release list --repo "${GITHUB_REPOSITORY}" --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null || echo "")
+          if [ -z "$LATEST" ]; then LATEST="v0.5.0"; fi
+          echo "latest release: $LATEST"
+          MAJOR=$(echo "$LATEST" | cut -d. -f1 | tr -d v)
+          MINOR=$(echo "$LATEST" | cut -d. -f2)
+          PATCH=$(echo "$LATEST" | cut -d. -f3)
+          NEW="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+          if git rev-parse -q --verify "refs/tags/${NEW}" >/dev/null; then
+            # tag 已存在（如手动发过同号）：继续 bump 直到可用
+            while git rev-parse -q --verify "refs/tags/${NEW}" >/dev/null; do
+              PATCH=$((PATCH + 1))
+              NEW="v${MAJOR}.${MINOR}.${PATCH}"
+            done
+          fi
+          # 本次 push 与最新 tag 指向同一提交 → 没有新代码，跳过
+          if [ "$(git rev-parse HEAD)" = "$(git rev-parse "${LATEST}^{commit}" 2>/dev/null || echo "")" ]; then
+            echo "HEAD 已是最新 Release 提交，跳过发版"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f "$NEW"
+          git push origin "$NEW" --force
+          echo "tag=$NEW" >> "$GITHUB_OUTPUT"
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+          echo "released: $NEW"
+
+  release:
+    needs: tag
+    if: needs.tag.outputs.skipped != 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}

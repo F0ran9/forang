@@ -2,6 +2,12 @@ name: release
 on:
   push:
     tags: ["v*"]
+  workflow_call: # 供 auto-release.yml 复用（推送 main 自动发版）
+    inputs:
+      tag:
+        description: "要发布的 tag（如 v0.5.1）"
+        required: true
+        type: string
 
 permissions:
   contents: write # 创建 Release 需要
@@ -56,7 +62,7 @@ jobs:
         env:
           ARTEX_TARGET_OS: ${{ matrix.goos }}
           ARTEX_TARGET_ARCH: ${{ matrix.goarch }}
-          ARTEX_BUILD_VERSION: ${{ github.ref_name }}
+          ARTEX_BUILD_VERSION: ${{ inputs.tag || github.ref_name }}
           ARTEX_SKIP_FRONTEND: "1"
           ARTEX_SKIP_NPM_CI: "1"
           # UPX 自解压 ELF 在部分 Linux 内核、虚拟化和安全策略下会崩溃。
