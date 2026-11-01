@@ -7,6 +7,7 @@ const (
 	KindIntent  = "intent"  // an exploration direction (planner-generated)
 	KindFact    = "fact"    // a worker's exploration result/conclusion (incl. negative results), tied to its intent
 	KindFinding = "finding" // a confirmed vulnerability (report_finding), distinct from a fact
+	KindAction  = "action"  // an attack action executed by a tool (webshell deploy/exec, C2 command, …), tied to its intent
 	KindHint    = "hint"
 	KindDigest  = "digest" // a compressed fold of cold intents/facts (cold-digest-spec §1); lossless — members kept, restorable by id
 )

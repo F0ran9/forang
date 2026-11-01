@@ -90,9 +90,15 @@ func (t *ToolSet) c2ExecTool() actool.CoreTool {
 					if len(out) > 8000 {
 						out = out[:8000] + "\n...(截断)"
 					}
+					t.recordAction("c2_exec", "C2 下发命令："+truncateStr(strings.Join(strings.Fields(a.Cmd), " "), 80), map[string]any{
+						"session_id": a.SessionID, "task_id": taskID, "cmd": truncateStr(a.Cmd, 200), "result": "ok",
+					})
 					return actool.Text(fmt.Sprintf("✅ c2_exec（%s @ %s）\n%s", taskID, a.SessionID, out)), nil
 				}
 			}
+			t.recordAction("c2_exec", "C2 下发命令（等待回传）："+truncateStr(strings.Join(strings.Fields(a.Cmd), " "), 60), map[string]any{
+				"session_id": a.SessionID, "task_id": taskID, "cmd": truncateStr(a.Cmd, 200), "result": "pending",
+			})
 			return actool.Text(fmt.Sprintf("⏳ %ds 内未取到结果。task_id=%s，稍后用 c2_tasks（session_id=%s）查询。", a.Timeout, taskID, a.SessionID)), nil
 		})
 }

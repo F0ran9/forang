@@ -64,6 +64,9 @@ func (t *ToolSet) webshellGen() actool.CoreTool {
 			if err := os.WriteFile(p, []byte(code), 0o600); err != nil {
 				return actool.Errorf("写文件失败: " + err.Error()), nil
 			}
+			t.recordAction("webshell_gen", fmt.Sprintf("生成 %s/%s webshell（%d 字节）", a.ScriptType, a.Encoder, len(code)), map[string]any{
+				"script_type": a.ScriptType, "encoder": a.Encoder, "filename": name, "result": "ok",
+			})
 			return actool.Text(fmt.Sprintf("✅ webshell 已生成：%s（%s/%s，%d 字节）\n连接参数：url=<部署地址> password=%q encoder=%s script_type=%s\n部署后用 webshell_exec 验证（先 op=test）。\n---- 文件内容 ----\n%s",
 				p, a.ScriptType, a.Encoder, len(code), a.Password, a.Encoder, a.ScriptType, code)), nil
 		})
@@ -124,13 +127,37 @@ func (t *ToolSet) webshellExec() actool.CoreTool {
 			params := webshell.P{Cmd: a.Cmd, Cwd: a.Cwd, Path: a.Path, Content: a.Content, B64Data: a.ContentB64}
 			res, err := cli.RoundTrip(a.Op, params)
 			if err != nil {
+				t.recordAction("webshell_exec", "Webshell 调用失败（"+a.Op+"）", map[string]any{
+					"target": a.URL, "op": a.Op, "cmd": truncateStr(a.Cmd, 200), "result": "fail", "error": truncateStr(err.Error(), 200),
+				})
 				return actool.Errorf("webshell 调用失败: " + err.Error()), nil
 			}
 			var b strings.Builder
 			if !res.OK {
 				fmt.Fprintf(&b, "❌ op=%s 失败：%s", a.Op, res.Error)
+				t.recordAction("webshell_exec", "Webshell "+a.Op+" 失败", map[string]any{
+					"target": a.URL, "op": a.Op, "cmd": truncateStr(a.Cmd, 200), "result": "fail", "error": truncateStr(res.Error, 200),
+				})
 				return actool.Text(b.String()), nil
 			}
+			// 动作入图：每次成功的 shell 操作都成为链路图上的 action 节点。
+			actionSum := "Webshell " + a.Op
+			switch a.Op {
+			case "test":
+				actionSum = "Webshell 存活探测（PONG）"
+			case "exec":
+				actionSum = "Webshell 执行命令：" + truncateStr(strings.Join(strings.Fields(a.Cmd), " "), 80)
+			case "list":
+				actionSum = "Webshell 列目录：" + truncateStr(a.Path, 80)
+			case "read":
+				actionSum = "Webshell 读文件：" + truncateStr(a.Path, 80)
+			case "write":
+				actionSum = "Webshell 写文件：" + truncateStr(a.Path, 80)
+			}
+			t.recordAction("webshell_exec", actionSum, map[string]any{
+				"target": a.URL, "op": a.Op, "cmd": truncateStr(a.Cmd, 200),
+				"result": "ok", "encoder": a.Encoder,
+			})
 			switch a.Op {
 			case "test":
 				fmt.Fprintf(&b, "✅ shell 存活（PONG nonce=%s）", res.Output)
