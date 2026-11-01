@@ -84,7 +84,7 @@ func (s *Server) batchCreate(w http.ResponseWriter, r *http.Request) {
 		go func(i int, url string) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			fp, err := doFingerprint(r.Context(), url)
+			fp, err := s.doFingerprint(r.Context(), url)
 			tag := ""
 			if err == nil && fp != nil {
 				tag = fp.Fingerprint
