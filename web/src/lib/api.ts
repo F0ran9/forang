@@ -1417,9 +1417,9 @@ export const api = {
   netExitsGet: () => get<{ data: NetExitConfig }>("/network/exits").then((r) => r.data),
   netExitsSet: (cfg: NetExitConfig) => put<{ data: NetExitConfig }>("/network/exits", cfg).then((r) => r.data),
   netExitCheck: (exitName: string, probeHost?: string, probePort?: number) =>
-    post<{ ok: boolean; detail?: string; error?: string; ms?: number }>("/network/check", {
+    post<{ data: { ok: boolean; detail?: string; error?: string; ms?: number } }>("/network/check", {
       exit_name: exitName, probe_host: probeHost ?? "", probe_port: probePort ?? 0,
-    }),
+    }).then((r) => r.data),
   interceptGetJudgeConfig: () => get<JudgeConfig>("/intercept/judge"),
   interceptSetJudgeConfig: (cfg: JudgeConfig) => put<{ ok: boolean }>("/intercept/judge", cfg),
   interceptJudgeUsage: (days = 30) => get<JudgeUsage>(`/intercept/judge/usage?days=${days}`),
