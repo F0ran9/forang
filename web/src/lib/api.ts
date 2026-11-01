@@ -7,6 +7,7 @@ import type { ChatMention } from "@/lib/chat-mentions";
 import { MOCK } from "@/lib/mock/enabled";
 import { mockHandle } from "@/lib/mock/handler";
 import type {
+  BatchCampaignSummary,
   FindingDuplicateGroup,
   NetExitConfig,
   ActiveFindingRetest,
@@ -1428,6 +1429,8 @@ export const api = {
     post<{ data: { merged: string[]; skipped: string[]; message: string } }>("/exploration/findings/merge", {
       primary_id: primaryId, duplicate_ids: duplicateIds,
     }).then((r) => r.data),
+  batchCampaigns: () =>
+    get<{ data: BatchCampaignSummary[] }>("/batch").then((r) => r.data ?? []),
   interceptGetJudgeConfig: () => get<JudgeConfig>("/intercept/judge"),
   interceptSetJudgeConfig: (cfg: JudgeConfig) => put<{ ok: boolean }>("/intercept/judge", cfg),
   interceptJudgeUsage: (days = 30) => get<JudgeUsage>(`/intercept/judge/usage?days=${days}`),

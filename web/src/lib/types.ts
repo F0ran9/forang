@@ -1685,3 +1685,13 @@ export interface FindingDuplicateGroup {
   member_ids: number[];
   suggested_primary: number;
 }
+
+export interface BatchCampaignSummary {
+  id: number;
+  name: string;
+  task_ids: number[];
+  total: number;
+  done: number;
+  findings: number;
+  created_at: string;
+}

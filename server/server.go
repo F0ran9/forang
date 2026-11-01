@@ -959,6 +959,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tools/fingerprint/autotest", s.fingerprintAutoTest)
 	mux.HandleFunc("POST /api/batch/create", s.batchCreate)            // 批量资产渗透
 	mux.HandleFunc("GET /api/batch/{id}", s.batchDetail) // 指纹→POC→AI任务
+	mux.HandleFunc("GET /api/batch", s.batchList)
 	mux.HandleFunc("POST /api/tools/c2/tunnel/stop", s.c2TunnelStopEnhanced) // 增强：全清理
 	mux.HandleFunc("POST /api/tools/mumu/config", s.mumuConfigSet)
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)

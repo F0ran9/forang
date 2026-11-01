@@ -2,7 +2,9 @@
 
 // batch-create-sheet.tsx — 批量创建任务（纯 HTML 覆盖层，零 Radix 依赖）
 import React from "react";
+import Link from "next/link";
 import { LayersIcon, Loader2Icon, XIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export function BatchCreateSheet({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = React.useState(false);
@@ -11,6 +13,8 @@ export function BatchCreateSheet({ onCreated }: { onCreated: () => void }) {
   const [goalTemplate, setGoalTemplate] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [result, setResult] = React.useState("");
+  // 创建成功后的任务 id 列表：结果面板直接给出可点链接（此前只显示条数且 1.5s 自动关）。
+  const [createdIds, setCreatedIds] = React.useState<number[]>([]);
 
   const urlCount = urls.split("\n").filter((u) => u.trim().startsWith("http")).length;
 
@@ -28,8 +32,12 @@ export function BatchCreateSheet({ onCreated }: { onCreated: () => void }) {
       const j = await r.json();
       setResult((j.data && j.data.message) || j.error || "");
       if (j.data && j.data.created) {
-        onCreated();
-        setTimeout(() => { setOpen(false); setUrls(""); setResult(""); }, 1500);
+        const ids = (j.data.targets ?? [])
+          .map((t: { task_id?: number }) => t.task_id)
+          .filter((id: number | undefined): id is number => typeof id === "number");
+        setCreatedIds(ids);
+        setUrls("");
+        onCreated(); // 父级刷新任务列表；面板保持打开展示可点任务链接
       }
     } finally {
       setBusy(false);
@@ -108,6 +116,22 @@ export function BatchCreateSheet({ onCreated }: { onCreated: () => void }) {
                 : "border-red-500/40 bg-red-500/10 text-red-500")}
             >
               {result}
+              {createdIds.length > 0 && (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {createdIds.map((id) => (
+                    <Link
+                      key={id}
+                      href={`/function/tasks/detail?id=${id}`}
+                      className="rounded border border-green-600/30 px-1.5 py-0.5 font-mono text-xs hover:bg-green-600/10"
+                    >
+                      #{id}
+                    </Link>
+                  ))}
+                  <Button size="sm" variant="outline" className="ml-auto h-7" onClick={() => { setOpen(false); setCreatedIds([]); setResult(""); }}>
+                    关闭
+                  </Button>
+                </div>
+              )}
             </div>
           )}
 

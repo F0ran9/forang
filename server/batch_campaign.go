@@ -144,6 +144,84 @@ func (s *Server) batchCreate(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
+// GET /api/batch — 战役列表（任务页「按战役筛选」数据源）。
+// 每战役带 task_ids 与各任务状态计数；上限 100 条（够筛选用）。
+func (s *Server) batchList(w http.ResponseWriter, r *http.Request) {
+	s.ensureBatchTables()
+	rows, err := s.m.PG().Query(
+		`SELECT id, name, targets, status, created_at FROM batch_campaigns ORDER BY id DESC LIMIT 100`)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	defer rows.Close()
+	type campaign struct {
+		ID        int64    `json:"id"`
+		Name      string   `json:"name"`
+		TaskIDs   []int64  `json:"task_ids"`
+		Total     int      `json:"total"`
+		Done      int      `json:"done"`
+		Findings  int      `json:"findings"`
+		CreatedAt string   `json:"created_at"`
+	}
+	out := []campaign{}
+	for rows.Next() {
+		var cp campaign
+		var targetsJSON []byte
+		var campStatus string
+		var ts time.Time
+		if err := rows.Scan(&cp.ID, &cp.Name, &targetsJSON, &campStatus, &ts); err != nil {
+			continue
+		}
+		// targets JSONB 里的 status 字段与列重名，先解析拿 task_ids
+		var targets []BatchTarget
+		_ = json.Unmarshal(targetsJSON, &targets)
+		cp.TaskIDs = []int64{}
+		ids := []int64{}
+		done := 0
+		for _, t := range targets {
+			if t.TaskID != nil {
+				cp.TaskIDs = append(cp.TaskIDs, *t.TaskID)
+				ids = append(ids, *t.TaskID)
+				if t.Status == "done" {
+					done++
+				}
+			}
+		}
+		cp.Total = len(cp.TaskIDs)
+		// 实时状态以 tasks 表为准（targets JSON 里的 status 是创建时快照）
+		if len(ids) > 0 {
+			rows2, err := s.m.PG().Query(
+				`SELECT t.id, COALESCE(t.status,''), COUNT(f.id)
+				 FROM tasks t LEFT JOIN findings f ON f.task_id = t.id
+				 WHERE t.id = ANY($1::bigint[]) GROUP BY t.id, t.status`, ids)
+			if err == nil {
+				done = 0
+				for rows2.Next() {
+					var id int64
+					var st string
+					var fc int
+					if err := rows2.Scan(&id, &st, &fc); err == nil {
+						if st == "done" {
+							done++
+						}
+						for i := range targets {
+							if targets[i].TaskID != nil && *targets[i].TaskID == id {
+								cp.Findings += fc
+							}
+						}
+					}
+				}
+				rows2.Close()
+			}
+		}
+		cp.Done = done
+		cp.CreatedAt = ts.Format("01-02 15:04")
+		out = append(out, cp)
+	}
+	writeJSON(w, 200, map[string]any{"data": out})
+}
+
 // GET /api/batch/{id} — 战役详情。
 func (s *Server) batchDetail(w http.ResponseWriter, r *http.Request) {
 	s.ensureBatchTables()

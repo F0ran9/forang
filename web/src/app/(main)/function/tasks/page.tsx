@@ -124,6 +124,7 @@ import { api } from "@/lib/api";
 import { getLocalStorageValue, setLocalStorageValue } from "@/lib/local-storage.client";
 import { type SortDirection, useStoredSortPreference } from "@/lib/sort-preference";
 import type {
+  BatchCampaignSummary,
   AssetInterceptRuleInput,
   ChatAttachment,
   Company,
@@ -312,6 +313,18 @@ export default function TasksPage() {
   const [query, setQuery] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<TaskStatus | "all">("all");
   const [categoryFilter, setCategoryFilter] = React.useState("all");
+  // 批量战役筛选： campaigns 从 /api/batch 拉取；选中后任务列表只显示该战役的任务。
+  const [campaignFilter, setCampaignFilter] = React.useState<string>("all");
+  const [campaigns, setCampaigns] = React.useState<BatchCampaignSummary[]>([]);
+  const loadCampaigns = React.useCallback(() => {
+    api
+      .batchCampaigns()
+      .then(setCampaigns)
+      .catch(() => undefined);
+  }, []);
+  React.useEffect(() => {
+    loadCampaigns();
+  }, [loadCampaigns]);
   const [filtersHydrated, setFiltersHydrated] = React.useState(false);
   const [sortPreference, setSortPreference] = useStoredSortPreference(
     TASK_SORT_PREFERENCE_KEY,
@@ -355,10 +368,17 @@ export default function TasksPage() {
     );
   }, [categoryFilter, filtersHydrated, statusFilter]);
 
+  const campaignTaskIds = React.useMemo(() => {
+    if (campaignFilter === "all") return null;
+    const c = campaigns.find((x) => String(x.id) === campaignFilter);
+    return c ? new Set(c.task_ids.map(String)) : null;
+  }, [campaignFilter, campaigns]);
+
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
     return tasks.filter((t) => {
       if (statusFilter !== "all" && t.status !== statusFilter) return false;
+      if (campaignTaskIds && !campaignTaskIds.has(t.id)) return false;
       if (categoryFilter === UNCATEGORIZED_VALUE && t.category_id != null) return false;
       if (
         categoryFilter !== "all" &&
@@ -375,7 +395,7 @@ export default function TasksPage() {
         t.id.toLowerCase().includes(q)
       );
     });
-  }, [tasks, query, statusFilter, categoryFilter]);
+  }, [tasks, query, statusFilter, categoryFilter, campaignTaskIds]);
 
   const sortNowSec = sortField === "duration" ? nowSec : 0;
   const ordered = React.useMemo(() => {
@@ -839,6 +859,29 @@ export default function TasksPage() {
                   </SelectGroup>
                 </SelectContent>
               </Select>
+              {campaigns.length > 0 && (
+                <Select
+                  value={campaignFilter}
+                  onValueChange={(v) => {
+                    setCampaignFilter(v);
+                    lastRef.current = ""; // 强制下次轮询重渲染（战役过滤纯前端）
+                  }}
+                >
+                  <SelectTrigger className="w-44">
+                    <SelectValue placeholder="批量战役" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="all">全部战役</SelectItem>
+                      {campaigns.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.name}（{c.done}/{c.total}）
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              )}
               <span className="text-muted-foreground text-xs tabular-nums">
                 {filtered.length}/{tasks.length} 条
               </span>
@@ -3192,7 +3235,7 @@ function CreateTaskSheet({
           <PlusIcon /> 新建任务
         </Button>
       </SheetTrigger>
-      <BatchCreateSheet onCreated={() => {}} />
+      <BatchCreateSheet onCreated={onCreated} />
       {/* 45vw 宽的右侧抽屉:整屏高度可滚动,长表单不再受弹窗高度限制。窄屏退化为全宽。
             内容为 flex 列:头/脚固定,中间字段区 flex-1 独立滚动。 */}
       <SheetContent
