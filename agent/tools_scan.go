@@ -270,6 +270,21 @@ func (t *ToolSet) dirScanTool() actool.CoreTool {
 		})
 }
 
+// targetProxyResolver 按目标 URL 解析出口代理（server 的测试网络出口 netexit 注入；
+// nil = 一律直连，单测/独立运行）。所有 ToolSet 共享。
+var targetProxyResolver func(targetURL string) string
+
+// SetTargetProxy server 启动时注入（package-level，对齐 SetEscalateHooks 模式）。
+func SetTargetProxy(f func(targetURL string) string) { targetProxyResolver = f }
+
+// egressProxyFor 解析目标应走的出口代理；direct/未配置返回空串。
+func (t *ToolSet) egressProxyFor(targetURL string) string {
+	if targetProxyResolver == nil {
+		return ""
+	}
+	return targetProxyResolver(targetURL)
+}
+
 // scanTools 汇出扫描工具集。
 func (t *ToolSet) scanTools() []actool.CoreTool {
 	return []actool.CoreTool{t.portScanTool(), t.dirScanTool()}

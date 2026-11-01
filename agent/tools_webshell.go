@@ -120,6 +120,7 @@ func (t *ToolSet) webshellExec() actool.CoreTool {
 			cli := &webshell.Client{
 				URL: a.URL, Password: a.Password, Encoder: a.Encoder, ScriptType: a.ScriptType,
 				Cwd: a.Cwd, Timeout: time.Duration(a.Timeout) * time.Second,
+				Proxy: t.egressProxyFor(a.URL), // 测试网络出口：内网目标经 socks5/http 出口
 			}
 			if a.Timeout <= 0 {
 				cli.Timeout = 30 * time.Second

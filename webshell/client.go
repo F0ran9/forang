@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -148,6 +149,8 @@ type Client struct {
 	Cwd        string
 	// ExtraHeaders 附加请求头：Header Gate（服务端生成时校验的触发头）与 UA 伪装等。
 	ExtraHeaders map[string]string
+	// Proxy 出口代理 URL（socks5:// / http://，空=直连）。内网目标平台不在内网时用。
+	Proxy string
 }
 
 // RoundTrip 构造 payload → 加密往返 → 解密响应 → 解析。
@@ -170,6 +173,11 @@ func (c *Client) RoundTrip(op string, params P) (Result, error) {
 		timeout = 30 * time.Second
 	}
 	tr := &http.Transport{}
+	if c.Proxy != "" {
+		if pu, perr := neturl.Parse(c.Proxy); perr == nil && pu.Host != "" {
+			tr.Proxy = http.ProxyURL(pu)
+		}
+	}
 	if !c.VerifyTLS {
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // 渗透场景常见自签证书
 	}
@@ -246,6 +254,11 @@ func (c *Client) RoundTripExt(op string, p ExtParams) (Result, error) {
 		timeout = 30 * time.Second
 	}
 	tr := &http.Transport{}
+	if c.Proxy != "" {
+		if pu, perr := neturl.Parse(c.Proxy); perr == nil && pu.Host != "" {
+			tr.Proxy = http.ProxyURL(pu)
+		}
+	}
 	if !c.VerifyTLS {
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
 	}

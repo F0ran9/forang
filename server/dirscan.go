@@ -6,7 +6,6 @@ package server
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -161,16 +160,18 @@ func (s *Server) runDirScan(jobID int64, base string, paths map[string]bool, tim
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 	defer cancel()
-	client := &http.Client{
-		Timeout: 6 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig:   &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // 渗透目标常见自签
-			DisableKeepAlives: false,
-			MaxIdleConns:      40,
-		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse // 不跟随，301/302 即结果
-		},
+	// 测试网络出口：按 base_url 的主机选出口（内网网段→内网出口；socks5/http 走代理）。
+	baseHost := ""
+	if u, err := url.Parse(base); err == nil {
+		baseHost = u.Hostname()
+	}
+	client := ExitHTTPClient(s.MatchExit(baseHost), 6*time.Second, true)
+	if tr, ok := client.Transport.(*http.Transport); ok {
+		tr.DisableKeepAlives = false
+		tr.MaxIdleConns = 40
+	}
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse // 不跟随，301/302 即结果
 	}
 	sem := make(chan struct{}, 25)
 	var mu sync.Mutex

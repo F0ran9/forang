@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"sync"
 	"time"
@@ -103,7 +104,7 @@ func (s *Server) fingerprintAPI(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "url 必填")
 		return
 	}
-	fp, err := doFingerprint(r.Context(), targetURL)
+	fp, err := s.doFingerprint(r.Context(), targetURL)
 	if err != nil {
 		writeErr(w, 502, "指纹识别失败: "+err.Error())
 		return
@@ -146,15 +147,18 @@ func (s *Server) fingerprintToDict(fp *FingerPrint) {
 	}
 }
 
-// doFingerprint 执行指纹识别。
-func doFingerprint(ctx context.Context, url string) (*FingerPrint, error) {
-	client := &http.Client{Timeout: 15 * time.Second}
+// doFingerprint 执行指纹识别（Server 方法：按目标主机走测试网络出口）。
+func (s *Server) doFingerprint(ctx context.Context, url string) (*FingerPrint, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	resp, err := client.Do(req)
+	host := url
+if u, err := neturl.Parse(url); err == nil && u.Host != "" {
+		host = u.Hostname()
+	}
+	resp, err := ExitHTTPClient(s.MatchExit(host), 15*time.Second, true).Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +268,7 @@ func (s *Server) fingerprintAutoTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 1) 指纹识别
-	fp, err := doFingerprint(r.Context(), b.URL)
+	fp, err := s.doFingerprint(r.Context(), b.URL)
 	if err != nil {
 		writeErr(w, 502, "指纹识别失败: "+err.Error())
 		return

@@ -107,6 +107,7 @@ func (s *Server) webshellExecAPI(w http.ResponseWriter, r *http.Request) {
 		URL: b.URL, Password: b.Password, Encoder: b.Encoder, ScriptType: b.ScriptType,
 		Cwd: b.Cwd, Timeout: time.Duration(b.Timeout) * time.Second,
 	}
+	cli.Proxy = s.exitProxyFor(b.URL)
 	if b.Headers != "" {
 		var hs map[string]string
 		if json.Unmarshal([]byte(b.Headers), &hs) == nil {
@@ -153,6 +154,7 @@ func (s *Server) webshellExtAPI(w http.ResponseWriter, r *http.Request) {
 		URL: b.URL, Password: b.Password, Encoder: b.Encoder, ScriptType: b.ScriptType,
 		Timeout: time.Duration(b.Timeout) * time.Second,
 	}
+	cli.Proxy = s.exitProxyFor(b.URL)
 	if b.Headers != "" {
 		var hs map[string]string
 		if json.Unmarshal([]byte(b.Headers), &hs) == nil {

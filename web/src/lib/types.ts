@@ -1649,3 +1649,19 @@ export interface ApiModelRow {
   id: number; task_id: number; title: string; target: string; status: string;
   doc: Record<string, unknown>; entities: unknown[]; created_at: string; updated_at: string;
 }
+
+export interface NetExit {
+  name: string;
+  type: "direct" | "socks5" | "http" | "https";
+  addr: string;
+  note: string;
+}
+export interface NetRoute {
+  cidr: string;
+  exit_name: string;
+}
+export interface NetExitConfig {
+  exits: NetExit[];
+  routes: NetRoute[];
+  default_exit: string;
+}

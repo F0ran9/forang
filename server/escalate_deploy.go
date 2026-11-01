@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"time"
 	"strings"
 )
 
@@ -66,7 +67,7 @@ func (s *Server) escalateDeployUpload(ctx context.Context, targetURL string, par
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 
-	client := &http.Client{Timeout: 30e9}
+	client := ExitHTTPClient(s.MatchExit(hostOf(uploadURL)), 30*time.Second, false)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("上传失败: %w", err)
@@ -141,4 +142,12 @@ func urlOrigin(raw string) string {
 		}
 	}
 	return strings.TrimRight(raw, "/")
+}
+
+// hostOf 取 URL 主机名（解析失败原样返回）。
+func hostOf(raw string) string {
+	if u, err := url.Parse(raw); err == nil && u.Host != "" {
+		return u.Hostname()
+	}
+	return raw
 }

@@ -109,6 +109,7 @@ func (s *Server) runPortScan(jobID int64, hosts []string, ports []int, timeoutSe
 		Scanned  int          `json:"scanned"`
 		Total    int          `json:"total"`
 		OpenTotal int         `json:"open_total"`
+		DialErr  string       `json:"dial_error,omitempty"` // 出口不支持 TCP 拨号等致命错误
 	}
 	f := findingsT{Hosts: []hostResult{}, Total: len(hosts), Scanned: 0}
 	save := func() {
@@ -129,6 +130,10 @@ func (s *Server) runPortScan(jobID int64, hosts []string, ports []int, timeoutSe
 			defer wg.Done()
 			open := []int{}
 			var hostWG sync.WaitGroup
+			// 测试网络出口：按主机网段选出口（direct=系统路由，网线接内网口即通；
+			// socks5=经代理拨号，平台不在内网时打内网）。http 代理不支持任意 TCP，
+			// 该网段扫描直接标记失败并提示。
+			dial, dialErr := ExitDialContext(ctx, s.MatchExit(h), 2500*time.Millisecond)
 			for _, p := range ports {
 				hostWG.Add(1)
 				go func(p int) {
@@ -139,9 +144,16 @@ func (s *Server) runPortScan(jobID int64, hosts []string, ports []int, timeoutSe
 						return
 					}
 					defer func() { <-sem }()
+					if dialErr != nil {
+						mu.Lock()
+						if f.DialErr == "" {
+							f.DialErr = dialErr.Error()
+						}
+						mu.Unlock()
+						return
+					}
 					addr := net.JoinHostPort(h, strconv.Itoa(p))
-					d := net.Dialer{Timeout: 2500 * time.Millisecond}
-					c, err := d.DialContext(ctx, "tcp", addr)
+					c, err := dial(ctx, "tcp", addr)
 					if err == nil {
 						c.Close()
 						mu.Lock()
