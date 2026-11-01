@@ -110,7 +110,7 @@ docker compose up -d
 
 > LLM 图片块扩展（留证截图视觉自检）依赖本项目的 norma 分支：
 > ```bash
-> git clone -b image-blocks https://github.com/Autumn-27/norma.git ../norma
+> git clone -b image-blocks https://github.com/F0ran9/Norma.git ../norma
 > ```
 > go.mod 已 `replace github.com/Autumn-27/norma => ../norma`。
 

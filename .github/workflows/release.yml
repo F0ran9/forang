@@ -44,10 +44,10 @@ jobs:
         with:
           go-version: "1.26"
           cache: true
-      # go.mod replace norma => ../norma（LLM 图片块扩展依赖本仓库的 image-blocks
-      # 分支）：checkout 之外单独克隆到工作区上一级，go build 才能解析 replace。
+      # go.mod replace norma => ../norma（LLM 图片块扩展）：image-blocks 分支在
+      # F0ran9/Norma fork（上游无此分支）。克隆到工作区上一级供 go build 解析。
       - name: Clone norma (image-blocks) for go.mod replace
-        run: git clone --depth 1 -b image-blocks https://github.com/Autumn-27/norma.git ../norma
+        run: git clone --depth 1 -b image-blocks https://github.com/F0ran9/Norma.git ../norma
       - uses: actions/download-artifact@v4
         with:
           name: web-dist
