@@ -196,6 +196,15 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		}
 		return hits, total, err
 	})
+	// 内部 token：agent 工具（fingerprint/port_scan/dir_scan）经环回 HTTP 调平台
+	// API 需要认证。此前 FORANG_TOKEN 无人注入，这些工具在任务里从未真正工作过
+	// （潜在断链，2026-11-01 扫描工具接入时暴露）。启动时自铸 7 天 JWT 写入环境，
+	// 与登录 token 同源同校验；过期随进程重启刷新。
+	if tok, err := signJWT(key); err == nil {
+		os.Setenv("FORANG_TOKEN", tok)
+	} else {
+		log.Printf("[auth] 内部工具 token 签发失败（fingerprint/scan 工具将不可用）: %v", err)
+	}
 	agent.SetEscalateHooks(
 		func(ctx context.Context, vulnType, targetURL string, params map[string]any) (string, error) {
 			return s.escalateDeploy(ctx, vulnType, targetURL, params)

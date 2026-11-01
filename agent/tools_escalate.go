@@ -403,6 +403,12 @@ func (t *ToolSet) fingerprintTool() actool.CoreTool {
 			var b strings.Builder
 			fmt.Fprintf(&b, "指纹: %s (Server: %s, X-Powered-By: %s)\n",
 				result.Data.Fingerprint.Fingerprint, result.Data.Fingerprint.Server, result.Data.Fingerprint.XPower)
+			// 动作入图：指纹识别也留痕（含 POC 命中数，供链路复盘）。
+			t.recordAction("fingerprint", "指纹识别："+result.Data.Fingerprint.Fingerprint, map[string]any{
+				"target": a.URL, "result": "ok",
+				"fingerprint": result.Data.Fingerprint.Fingerprint,
+				"poc_matches": len(result.Data.POCMatches),
+			})
 			if len(result.Data.POCMatches) > 0 {
 				fmt.Fprintf(&b, "匹配 POC (%d 个):\n", len(result.Data.POCMatches))
 				for i, m := range result.Data.POCMatches {
