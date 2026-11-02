@@ -240,6 +240,12 @@ func (s *Server) buildNSVulnSection(doc *Docx, idx int, f *db.DBFinding) {
 		doc.Paragraph(u)
 	}
 
+	// POC 请求包：可直粘 Repeater/Burp 重放的完整原始 HTTP 请求（packet 列）。
+	if pkt := strings.TrimSpace(f.Packet); pkt != "" {
+		doc.FieldLine("POC请求包：", "以下为可直接重放的原始 HTTP 请求（复制进 Repeater/Burp 即可复现）")
+		doc.CodeBlock(pkt)
+	}
+
 	// 相关截图：结构化截图（页面图+接口取证图）实际嵌入
 	doc.FieldLine("相关截图：", "")
 	shotCount := 0

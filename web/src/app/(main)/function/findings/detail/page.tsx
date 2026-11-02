@@ -5,7 +5,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
-import { ArrowLeftIcon, ArrowUpRightIcon, ShieldAlertIcon } from "lucide-react";
+import { ArrowLeftIcon, ArrowUpRightIcon, SendIcon, ShieldAlertIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { CopyButton } from "@/components/copy-button";
@@ -173,6 +173,39 @@ function FindingDetailInner() {
                 </CardContent>
               </Card>
               <FindingRetestPanel key={id} findingId={id} readOnly={finding.inherited} onCompleted={load} />
+              {finding.packet ? (
+                <Card>
+                  <CardHeader className="flex-row items-center justify-between space-y-0">
+                    <div>
+                      <CardTitle className="text-sm">POC 请求包（可直接重放）</CardTitle>
+                      <p className="text-xs text-muted-foreground">
+                        标准原始 HTTP 请求格式——复制后可直接粘贴到 Burp Repeater，或点击下方按钮在平台 Repeater 中打开。
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 gap-1.5">
+                      <CopyButton text={finding.packet} />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          try {
+                            sessionStorage.setItem("forang_repeater_raw", finding.packet ?? "");
+                          } catch {}
+                          window.location.href = "/function/toolbox";
+                          toast.success("POC 已填入 Repeater，可直接发送重放");
+                        }}
+                      >
+                        <SendIcon className="mr-1 size-3.5" /> 在 Repeater 中重放
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <pre className="max-h-[40vh] overflow-auto rounded-md bg-muted px-3 py-2 font-mono text-xs whitespace-pre-wrap">
+                      {finding.packet}
+                    </pre>
+                  </CardContent>
+                </Card>
+              ) : null}
               <Card>
                 <CardHeader>
                   <CardTitle className="text-sm">证据 / PoC</CardTitle>

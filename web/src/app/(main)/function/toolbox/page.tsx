@@ -136,7 +136,17 @@ export default function ToolboxPage() {
 // ==================== Repeater ====================
 
 function RepeaterTab() {
-  const [raw, setRaw] = React.useState(defaultRaw);
+  // 跨页预填：漏洞详情「在 Repeater 中重放」经 sessionStorage 传入 POC 请求包。
+  const [raw, setRaw] = React.useState(() => {
+    try {
+      const pre = sessionStorage.getItem("forang_repeater_raw");
+      if (pre) {
+        sessionStorage.removeItem("forang_repeater_raw");
+        return pre;
+      }
+    } catch {}
+    return defaultRaw;
+  });
   const [forceHTTPS, setForceHTTPS] = React.useState(false);
   const [followRedirect, setFollowRedirect] = React.useState(true);
   const [maxBodyKB, setMaxBodyKB] = React.useState(1024);

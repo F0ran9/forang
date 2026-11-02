@@ -318,6 +318,7 @@ type FindingDTO struct {
 	Status    string `json:"status"`
 	Summary   string `json:"summary"`
 	Evidence  string `json:"evidence"`
+	Packet    string `json:"packet,omitempty"` // 可复现 POC：完整原始 HTTP 请求包（Repeater 直粘重放）；空=非 HTTP 类
 	Report    string `json:"report,omitempty"` // 详细报告(Markdown);仅详情接口返回,列表为空
 
 	IntentID        string            `json:"intent_id,omitempty"`
@@ -455,6 +456,7 @@ func findingFromDB(f *db.DBFinding, assets map[int64]*db.Asset) FindingDTO {
 		Status:    status,
 		Summary:   f.Summary,
 		Evidence:  f.Evidence,
+		Packet:    f.Packet,
 		Report:    f.Report,
 		TS:        rfc3339(f.CreatedAt),
 	}

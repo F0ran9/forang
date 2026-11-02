@@ -191,6 +191,9 @@ func (s *Server) findingsAppendixMarkdown(tID string) string {
 		if f.Summary != "" {
 			fmt.Fprintf(&sb, "%s\n\n", f.Summary)
 		}
+		if f.Packet != "" {
+			fmt.Fprintf(&sb, "**POC 请求包**（可直接粘贴到 Repeater/Burp 重放）：\n\n```\n%s\n```\n\n", f.Packet)
+		}
 		if f.Evidence != "" {
 			fmt.Fprintf(&sb, "```\n%s\n```\n\n", f.Evidence)
 		}

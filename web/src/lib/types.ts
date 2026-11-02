@@ -502,6 +502,7 @@ export interface Finding {
   status: FindingStatus;
   summary: string;
   evidence: string;
+  packet?: string; // 可复现 POC：完整原始 HTTP 请求包（可直粘 Repeater 重放）；空=非 HTTP 类
   report?: string; // 详细报告(Markdown);仅详情接口返回,列表为空
   intent_id?: string;
   param_id?: string;
