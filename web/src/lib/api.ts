@@ -8,6 +8,7 @@ import { MOCK } from "@/lib/mock/enabled";
 import { mockHandle } from "@/lib/mock/handler";
 import type {
   BatchCampaignSummary,
+  CodeUpload,
   FindingDuplicateGroup,
   NetExitConfig,
   ActiveFindingRetest,
@@ -1431,6 +1432,13 @@ export const api = {
     }).then((r) => r.data),
   batchCampaigns: () =>
     get<{ data: BatchCampaignSummary[] }>("/batch").then((r) => r.data ?? []),
+  // ---- 源码审计 ----
+  codeUploadsList: () => get<{ data: CodeUpload[] }>("/codeaudit/uploads").then((r) => r.data ?? []),
+  codeUploadDelete: (id: string) => del<{ deleted: string }>(`/codeaudit/uploads/${id}`),
+  codeAuditCreateTask: (uploadId: string, focus?: string) =>
+    post<{ task_id: string; name: string; source: string }>("/codeaudit/task", {
+      upload_id: uploadId, focus: focus ?? "",
+    }),
   interceptGetJudgeConfig: () => get<JudgeConfig>("/intercept/judge"),
   interceptSetJudgeConfig: (cfg: JudgeConfig) => put<{ ok: boolean }>("/intercept/judge", cfg),
   interceptJudgeUsage: (days = 30) => get<JudgeUsage>(`/intercept/judge/usage?days=${days}`),

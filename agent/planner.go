@@ -377,6 +377,10 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	// 领域工具 + 基础默认工具集（Read/Write/Edit/MultiEdit/LS/Glob/Grep/Bash）
 	// 资产覆盖度功能关闭时剔除 add_task_scope/list_untested_assets（不入 prompt）。
 	base := append(tsx.DropCoverageTools(tsx.PlannerTools()), actool.DefaultTools()...)
+	// 源码审计任务：planner 同样不出网/不执行（它只规划，不需要渗透工具）。
+	if taskIsAudit(taskID) {
+		base = FilterAuditTools(base)
+	}
 	ctx = WithRunInfo(ctx, RunInfo{TaskID: taskID, ExplorationID: explorationID(ts)})
 	tools, def, cleanup := AugmentTools(ctx, "planner", base)
 	if p.webSearch.Enabled && p.webSearch.Backend == "tavily" && p.webSearch.TavilyKey != "" {

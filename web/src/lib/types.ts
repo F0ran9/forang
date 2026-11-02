@@ -1701,3 +1701,13 @@ export interface BatchCampaignSummary {
   findings: number;
   created_at: string;
 }
+
+export interface CodeUpload {
+  id: string;
+  filename: string;
+  file_count: number;
+  total_bytes: number;
+  entries?: string[];
+  created_at: string;
+  task_id?: number | null;
+}

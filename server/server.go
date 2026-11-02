@@ -211,6 +211,12 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	}
 	// 测试网络出口注入：agent 的 webshell/升级工具按目标网段选出口（netexit）。
 	agent.SetTargetProxy(s.exitProxyFor)
+	// 源码审计模式注入：tasks.audit_mode → worker/planner 工具面收口（不出网/不执行）。
+	agent.SetAuditModeResolver(func(taskID int64) bool {
+		var on bool
+		_ = s.m.PG().QueryRow(`SELECT COALESCE(audit_mode,false) FROM tasks WHERE id=$1`, taskID).Scan(&on)
+		return on
+	})
 	agent.SetEscalateHooks(
 		func(ctx context.Context, vulnType, targetURL string, params map[string]any) (string, error) {
 			return s.escalateDeploy(ctx, vulnType, targetURL, params)
@@ -961,6 +967,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/batch/create", s.batchCreate)            // 批量资产渗透
 	mux.HandleFunc("GET /api/batch/{id}", s.batchDetail) // 指纹→POC→AI任务
 	mux.HandleFunc("GET /api/batch", s.batchList)
+	mux.HandleFunc("POST /api/codeaudit/upload", s.caUpload)          // 源码审计：上传 zip（流式+安全解压）
+	mux.HandleFunc("GET /api/codeaudit/uploads", s.caUploadsList)
+	mux.HandleFunc("DELETE /api/codeaudit/uploads/{id}", s.caUploadDelete)
+	mux.HandleFunc("POST /api/codeaudit/task", s.caCreateTask)         // 消费上传→审计任务
 	mux.HandleFunc("POST /api/tools/c2/tunnel/stop", s.c2TunnelStopEnhanced) // 增强：全清理
 	mux.HandleFunc("POST /api/tools/mumu/config", s.mumuConfigSet)
 		mux.HandleFunc("GET /api/exploration/findings", s.findings)
