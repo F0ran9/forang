@@ -8,11 +8,13 @@ import Link from "next/link";
 import { FileCode2Icon, FolderArchiveIcon, Loader2Icon, Trash2Icon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type { CodeUpload } from "@/lib/types";
 
 function fmtSize(n: number): string {
@@ -183,12 +185,20 @@ export default function CodeAuditPage() {
                   <p className="text-xs text-muted-foreground">{u.file_count} 文件 · {fmtSize(u.total_bytes)}</p>
                 </div>
                 {u.task_id ? (
-                  <Link
-                    href={`/function/tasks/detail?id=${u.task_id}`}
-                    className="text-sm text-primary hover:underline"
-                  >
-                    任务 #{u.task_id} →
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className={cn(
+                      "text-[10px]",
+                      u.task_status === "done" ? "border-green-500/40 text-green-600" : "border-blue-500/40 text-blue-600",
+                    )}>
+                      {u.task_status === "done" ? "审计完成" : u.task_status === "running" ? "审计中" : u.task_status === "failed" ? "失败" : u.task_status || "—"}
+                    </Badge>
+                    <Link
+                      href={`/function/tasks/detail?id=${u.task_id}`}
+                      className="text-sm text-primary hover:underline"
+                    >
+                      #{u.task_id} →
+                    </Link>
+                  </div>
                 ) : null}
               </div>
             ))}

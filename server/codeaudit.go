@@ -162,6 +162,7 @@ type caUploadDTO struct {
 	Entries    []string `json:"entries,omitempty"`
 	CreatedAt  string   `json:"created_at"`
 	TaskID     *int64   `json:"task_id,omitempty"` // 已消费时指向审计任务
+	TaskStatus string   `json:"task_status,omitempty"` // 该任务当前状态（done/running/…）
 }
 
 // POST /api/codeaudit/upload — multipart 字段 file，.zip 源码包，流式接收。
@@ -252,8 +253,10 @@ func (s *Server) caUpload(w http.ResponseWriter, r *http.Request) {
 func (s *Server) caUploadsList(w http.ResponseWriter, r *http.Request) {
 	s.ensureCodeAuditTables()
 	rows, err := s.m.PG().Query(
-		`SELECT id, filename, file_count, total_bytes, to_char(created_at,'MM-DD HH24:MI'), consumed_by
-		 FROM code_uploads ORDER BY created_at DESC LIMIT 50`)
+		`SELECT u.id, u.filename, u.file_count, u.total_bytes, to_char(u.created_at,'MM-DD HH24:MI'),
+		        u.consumed_by, COALESCE(t.status,'')
+		 FROM code_uploads u LEFT JOIN tasks t ON t.id = u.consumed_by
+		 ORDER BY u.created_at DESC LIMIT 50`)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -263,9 +266,11 @@ func (s *Server) caUploadsList(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var d caUploadDTO
 		var consumed sql.NullInt64
-		if err := rows.Scan(&d.ID, &d.Filename, &d.FileCount, &d.TotalBytes, &d.CreatedAt, &consumed); err == nil {
+		var taskStatus string
+		if err := rows.Scan(&d.ID, &d.Filename, &d.FileCount, &d.TotalBytes, &d.CreatedAt, &consumed, &taskStatus); err == nil {
 			if consumed.Valid {
 				d.TaskID = &consumed.Int64
+				d.TaskStatus = taskStatus
 			}
 			out = append(out, d)
 		}

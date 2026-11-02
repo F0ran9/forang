@@ -1418,6 +1418,11 @@ function TaskNameEditor({ task, onRename }: { task: Task; onRename: (task: Task,
       >
         {task.name?.trim() ? task.name : <span className="text-muted-foreground">未命名</span>}
       </Link>
+      {task.audit_mode ? (
+        <Badge variant="outline" className="shrink-0 border-violet-500/40 text-[10px] text-violet-600 dark:text-violet-400" title="源码审计任务：静态审计，工具面按任务收口（不出网/不执行）">
+          审计
+        </Badge>
+      ) : null}
       <Button
         type="button"
         variant="ghost"

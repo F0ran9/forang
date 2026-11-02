@@ -40,6 +40,7 @@ type TaskDTO struct {
 	Description        string             `json:"description"`
 	Goal               string             `json:"goal"`
 	Status             string             `json:"status"` // created | running | paused | done | failed
+	AuditMode          bool               `json:"audit_mode,omitempty"` // 源码审计任务（静态审计，工具面按任务收口）
 	CreatedAt          string             `json:"created_at"`
 	CreatedUnix        int64              `json:"created_unix"`       // created_at as unix seconds (for run-duration calc)
 	CompletedAt        string             `json:"completed_at"`       // RFC3339 finish time (done/failed); "" if unfinished
@@ -314,7 +315,7 @@ type FindingDTO struct {
 	VulnClass string `json:"vulnclass"`
 	Name      string `json:"name,omitempty"` // 漏洞名称;为空时前端回退展示 vulnclass
 	Severity  string `json:"severity"`       // critical | high | medium | low
-	Status    string `json:"status"`         // pending | in_progress | confirmed | resolved | fixed | false_positive | ignored | duplicate | risk_accepted
+	Status    string `json:"status"`
 	Summary   string `json:"summary"`
 	Evidence  string `json:"evidence"`
 	Report    string `json:"report,omitempty"` // 详细报告(Markdown);仅详情接口返回,列表为空

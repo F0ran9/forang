@@ -1297,9 +1297,11 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 	list := s.m.List()
 	metrics, _ := s.m.PG().TaskListMetricsAll()
 	archiveBlockers, _ := s.m.PG().TaskArchiveBlockers()
+	auditIDs := s.auditTaskIDs(list)
 	dtos := make([]TaskDTO, 0, len(list))
 	for _, t := range list {
 		dto := taskDTO(t, s.resolvedTaskStatus(t))
+		dto.AuditMode = auditIDs[t.ID]
 		applyTaskArchiveBlocker(&dto, archiveBlockers)
 		metric := metrics[t.ExpID]
 		dto.Tokens = tokenTotalDTO(metric.Tokens)
@@ -1321,6 +1323,32 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 		dtos = append(dtos, dto)
 	}
 	writeJSON(w, 200, map[string]any{"tasks": dtos, "active": active})
+}
+
+// auditTaskIDs 批量查审计任务标记（列表徽章用；单查询避免 N+1）。
+func (s *Server) auditTaskIDs(list []*Task) map[string]bool {
+	out := map[string]bool{}
+	if len(list) == 0 {
+		return out
+	}
+	ids := make([]int64, 0, len(list))
+	for _, t := range list {
+		if n, err := strconv.ParseInt(t.ID, 10, 64); err == nil {
+			ids = append(ids, n)
+		}
+	}
+	rows, err := s.m.PG().Query(`SELECT id FROM tasks WHERE audit_mode AND id = ANY($1::bigint[])`, ids)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err == nil {
+			out[strconv.FormatInt(id, 10)] = true
+		}
+	}
+	return out
 }
 
 func (s *Server) resolvedTaskStatus(t *Task) string {

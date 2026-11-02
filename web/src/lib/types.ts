@@ -5,6 +5,7 @@ export type TaskStatus = "created" | "queued" | "running" | "paused" | "done" | 
 export type EngineMode = "exploring" | "paused" | "stalled" | "idle";
 
 export interface Task {
+  audit_mode?: boolean;
   id: string;
   name?: string; // 可选任务名称;空/缺省=未命名,展示时回退到描述
   category_id?: number;
@@ -1710,4 +1711,5 @@ export interface CodeUpload {
   entries?: string[];
   created_at: string;
   task_id?: number | null;
+  task_status?: string;
 }
