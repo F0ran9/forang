@@ -981,6 +981,9 @@ export interface NotificationChannel {
   // secret_keys 由后端按渠道类型给出，前端据此渲染密码框与「留空即不改」提示，
   // 不硬编码任何渠道知识。
   secret_keys: string[];
+  health_ok?: boolean | null;
+  health_at?: string;
+  health_err?: string;
 }
 
 // NotificationKind 是 /api/notify/meta 返回的渠道类型元数据。

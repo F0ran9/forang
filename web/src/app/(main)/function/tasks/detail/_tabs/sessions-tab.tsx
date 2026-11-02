@@ -46,6 +46,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupButton } from "@/components/ui/input-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -1147,6 +1148,8 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   }, [intentAssets]);
 
   const workerSessions = React.useMemo(() => allIntents.map(intentToSession), [allIntents]);
+  // 会话（worker 意图）标题过滤：多意图任务里找某个方向的会话不再翻滚。
+  const [sessionQuery, setSessionQuery] = React.useState("");
   const intentsHasMore = hasLoadedOlderIntentsPage ? olderIntentsHasMore : firstIntentsHasMore;
 
   // For each worker session (intent), derive the display title from the intent
@@ -1251,12 +1254,20 @@ export function SessionsTab({ taskId }: { taskId: string }) {
     return items;
   }, [mainSessions, workerSessions, plannerLive, focusSession, retainedSession]);
 
-  const grouped = {
-    mainagent: sessions.filter((s) => s.role === "mainagent"),
-    planner: sessions.filter((s) => s.role === "planner"),
-    worker: sessions.filter((s) => s.role === "worker"),
-    system: sessions.filter((s) => s.role === "system"),
-  };
+  const grouped = (() => {
+    const q = sessionQuery.trim().toLowerCase();
+    const matchQuery = (s: Session) => {
+      if (!q) return true;
+      const meta = sessionMeta.get(s.id);
+      return (meta?.title ?? s.title ?? "").toLowerCase().includes(q) || s.id.includes(q);
+    };
+    return {
+      mainagent: sessions.filter((s) => s.role === "mainagent"),
+      planner: sessions.filter((s) => s.role === "planner"),
+      worker: sessions.filter((s) => s.role === "worker" && matchQuery(s)),
+      system: sessions.filter((s) => s.role === "system"),
+    };
+  })();
 
   const active = sessions.find((s) => s.id === activeId) ?? MAIN_SESSION;
   const side = useSideQuestions(
@@ -1623,6 +1634,15 @@ export function SessionsTab({ taskId }: { taskId: string }) {
                 </span>
               )}
             </div>
+            {workerSessions.length > 6 && (
+              <Input
+                value={sessionQuery}
+                onChange={(e) => setSessionQuery(e.target.value)}
+                placeholder="搜索意图会话…"
+                className="mt-2 h-7 text-xs"
+                aria-label="搜索意图会话"
+              />
+            )}
             {taskTokens && (
               <Tooltip>
                 <TooltipTrigger asChild>

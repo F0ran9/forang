@@ -1333,6 +1333,11 @@ CREATE TABLE IF NOT EXISTS notification_channels (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- 渠道健康巡检（每 6h 定时探测，失败即标记）：ok=false 时投递引擎跳过该渠道
+-- 并把待发消息滞留到恢复，避免向死 webhook 静默丢推送。
+ALTER TABLE notification_channels ADD COLUMN IF NOT EXISTS health_ok BOOLEAN;
+ALTER TABLE notification_channels ADD COLUMN IF NOT EXISTS health_at TIMESTAMPTZ;
+ALTER TABLE notification_channels ADD COLUMN IF NOT EXISTS health_err TEXT NOT NULL DEFAULT '';
 DROP TRIGGER IF EXISTS trg_notification_channels_upd ON notification_channels;
 CREATE TRIGGER trg_notification_channels_upd BEFORE UPDATE ON notification_channels
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();

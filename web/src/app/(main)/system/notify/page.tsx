@@ -398,6 +398,16 @@ export default function NotifyPage() {
                     <Badge variant="outline">{KIND_LABEL[ch.kind] ?? ch.kind}</Badge>
                     <Badge variant="outline">{ch.mode === "digest" ? "汇总" : "实时"}</Badge>
                     {!ch.enabled && <Badge variant="outline">已停用</Badge>}
+                    {ch.health_ok === true && (
+                      <Badge variant="outline" className="border-green-500/40 text-green-600" title={(ch.health_at ?? "") + " 巡检正常"}>
+                        巡检正常
+                      </Badge>
+                    )}
+                    {ch.health_ok === false && (
+                      <Badge variant="outline" className="border-red-500/40 text-red-600" title={ch.health_err ?? ""}>
+                        巡检失败：{(ch.health_err ?? "").slice(0, 40)}
+                      </Badge>
+                    )}
                   </div>
                   <FilterSummary filter={ch.filter} />
                 </CardContent>

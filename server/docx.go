@@ -16,6 +16,14 @@ import (
 type Docx struct {
 	body   strings.Builder
 	images []docxImage // 待嵌入的图片
+	header string      // 每页页眉文字（密级标识等）；空=无页眉
+}
+
+// SetHeader 设置每页页眉（右对齐小字，典型用途：密级标识「秘密 ★ 保管期限」）。
+// 每页都带——纸质流转时散页也能看出密级。
+func (d *Docx) SetHeader(text string) *Docx {
+	d.header = strings.TrimSpace(text)
+	return d
 }
 
 type docxImage struct {
@@ -165,6 +173,7 @@ func (d *Docx) Build() ([]byte, error) {
   <Default Extension="png" ContentType="image/png"/>
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>
 </Types>`
 	if err := writeZipEntry(zw, "[Content_Types].xml", ct); err != nil {
 		return nil, err
@@ -182,6 +191,9 @@ func (d *Docx) Build() ([]byte, error) {
 	// word/_rels/document.xml.rels（图片关系；无图片时也写入空壳保持结构完整）
 	docRels := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`
+	if d.header != "" {
+		docRels += `<Relationship Id="rIdHdr1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>`
+	}
 	for _, img := range d.images {
 		docRels += fmt.Sprintf(
 			`<Relationship Id="%s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image%d.png"/>`,
@@ -215,11 +227,28 @@ func (d *Docx) Build() ([]byte, error) {
 		return nil, err
 	}
 
+	// word/header1.xml — 每页页眉（密级标识）；右对齐 9pt 灰字 + 底边细线。
+	if d.header != "" {
+		hdr := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:p><w:pPr><w:jc w:val="right"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="1" w:color="999999"/></w:pBdr></w:pPr>
+    <w:r><w:rPr><w:sz w:val="18"/><w:color w:val="666666"/><w:rFonts w:eastAsia="宋体"/></w:rPr><w:t xml:space="preserve">%s</w:t></w:r>
+  </w:p>
+</w:hdr>`, xmlEscape(d.header))
+		if err := writeZipEntry(zw, "word/header1.xml", hdr); err != nil {
+			return nil, err
+		}
+	}
+
 	// word/document.xml — 正文
+	hdrRef := ""
+	if d.header != "" {
+		hdrRef = `<w:headerReference w:type="default" r:id="rIdHdr1"/>`
+	}
 	doc := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:body>%s<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1418" w:right="1418" w:bottom="1418" w:left="1418"/></w:sectPr></w:body>
-</w:document>`, d.body.String())
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <w:body>%s<w:sectPr>%s<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1418" w:right="1418" w:bottom="1418" w:left="1418" w:header="708"/></w:sectPr></w:body>
+</w:document>`, d.body.String(), hdrRef)
 	if err := writeZipEntry(zw, "word/document.xml", doc); err != nil {
 		return nil, err
 	}

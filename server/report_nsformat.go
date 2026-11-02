@@ -46,6 +46,12 @@ func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 	}
 	doc.Paragraph("文档编号: " + prefix + "-" + t.ID + "-" + time.Now().Format("20060102"))
 	doc.Paragraph("密级: " + classification)
+	// 每页页眉带密级标识：纸质报告散页流转也能看出密级（密级≠内部资料时加 ★）。
+	hdrText := classification
+	if classification != "内部资料" && classification != "公开" {
+		hdrText = classification + " ★"
+	}
+	doc.SetHeader("密级：" + hdrText)
 	doc.Paragraph("版本编号: V1.0")
 	doc.Paragraph("日期: " + time.Now().Format("2006-01-02"))
 	doc.Paragraph("© " + time.Now().Format("2006") + " " + org)

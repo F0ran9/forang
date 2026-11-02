@@ -63,6 +63,10 @@ type NotificationChannel struct {
 	RatePerMin int       `json:"rate_per_min"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+	// 健康巡检（notify_health.go 每 6h 探测）：HealthOk 为 nil 表示从未巡检。
+	HealthOk  *bool     `json:"health_ok,omitempty"`
+	HealthAt  time.Time `json:"health_at,omitempty"`
+	HealthErr string    `json:"health_err,omitempty"`
 }
 
 // IsEnabled 返回渠道是否启用；Enabled 为 nil（未加载）时按启用处理。
@@ -77,15 +81,25 @@ type NotificationEvent struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
-const notificationChannelCols = `id, name, kind, enabled, config, mode, filter, rate_per_min, created_at, updated_at`
+const notificationChannelCols = `id, name, kind, enabled, config, mode, filter, rate_per_min, created_at, updated_at,
+COALESCE(health_ok::text, '') AS health_ok, COALESCE(health_at::text, '') AS health_at, COALESCE(health_err, '') AS health_err`
 
 func scanNotificationChannel(sc interface{ Scan(...any) error }) (*NotificationChannel, error) {
 	var c NotificationChannel
 	var enabled bool
-	if err := sc.Scan(&c.ID, &c.Name, &c.Kind, &enabled, &c.Config, &c.Mode, &c.Filter, &c.RatePerMin, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	var hOk, hAt string
+	if err := sc.Scan(&c.ID, &c.Name, &c.Kind, &enabled, &c.Config, &c.Mode, &c.Filter, &c.RatePerMin, &c.CreatedAt, &c.UpdatedAt, &hOk, &hAt, &c.HealthErr); err != nil {
 		return nil, err
 	}
 	c.Enabled = &enabled
+	// health_ok/health_at 由 COALESCE 成字符串：'' = 从未巡检，true/false = 已巡检
+	if hOk == "true" || hOk == "false" {
+		v := hOk == "true"
+		c.HealthOk = &v
+		if t, err := time.Parse("2006-01-02 15:04:05.999999-07", strings.TrimSpace(hAt)); err == nil {
+			c.HealthAt = t
+		}
+	}
 	return &c, nil
 }
 

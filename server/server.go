@@ -188,6 +188,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	workRoot = m.dir                             // 容器同路径挂载的平台根
 	go s.cleanupOrphanContainers()                // 启动清理无主任务容器
 	s.startPocSubLoop()
+	s.startNotifyHealthLoop()   // 通知渠道健康巡检：每 6h 探测，死 webhook 不再静默丢推送
 	s.StartProxySubscriptionLoop() // 出口代理订阅轮询（未配置即静默）                            // POC 订阅定时同步（每分钟检查到期源）
 	s.syncC2Settings()             // goc2 连接配置：settings 覆盖默认（token 不进仓库）
 	s.startKBDistillLoop()          // 知识蒸馏：终态任务自动沉淀总结（移植自 AI-PENTEST）
