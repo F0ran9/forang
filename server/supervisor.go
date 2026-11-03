@@ -17,9 +17,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"runtime/debug"
 	"net/http"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +48,7 @@ var supervisorStrategies = map[string]string{
 	"validation": "漏洞验证：围绕已发现漏洞做可复现验证，区分误报；建议补 PoC、对照请求、最小影响证明；避免无目的换目标。",
 	"offensive":  "红队推进：关注下一跳、权限提升、横向和可利用路径；仍必须遵守授权与安全规则，不得建议越界或破坏性动作。",
 	"stealth":    "低噪声：避免高频爆破、批量请求和明显扫描；建议被动信息、低速、小样本验证。",
+	"cleanup":    "痕迹清理模式：本任务的目的就是删除本平台测试留下的数据（payload 留言/上传的 webshell/测试账号）。删除操作受平台管控：先经 AI 裁判审批，裁判不放行转人工，均不通过则跳过并记录。允许执行：按内容指纹精确匹配的条目删除、webshell 文件自删除。仍然禁止：范围/批量删除、删除无指纹匹配的条目、任何破坏性系统命令。",
 	"guarded":    "避危险接口：不允许测试或建议测试会修改系统运行、业务数据/配置的接口，也不允许测试密码重置/账号接管/文件删除等不可逆动作；发现只记录风险并建议人工确认，改用只读或可回滚验证；主 Agent 正在调用这类接口时立即要求停止。",
 }
 
@@ -172,6 +173,8 @@ func (sv *Supervisor) SetConfig(cfg SupervisorConfig) error {
 // ---------- 观察 ----------
 
 func (sv *Supervisor) Observe(t *Task, r db.Activity) {
+	// 清理任务（tasks.cleanup_mode）专用策略：默认 guarded 会把删测试数据当破坏
+	// 硬拦（实测 305 被纠偏成只读）。按任务覆盖 supervisor.strategy.tasks JSONB。
 	if r.Kind != "tool_use" && r.Kind != "tool_result" && r.Kind != "text" {
 		return
 	}
@@ -180,6 +183,15 @@ func (sv *Supervisor) Observe(t *Task, r db.Activity) {
 	if !cfg.Enabled {
 		sv.mu.Unlock()
 		return
+	}
+	// 清理任务专用策略：默认 guarded 会把删测试数据当破坏硬拦（实测 305 被纠偏
+	// 只读）。cleanup 策略允许指纹匹配删除走 AI 裁判/人工审批流。
+	if sv.m != nil && sv.m.pg != nil {
+		var isCleanup bool
+		_ = sv.m.pg.QueryRow(`SELECT COALESCE(cleanup_mode,false) FROM tasks WHERE id=$1`, mustParseTaskID(t.ID)).Scan(&isCleanup)
+		if isCleanup {
+			cfg.Strategy = "cleanup" // 值拷贝，只影响本次观察
+		}
 	}
 	e, ok := sv.tasks[t.ID]
 	if !ok {
@@ -250,12 +262,12 @@ func supervisorDigestSummary(s string) string {
 // ---------- 分析 ----------
 
 type supervisorEpisode struct {
-	Phase       string   `json:"phase"`
-	Assessment  string   `json:"assessment"`
-	Avoid       []string `json:"avoid"`
-	Next        []string `json:"next"`
-	Excluded    []string `json:"excluded"`
-	Tested      []string `json:"tested"`
+	Phase      string   `json:"phase"`
+	Assessment string   `json:"assessment"`
+	Avoid      []string `json:"avoid"`
+	Next       []string `json:"next"`
+	Excluded   []string `json:"excluded"`
+	Tested     []string `json:"tested"`
 }
 
 const supervisorSystemPrompt = `你是授权渗透测试的监督观察员。你不执行任何工具，也不向操作员发指令；你只根据调用记录和结果摘要，判断这个 Agent 刚才在做什么、有没有进展、下一步该换什么策略。
@@ -410,7 +422,10 @@ func renderSupervisorNote(ep supervisorEpisode) string {
 	var sb strings.Builder
 	sb.WriteString("🧭 监督建议（非操作员指令，仅供参考调整方向）\n")
 	fmt.Fprintf(&sb, "阶段：%s · 判断：%s\n", orDefault(ep.Phase, "-"), ep.Assessment)
-	for _, list := range []struct{ title string; items []string }{
+	for _, list := range []struct {
+		title string
+		items []string
+	}{
 		{"不要重复", ep.Avoid}, {"建议下一步", ep.Next}, {"已排除", ep.Excluded},
 	} {
 		if len(list.items) > 0 {
@@ -452,7 +467,7 @@ func parseSupervisorEpisode(text string) (supervisorEpisode, error) {
 
 type supervisorConfigPayload struct {
 	SupervisorConfig
-	Profiles  []supervisorProfileOpt `json:"profiles"`
+	Profiles   []supervisorProfileOpt `json:"profiles"`
 	Strategies map[string]string      `json:"strategies"`
 }
 
@@ -491,4 +506,11 @@ func boolStr(b bool) string {
 		return "true"
 	}
 	return "false"
+}
+
+// mustParseTaskID 任务 id 字符串转数字（supervisor 用）。
+func mustParseTaskID(s string) int64 {
+	var n int64
+	fmt.Sscan(s, &n)
+	return n
 }
