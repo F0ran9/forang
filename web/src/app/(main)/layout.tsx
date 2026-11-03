@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import * as React from "react";
 
 import { AppSidebar } from "@/app/(main)/_components/sidebar/app-sidebar";
+import { UpdateBanner } from "@/components/update-banner";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { auth } from "@/lib/auth";
 import { getClientCookie } from "@/lib/cookie.client";
@@ -80,6 +81,7 @@ export default function Layout({ children }: Readonly<{ children: ReactNode }>) 
         )}
       >
         <MainContent>{children}</MainContent>
+        <UpdateBanner />
       </SidebarInset>
     </SidebarProvider>
   );
