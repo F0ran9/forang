@@ -34,6 +34,10 @@ type AuditEntry struct {
 //（tasks.cleanup_mode）。清理任务里删除类规则的 deny 改道 AI 裁判，
 // 裁判不放行再转人工——默认自动清理、AI 审批优先、人只是兜底。
 var CleanupTaskResolver func(taskID int64) bool
+
+// CleanupFingerprintResolver 由 server 注入：清理任务 → 任务目标里声明的
+// 待清理测试数据指纹（用于裁判上下文：作用对象归属已明）。
+var CleanupFingerprintResolver func(taskID int64) []string
 type Guard struct {
 	mu          sync.Mutex
 	audit       []AuditEntry
@@ -120,10 +124,18 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 		// 路径）在清理任务里改道 AI 裁判；破坏性命令与数据库破坏规则（rm -rf、DROP、
 		// TRUNCATE…）在任何任务里都保持硬拒绝——清测试痕迹永远用不到删库格式化。
 		isHTTPDeleteRule := strings.Contains(dec.RuleName, "删除") && !strings.Contains(dec.RuleName, "破坏性")
-		if isHTTPDeleteRule && CleanupTaskResolver != nil && CleanupTaskResolver(intercept.TaskIDFromContext(ctx)) {
+		taskID := intercept.TaskIDFromContext(ctx)
+		if isHTTPDeleteRule && CleanupTaskResolver != nil && CleanupTaskResolver(taskID) {
 			// 清理任务：删除类规则的 deny 不直接生效——先交 AI 裁判裁决。
 			// 裁判 allow → 放行执行；ask/deny/失败（AI 定不了）→ 转人工审批队列。
-			if d, judged := g.interceptor.Judge(ctx, ev.ToolName, ev.Input); judged && d.Action == "allow" {
+			// 任务声明的清理指纹随 ctx 传给裁判：与本次删除匹配 → 归属已明可放行。
+			jctx := ctx
+			if CleanupFingerprintResolver != nil {
+				if fps := CleanupFingerprintResolver(taskID); len(fps) > 0 {
+					jctx = intercept.WithCleanupFingerprints(jctx, fps)
+				}
+			}
+			if d, judged := g.interceptor.Judge(jctx, ev.ToolName, ev.Input); judged && d.Action == "allow" {
 				g.interceptor.Log(ctx, intercept.ConvIDFromContext(ctx), d, ev.ToolName, ev.Input, "allowed")
 				return hook.Result{}
 			}

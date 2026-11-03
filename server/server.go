@@ -214,6 +214,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	agent.SetTargetProxy(s.exitProxyFor)
 	s.ensureCleanupColumn() // 痕迹清理任务列（幂等）
 	// 痕迹清理任务注入：tasks.cleanup_mode → guard 删除类 deny 改道 AI 裁判（人兜底）。
+	guard.CleanupFingerprintResolver = s.cleanupFingerprintsOf
 	guard.CleanupTaskResolver = func(taskID int64) bool {
 		var on bool
 		_ = s.m.PG().QueryRow(`SELECT COALESCE(cleanup_mode,false) FROM tasks WHERE id=$1`, taskID).Scan(&on)

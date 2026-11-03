@@ -27,6 +27,11 @@ type ReviewInput struct {
 	Background *ReviewBackground `json:"background,omitempty"`
 	Tool       string            `json:"tool_name"`
 	Arguments  json.RawMessage   `json:"arguments"`
+	// CleanupFingerprints 非空表示本调用来自「痕迹清理」任务，且这里列出的是该任务
+	// 目标里声明要清除的测试数据指纹（内容特征/ID/文件名）。裁判看到指纹与本次
+	// 删除操作匹配时，作用对象归属已明（任务声明的测试数据），可判 allow；
+	// 不匹配仍按常规判据（真实业务数据）处理。
+	CleanupFingerprints []string `json:"cleanup_fingerprints,omitempty"`
 }
 
 type reviewContextKey struct{}

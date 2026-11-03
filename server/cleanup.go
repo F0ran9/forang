@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/Autumn-27/artex/db"
 )
@@ -94,4 +96,38 @@ func parseI64(s string) int64 {
 	var n int64
 	fmt.Sscan(s, &n)
 	return n
+}
+
+// cleanupFingerprintsOf 从清理任务目标里提取指纹（供裁判归属判定）。
+// 提取两类：①含"指纹"字样的行；②goal 中出现的独特内容片段（引号/尖括号包住的
+// payload 与 name=xxx 标记）。简单稳健，宁可多给候选由裁判自行匹配。
+func (s *Server) cleanupFingerprintsOf(taskID int64) []string {
+	var goal string
+	_ = s.m.PG().QueryRow(`SELECT goal FROM tasks WHERE id=$1`, taskID).Scan(&goal)
+	if goal == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(v string) {
+		v = strings.TrimSpace(v)
+		if v != "" && !seen[v] && len(out) < 30 {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	for _, line := range strings.Split(goal, "\n") {
+		l := strings.TrimSpace(line)
+		if strings.Contains(l, "指纹") || strings.Contains(l, "fingerprint") {
+			add(l)
+		}
+	}
+	// name=xxx / body 含 xxx 标记与 <payload> 片段
+	for _, m := range regexp.MustCompile(`name=([\w\-]+)`).FindAllStringSubmatch(goal, -1) {
+		add(m[1])
+	}
+	for _, m := range regexp.MustCompile(`<[^>]{6,120}>`).FindAllString(goal, -1) {
+		add(m)
+	}
+	return out
 }

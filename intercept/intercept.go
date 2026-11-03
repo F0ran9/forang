@@ -453,7 +453,15 @@ func (i *Interceptor) Judge(ctx context.Context, tool string, arguments json.Raw
 	}
 
 	input, contextErr := BuildReviewInput(cctx, tool, arguments)
+	// 清理任务指纹注入：guard 在改道路径上把任务声明的清理指纹放进 ctx，
+	// 裁判由此知道"作用对象 = 任务声明的测试数据"（归属已明）。
+	if fps := CleanupFingerprintsFromContext(cctx); len(fps) > 0 && contextErr == nil {
+		input.CleanupFingerprints = fps
+	}
 	cfg.Prompt = EffectiveJudgePrompt(cfg.Prompt)
+	if len(CleanupFingerprintsFromContext(cctx)) > 0 {
+		cfg.Prompt += cleanupJudgeGuidance
+	}
 	var out Decision
 	var err error
 	var modelInput []byte
@@ -714,6 +722,29 @@ func TaskIDFromContext(ctx context.Context) int64 {
 	}
 	return 0
 }
+
+// WithCleanupFingerprints / CleanupFingerprintsFromContext 清理任务声明指纹
+// 的传递通道（guard 注入 → Judge 读取）。
+func WithCleanupFingerprints(ctx context.Context, fps []string) context.Context {
+	return context.WithValue(ctx, cleanupFpKey{}, fps)
+}
+func CleanupFingerprintsFromContext(ctx context.Context) []string {
+	if v, ok := ctx.Value(cleanupFpKey{}).([]string); ok {
+		return v
+	}
+	return nil
+}
+type cleanupFpKey struct{}
+
+// cleanupJudgeGuidance 追加到裁判提示词：清理上下文的归属判定规则。
+const cleanupJudgeGuidance = `
+
+# 清理任务上下文（仅当 cleanup_fingerprints 非空时适用）
+本次调用来自平台的「痕迹清理」任务：任务目标里声明了要清除的测试数据指纹（cleanup_fingerprints 字段）。
+- 若本次操作的作用对象与其中任一指纹匹配（删除的 ID/内容含指纹特征/文件名一致），
+  则作用对象归属已明＝任务声明的测试数据，判 ALLOW（命中规则：清理任务声明指纹）。
+- 若不匹配任何指纹，仍按常规判据处理（大概率是真实业务数据，正常 ASK/DENY）。
+- 指纹匹配不改变对破坏性系统命令的禁令。`
 
 // PrefixAllowed 前缀白名单（哨兵 approval.ts 语义）：Bash 类命令首词命中
 // intercept_allow_prefixes（逗号分隔）且不是复合命令（&&/||/;/管道/命令替换）时
