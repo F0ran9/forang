@@ -5,7 +5,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { ArchiveIcon, ArrowLeftIcon, BrainIcon, CheckIcon, CircleAlertIcon, PauseIcon, PlayIcon } from "lucide-react";
+import { ArchiveIcon, ArrowLeftIcon, BrainIcon, CheckIcon, CircleAlertIcon, EraserIcon, PauseIcon, PlayIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { StatusBadge } from "@/components/status-badge";
@@ -213,6 +213,8 @@ function TaskDetailInner() {
   const [interceptPendingCount, setInterceptPendingCount] = React.useState(0);
   const [profiles, setProfiles] = React.useState<LLMProfile[]>([]);
   const [archiving, setArchiving] = React.useState(false);
+  const [cleaning, setCleaning] = React.useState(false);
+  const [confirmCleanup, setConfirmCleanup] = React.useState(false);
 
   React.useEffect(() => {
     api
@@ -336,6 +338,43 @@ function TaskDetailInner() {
     controlIcon = <PlayIcon data-icon="inline-start" />;
     controlLabel = "恢复";
   }
+  // 清理痕迹：派生清理任务（AI 审批删除测试数据、人兜底；重复点击幂等返回已有任务）。
+  const runCleanup = async () => {
+    setCleaning(true);
+    try {
+      const r = await fetch(`/api/tasks/${id}/cleanup`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${localStorage.getItem("forang_token") || ""}` },
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        toast.error(j.error || "清理任务创建失败");
+        return;
+      }
+      toast.success(`清理任务 #${j.cleanup_task_id} 已创建并开始执行`);
+      window.location.href = `/function/tasks/detail?id=${j.cleanup_task_id}`;
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setCleaning(false);
+    }
+  };
+  const cleanupTrigger = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          disabled={cleaning}
+          aria-label="清理痕迹：清除本次测试在被测目标上留下的数据"
+          onClick={() => setConfirmCleanup(true)}
+        >
+          {cleaning ? <Spinner /> : <EraserIcon />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>清理痕迹：派生清理任务，AI 审批删除测试数据</TooltipContent>
+    </Tooltip>
+  );
   const archiveTrigger = (
     <Button
       size="icon-sm"
@@ -367,6 +406,24 @@ function TaskDetailInner() {
           <Separator orientation="vertical" className="mx-1 hidden h-4 sm:block" />
           <TaskLLMControl task={task} profiles={profiles} onUpdated={load} />
           <StatusBadge domain={terminal ? "task" : "engine"} value={terminal ? task.status : engineMode} dot />
+          {cleanupTrigger}
+          <AlertDialog open={confirmCleanup} onOpenChange={setConfirmCleanup}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>清理本次测试在目标上留下的痕迹？</AlertDialogTitle>
+                <AlertDialogDescription>
+                  将派生一个清理任务：读取本任务图谱中记录的测试痕迹（payload 留言、上传的
+                  webshell、测试账号），到被测目标上逐项核实并经应用接口删除。删除操作由 AI
+                  裁判审批、指纹匹配才放行、判不了的转人工，绝不触碰真实业务数据。
+                  无法经接口清除的会整理成待人工清单。
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>取消</AlertDialogCancel>
+                <AlertDialogAction onClick={() => void runCleanup()}>开始清理</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           {canArchive ? (
             <AlertDialog>
               <AlertDialogTrigger asChild>{archiveTrigger}</AlertDialogTrigger>
