@@ -4,6 +4,8 @@ package server
 //   Agent 调 auto_escalate → SetEscalateHooks 回调到此处执行实际部署。
 
 import (
+	"github.com/Autumn-27/artex/agent"
+
 	"bytes"
 	"context"
 	"fmt"
@@ -103,10 +105,13 @@ func (s *Server) escalateDeployUpload(ctx context.Context, targetURL string, par
 	if len(name) > 40 {
 		name = name[:40]
 	}
-	_, _ = s.m.PG().Exec(`INSERT INTO webshell_targets (group_name, name, url, password, encoder, script_type, note)
-		VALUES ('auto', $1, $2, $3, $4, $5, 'auto_escalate 自动部署')
+	// task_id 归属：来自任务上下文（worker 的 RunInfo）——任务删除时随任务回收；
+	// 手工/对话路径无任务则为 NULL（真实数据不回收）。
+	ri := agent.RunInfoFrom(ctx)
+	_, _ = s.m.PG().Exec(`INSERT INTO webshell_targets (group_name, name, url, password, encoder, script_type, note, task_id)
+		VALUES ('auto', $1, $2, $3, $4, $5, 'auto_escalate 自动部署', NULLIF($6,0))
 		ON CONFLICT DO NOTHING`,
-		name, shellURL, password, encoder, scriptType)
+		name, shellURL, password, encoder, scriptType, ri.TaskID)
 
 	return shellURL, nil
 }

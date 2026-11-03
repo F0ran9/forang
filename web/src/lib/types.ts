@@ -67,6 +67,9 @@ export interface DeleteTaskOptions {
   delete_files: boolean;
   delete_findings: boolean;
   delete_llm_records: boolean;
+  delete_dict_entries?: boolean;
+  delete_kb_summary?: boolean;
+  delete_webshells?: boolean;
 }
 
 export interface DeleteTaskResult {

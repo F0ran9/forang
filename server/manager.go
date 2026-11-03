@@ -200,6 +200,11 @@ type DeleteTaskOptions struct {
 	DeleteFiles      bool `json:"delete_files"`
 	DeleteFindings   bool `json:"delete_findings"`
 	DeleteLLMRecords bool `json:"delete_llm_records"`
+	// 测试数据回收（2026-11-03）：任务级产物随任务删除，真实数据（builtin 种子/
+	// 手工录入/其他任务）不受影响——清理都按 task_id 精确匹配。
+	DeleteDictEntries bool `json:"delete_dict_entries"` // 本任务沉淀的字典行（含 dirscan 回灌/fingerprint）
+	DeleteKBSummary   bool `json:"delete_kb_summary"`   // 本任务的蒸馏总结
+	DeleteWebshells   bool `json:"delete_webshells"`    // 本任务 auto_escalate 自动部署的 webshell 目标
 }
 
 // DeleteTaskResult makes destructive cleanup auditable to API callers.
@@ -210,6 +215,9 @@ type DeleteTaskResult struct {
 	TrafficDeleted    int64  `json:"traffic_deleted"`
 	FilesDeleted      bool   `json:"files_deleted"`
 	FindingsDeleted   int64  `json:"findings_deleted"`
+	DictEntriesDel    int64  `json:"dict_entries_deleted"`
+	KBSummaryDel      int64  `json:"kb_summary_deleted"`
+	WebshellsDel      int64  `json:"webshells_deleted"`
 	LLMRecordsDeleted int64  `json:"llm_records_deleted"`
 	CleanupWarning    string `json:"cleanup_warning,omitempty"`
 }
@@ -1499,11 +1507,31 @@ func (m *Manager) DeleteTask(id string, opts DeleteTaskOptions) (DeleteTaskResul
 		}
 	}
 
+	// 测试数据回收：先数后删（webshell 的 FK CASCADE 会随任务行删除，
+	// 提前计数；dict/KB 在任务行删除后按 task_id 清理——此时任务已不存在，
+	// 残留行属于测试数据，真实数据不带本 task_id 不受影响）。
+	if opts.DeleteWebshells {
+		_ = m.pg.QueryRow(`SELECT COUNT(*) FROM webshell_targets WHERE task_id=$1`, n).Scan(&result.WebshellsDel)
+	}
+	if opts.DeleteDictEntries {
+		_ = m.pg.QueryRow(`SELECT COUNT(*) FROM dict_entries WHERE task_id=$1 AND source <> 'builtin'`, n).Scan(&result.DictEntriesDel)
+	}
+	if opts.DeleteKBSummary {
+		_ = m.pg.QueryRow(`SELECT COUNT(*) FROM kb_summaries WHERE task_id=$1`, n).Scan(&result.KBSummaryDel)
+	}
+
 	dbResult, err := m.pg.DeleteTaskCascadePrepared(
 		n, opts.DeleteAssets, opts.DeleteFindings, opts.DeleteLLMRecords, prepare,
 	)
 	if err != nil {
 		return result, rollbackTaskDelete(err, trafficStage, fileStage)
+	}
+	// 任务行已删：dict/KB 行此刻成孤儿（task_id 指向不存在的任务），精确清理。
+	if opts.DeleteDictEntries && result.DictEntriesDel > 0 {
+		_, _ = m.pg.Exec(`DELETE FROM dict_entries WHERE task_id=$1 AND source <> 'builtin'`, n)
+	}
+	if opts.DeleteKBSummary && result.KBSummaryDel > 0 {
+		_, _ = m.pg.Exec(`DELETE FROM kb_summaries WHERE task_id=$1`, n)
 	}
 	result.AssetsDeleted = dbResult.AssetsDeleted
 	result.AssetsDetached = dbResult.AssetsDetached

@@ -1711,6 +1711,10 @@ CREATE TABLE IF NOT EXISTS webshell_targets (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_ws_targets_group ON webshell_targets(group_name, id DESC);
+-- 任务归属（2026-11-03 测试数据回收）：auto_escalate/e2e 自动部署的马记录任务 id，
+-- 任务删除时可随任务回收；手工添加的为 NULL 不回收（真实用户数据）。
+ALTER TABLE webshell_targets ADD COLUMN IF NOT EXISTS task_id BIGINT REFERENCES tasks(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_ws_targets_task ON webshell_targets(task_id) WHERE task_id IS NOT NULL;
 
 -- C2 插件（CS 后渗透动作库）：内置（builtin）+ 用户自定义。
 CREATE TABLE IF NOT EXISTS c2_plugins (

@@ -2075,6 +2075,9 @@ const deleteOptionKeys: (keyof DeleteTaskOptions)[] = [
   "delete_files",
   "delete_findings",
   "delete_llm_records",
+  "delete_dict_entries",
+  "delete_kb_summary",
+  "delete_webshells",
 ];
 
 // DeleteOptionFields renders the「同时清理关联数据」checkbox block shared by the
@@ -2110,6 +2113,9 @@ function DeleteOptionFields({
       delete_files: checked,
       delete_findings: checked,
       delete_llm_records: checked,
+      delete_dict_entries: checked,
+      delete_kb_summary: checked,
+      delete_webshells: checked,
     });
   };
 
@@ -2181,6 +2187,39 @@ function DeleteOptionFields({
           <FieldContent>
             <FieldLabel htmlFor={`delete-llm-records-${idPrefix}`}>LLM 请求/响应记录</FieldLabel>
             <FieldDescription>永久删除该任务录制的 LLM 请求、响应、Token 与错误详情。</FieldDescription>
+          </FieldContent>
+        </Field>
+        <Field orientation="horizontal">
+          <Checkbox
+            id={`delete-dict-${idPrefix}`}
+            checked={options.delete_dict_entries ?? false}
+            onCheckedChange={(checked) => updateOption("delete_dict_entries", checked === true)}
+          />
+          <FieldContent>
+            <FieldLabel htmlFor={`delete-dict-${idPrefix}`}>字典沉淀</FieldLabel>
+            <FieldDescription>仅删该任务沉淀的字典行（目录扫描回灌/指纹）；内置种子与手工录入不受影响。</FieldDescription>
+          </FieldContent>
+        </Field>
+        <Field orientation="horizontal">
+          <Checkbox
+            id={`delete-kb-${idPrefix}`}
+            checked={options.delete_kb_summary ?? false}
+            onCheckedChange={(checked) => updateOption("delete_kb_summary", checked === true)}
+          />
+          <FieldContent>
+            <FieldLabel htmlFor={`delete-kb-${idPrefix}`}>知识库蒸馏</FieldLabel>
+            <FieldDescription>删除该任务的经验总结；其他任务的沉淀保留。</FieldDescription>
+          </FieldContent>
+        </Field>
+        <Field orientation="horizontal">
+          <Checkbox
+            id={`delete-ws-${idPrefix}`}
+            checked={options.delete_webshells ?? false}
+            onCheckedChange={(checked) => updateOption("delete_webshells", checked === true)}
+          />
+          <FieldContent>
+            <FieldLabel htmlFor={`delete-ws-${idPrefix}`}>自动部署的 Webshell</FieldLabel>
+            <FieldDescription>仅删该任务 auto_escalate 自动部署的目标；手工添加的 Webshell 保留。</FieldDescription>
           </FieldContent>
         </Field>
       </FieldGroup>
