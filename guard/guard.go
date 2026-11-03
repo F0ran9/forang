@@ -9,6 +9,7 @@ package guard
 
 import (
 	"context"
+	"strings"
 	"encoding/json"
 	"regexp"
 	"sync"
@@ -28,6 +29,11 @@ type AuditEntry struct {
 }
 
 // Guard enforces the side-effect policy via agent-core hooks.
+
+// CleanupTaskResolver 由 server 注入：taskID → 是否「痕迹清理」任务
+//（tasks.cleanup_mode）。清理任务里删除类规则的 deny 改道 AI 裁判，
+// 裁判不放行再转人工——默认自动清理、AI 审批优先、人只是兜底。
+var CleanupTaskResolver func(taskID int64) bool
 type Guard struct {
 	mu          sync.Mutex
 	audit       []AuditEntry
@@ -105,6 +111,38 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 	}
 	switch dec.Action {
 	case "deny":
+		// 测试数据清理模式（settings cleanup_mode，默认关）：删除类规则命中时从
+		// 「直接拒绝」降级为「人工审批」——清理被测站上测试痕迹需要调删除接口，
+		// 但绝不放开：每一条删除仍要操作员在审批队列逐条确认（ask 超时即 deny）。
+		// AI 裁判不参与降级路径——人工是最终关口，judge 的 D4「破坏业务数据」
+		// 判据在清理场景必然误伤（删的就是测试数据），故清理模式只认人工。
+		// 边界控制：只有「HTTP 删除类接口」规则（删除类接口路径/HTTP DELETE/清空删除
+		// 路径）在清理任务里改道 AI 裁判；破坏性命令与数据库破坏规则（rm -rf、DROP、
+		// TRUNCATE…）在任何任务里都保持硬拒绝——清测试痕迹永远用不到删库格式化。
+		isHTTPDeleteRule := strings.Contains(dec.RuleName, "删除") && !strings.Contains(dec.RuleName, "破坏性")
+		if isHTTPDeleteRule && CleanupTaskResolver != nil && CleanupTaskResolver(intercept.TaskIDFromContext(ctx)) {
+			// 清理任务：删除类规则的 deny 不直接生效——先交 AI 裁判裁决。
+			// 裁判 allow → 放行执行；ask/deny/失败（AI 定不了）→ 转人工审批队列。
+			if d, judged := g.interceptor.Judge(ctx, ev.ToolName, ev.Input); judged && d.Action == "allow" {
+				g.interceptor.Log(ctx, intercept.ConvIDFromContext(ctx), d, ev.ToolName, ev.Input, "allowed")
+				return hook.Result{}
+			}
+			d2 := dec
+			d2.Action = "ask"
+			d2.RuleName = dec.RuleName + "（清理任务·AI 裁判未放行→人工）"
+			d2.Message = "【清理任务】" + dec.Message + " —— AI 裁判未能放行，转人工：请核对这是要清除的测试数据后批准"
+			d2.TimeoutEnabled = true
+			d2.TimeoutSeconds = 300
+			d2.TimeoutAction = "deny"
+			ok, edited := g.interceptor.HandleAsk(ctx, intercept.ConvIDFromContext(ctx), d2, ev.ToolName, ev.Input)
+			if !ok {
+				return g.block(ev.ToolName, systemBlockMessage("清理操作审批未通过（拒绝或超时）"), "")
+			}
+			if len(edited) > 0 {
+				return hook.Result{UpdatedInput: edited}
+			}
+			return hook.Result{}
+		}
 		// 观测:deny 命中不阻塞审批,直接记一条 denied（历史/任务拦截页可见）。
 		g.interceptor.Log(ctx, intercept.ConvIDFromContext(ctx), dec, ev.ToolName, ev.Input, "denied")
 		return g.block(ev.ToolName, systemBlockMessage(dec.Message), "")

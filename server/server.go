@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/agent"
+	"github.com/Autumn-27/artex/guard"
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/intercept"
 	"github.com/Autumn-27/artex/llmpool"
@@ -211,6 +212,12 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	}
 	// 测试网络出口注入：agent 的 webshell/升级工具按目标网段选出口（netexit）。
 	agent.SetTargetProxy(s.exitProxyFor)
+	// 痕迹清理任务注入：tasks.cleanup_mode → guard 删除类 deny 改道 AI 裁判（人兜底）。
+	guard.CleanupTaskResolver = func(taskID int64) bool {
+		var on bool
+		_ = s.m.PG().QueryRow(`SELECT COALESCE(cleanup_mode,false) FROM tasks WHERE id=$1`, taskID).Scan(&on)
+		return on
+	}
 	// 源码审计模式注入：tasks.audit_mode → worker/planner 工具面收口（不出网/不执行）。
 	agent.SetAuditModeResolver(func(taskID int64) bool {
 		var on bool
@@ -1049,6 +1056,7 @@ func (s *Server) Handler() http.Handler {
 
 	// --- 管理后台 API (PostgreSQL 数据源; 新版数据库与管理后台方案) ---
 	mux.HandleFunc("DELETE /api/tasks/{id}", s.pgDeleteTask)
+	mux.HandleFunc("POST /api/tasks/{id}/cleanup", s.cleanupNow) // 清理痕迹：派生清理任务（AI 审批删除，人兜底）
 	// Agents
 	// conversations (chat page)
 	mux.HandleFunc("GET /api/conversations", s.pgListConversations)

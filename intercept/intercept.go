@@ -699,6 +699,19 @@ func (i *Interceptor) Decide(pendingID int64, allowed bool, edited json.RawMessa
 	return nil
 }
 
+// WithTaskID / TaskIDFromContext 把当前任务 id 放进工具调用上下文：
+// guard 判定「清理任务」降级路径时读取（agent 侧注入，import 环避雷）。
+type taskIDKey struct{}
+func WithTaskID(ctx context.Context, taskID int64) context.Context {
+	return context.WithValue(ctx, taskIDKey{}, taskID)
+}
+func TaskIDFromContext(ctx context.Context) int64 {
+	if v, ok := ctx.Value(taskIDKey{}).(int64); ok {
+		return v
+	}
+	return 0
+}
+
 // PrefixAllowed 前缀白名单（哨兵 approval.ts 语义）：Bash 类命令首词命中
 // intercept_allow_prefixes（逗号分隔）且不是复合命令（&&/||/;/管道/命令替换）时
 // 直接放行——复合命令绕过前缀判断，一律走完整审批。

@@ -395,6 +395,7 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 		base = append(base, defaultToolsExcept("MultiEdit", "Glob", "Grep")...)
 	}
 	ctx = WithRunInfo(ctx, RunInfo{TaskID: taskID, ExplorationID: explorationID(ts), IntentID: intent.ID})
+	ctx = intercept.WithTaskID(ctx, taskID) // guard 清理任务降级判定用
 	tools, def, cleanup := AugmentTools(ctx, "worker", base)
 	if w.webSearch.Enabled && w.webSearch.Backend == "tavily" && w.webSearch.TavilyKey != "" {
 		tools = append(tools, NewTavilyExtractTool(w.webSearch.TavilyKey))
