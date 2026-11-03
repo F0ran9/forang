@@ -151,6 +151,9 @@ var defaultEnabledTools = []string{
 	"Bash", "WebFetch", "web_search",
 	"shell_open", "shell_send",
 	"Write", "Edit", "MultiEdit",
+	// repeater_send 能直发任意 HTTP（含删除接口）：实测清理任务经它删除
+	// 完全绕过了规则/裁判。所有出网写入面工具必须进拦截集。
+	"repeater_send",
 }
 
 // New creates an Interceptor backed by d. The rule cache is lazy-loaded on
