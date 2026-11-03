@@ -62,8 +62,14 @@ func (s *Server) spawnCleanupTask(originID int64, target string) (string, error)
 	return t.ID, nil
 }
 
+// ensureCleanupColumn 幂等迁移（schema.sql 不含此列——列由本功能自管）。
+func (s *Server) ensureCleanupColumn() {
+	_, _ = s.m.PG().Exec(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS cleanup_mode BOOLEAN NOT NULL DEFAULT false`)
+}
+
 // cleanupNow POST /api/tasks/{id}/cleanup —— 「清理痕迹」按钮后端。
 func (s *Server) cleanupNow(w http.ResponseWriter, r *http.Request) {
+	s.ensureCleanupColumn()
 	id := r.PathValue("id")
 	t, ok := s.m.Task(id)
 	if !ok || t == nil {

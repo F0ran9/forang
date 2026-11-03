@@ -212,6 +212,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	}
 	// 测试网络出口注入：agent 的 webshell/升级工具按目标网段选出口（netexit）。
 	agent.SetTargetProxy(s.exitProxyFor)
+	s.ensureCleanupColumn() // 痕迹清理任务列（幂等）
 	// 痕迹清理任务注入：tasks.cleanup_mode → guard 删除类 deny 改道 AI 裁判（人兜底）。
 	guard.CleanupTaskResolver = func(taskID int64) bool {
 		var on bool
