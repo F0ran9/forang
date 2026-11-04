@@ -308,7 +308,7 @@ func extractBinary(zipPath, dst string) error {
 // checkWritable 提前确认目录可写。没有这一步，非 root 运行、或二进制被放在系统
 // 目录时，会在下载完几十 MB 之后才在换装那一刻失败。
 func checkWritable(dir string) error {
-	probe, err := os.CreateTemp(dir, ".artex-update-probe-*")
+	probe, err := os.CreateTemp(dir, ".forang-update-probe-*")
 	if err != nil {
 		return fmt.Errorf("程序目录 %s 不可写，无法自动更新（请检查权限或改用手动升级）: %w", dir, err)
 	}
