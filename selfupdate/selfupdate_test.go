@@ -313,8 +313,9 @@ func TestParseSums(t *testing.T) {
 }
 
 func TestExtractBinaryFindsNestedEntry(t *testing.T) {
+	exe := ""
 	if runtime.GOOS == "windows" {
-		t.Skip("包内基名在 Windows 上是 artex.exe，此用例按 Unix 命名构造")
+		exe = ".exe"
 	}
 	dir := t.TempDir()
 	zipPath := filepath.Join(dir, "release.zip")
@@ -324,12 +325,12 @@ func TestExtractBinaryFindsNestedEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	zw := zip.NewWriter(f)
-	// 真实发布包的结构：artex-<版本>-<os>-<arch>/artex，外加若干干扰文件。
+	// 真实发布包的结构：forang-<版本>-<os>-<arch>/forang（v0.5.22 起），外加若干干扰文件。
 	for name, body := range map[string]string{
-		"artex-0.3.8-linux-amd64/README.md":           "readme",
-		"artex-0.3.8-linux-amd64/skills/a.md":         "skill",
-		"artex-0.3.8-linux-amd64/artex":               "#!/bin/sh\nexit 0\n",
-		"artex-0.3.8-linux-amd64/config.example.json": "{}",
+		"forang-0.5.22-linux-amd64/README.md":           "readme",
+		"forang-0.5.22-linux-amd64/skills/a.md":         "skill",
+		"pkg/forang" + exe:              "#!/bin/sh\nexit 0\n",
+		"forang-0.5.22-linux-amd64/config.example.json": "{}",
 	} {
 		w, err := zw.Create(name)
 		if err != nil {
@@ -355,7 +356,7 @@ func TestExtractBinaryFindsNestedEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm()&0o111 == 0 {
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
 		t.Error("解压出的二进制必须带执行位")
 	}
 }
@@ -459,5 +460,62 @@ func TestSettleIsNoopWithoutMarker(t *testing.T) {
 	settle(p) // 普通启动路径，不该 panic 也不该动任何文件
 	if _, err := os.Stat(p.Current); err != nil {
 		t.Error("无标记时 settle 不应影响任何文件")
+	}
+}
+
+// TestExtractBinaryLegacyName 兜底：回滚到 ≤v0.5.21 的历史包（内名 artex）也能解出。
+func TestExtractBinaryLegacyName(t *testing.T) {
+	exe := ""
+	if runtime.GOOS == "windows" {
+		exe = ".exe"
+	}
+	dir := t.TempDir()
+	zipPath := filepath.Join(dir, "legacy.zip")
+	f, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	w, _ := zw.Create("pkg/artex" + exe)
+	_, _ = w.Write([]byte("#!/bin/sh\nlegacy-ok\n"))
+	_ = zw.Close()
+	f.Close()
+
+	dst := filepath.Join(dir, "out")
+	if err := extractBinary(zipPath, dst); err != nil {
+		t.Fatalf("旧命名包应可解出: %v", err)
+	}
+	if got := readAll(t, dst); !strings.Contains(got, "legacy-ok") {
+		t.Errorf("解压内容不对: %q", got)
+	}
+}
+
+// TestExtractBinaryPrefersNewName 双名并存时必须选 forang（防未来包内意外双名）。
+func TestExtractBinaryPrefersNewName(t *testing.T) {
+	exe := ""
+	if runtime.GOOS == "windows" {
+		exe = ".exe"
+	}
+	dir := t.TempDir()
+	zipPath := filepath.Join(dir, "both.zip")
+	f, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	w, _ := zw.Create("pkg/artex" + exe)
+	_, _ = w.Write([]byte("legacy-body"))
+	// 故意把旧名放前面：forang 命中即终选，不受出现顺序影响
+	w2, _ := zw.Create("pkg/forang" + exe)
+	_, _ = w2.Write([]byte("new-body"))
+	_ = zw.Close()
+	f.Close()
+
+	dst := filepath.Join(dir, "out")
+	if err := extractBinary(zipPath, dst); err != nil {
+		t.Fatalf("extractBinary: %v", err)
+	}
+	if got := readAll(t, dst); got != "new-body" {
+		t.Errorf("应优先 forang 命名, got %q", got)
 	}
 }

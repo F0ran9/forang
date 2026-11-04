@@ -232,7 +232,7 @@ func get(ctx context.Context, c *http.Client, rawURL string) (io.ReadCloser, err
 	if err := checkURL(req.URL); err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "artex-selfupdate")
+	req.Header.Set("User-Agent", "forang-selfupdate")
 	resp, err := c.Do(req)
 	if err != nil {
 		return nil, err
@@ -244,14 +244,17 @@ func get(ctx context.Context, c *http.Client, rawURL string) (io.ReadCloser, err
 	return resp.Body, nil
 }
 
-// extractBinary 从发布包里取出 artex 可执行文件。
+// extractBinary 从发布包里取出可执行文件。
 //
-// 包内结构是 artex-<版本>-<os>-<arch>/artex，但这里按**基名**匹配而不是拼完整
-// 路径：版本号在包名里出现过一次，拼错一个字符就整个升级失败，按基名找更耐改。
+// 包内结构是 forang-<版本>-<os>-<arch>/forang（v0.5.22 起；≤v0.5.21 历史包内名
+// 为 artex-*）。按**基名**匹配而不是拼完整路径：版本号在包名里出现过一次，拼错
+// 一个字符就整个升级失败，按基名找更耐改。两轮查找：先 forang 后 artex——前者
+// 覆盖新包，后者兜底回滚旧版本的历史包。
 func extractBinary(zipPath, dst string) error {
-	want := "artex"
+	want := "forang"
+	legacyWant := "artex"
 	if runtime.GOOS == "windows" {
-		want = "artex.exe"
+		want, legacyWant = "forang.exe", "artex.exe"
 	}
 	zr, err := zip.OpenReader(zipPath)
 	if err != nil {
@@ -259,35 +262,47 @@ func extractBinary(zipPath, dst string) error {
 	}
 	defer zr.Close()
 
+	var matched *zip.File
 	for _, entry := range zr.File {
-		if entry.FileInfo().IsDir() || !strings.EqualFold(path.Base(entry.Name), want) {
+		if entry.FileInfo().IsDir() {
 			continue
 		}
-		rc, err := entry.Open()
-		if err != nil {
-			return fmt.Errorf("读取 %s: %w", entry.Name, err)
+		base := path.Base(entry.Name)
+		if strings.EqualFold(base, want) {
+			matched = entry // 新命名命中即为最终选择
+			break
 		}
-		defer rc.Close()
-
-		f, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
-		if err != nil {
-			return fmt.Errorf("写出新二进制: %w", err)
+		if matched == nil && strings.EqualFold(base, legacyWant) {
+			matched = entry // 旧命名暂存，无新命名时兜底
 		}
-		defer f.Close()
-
-		n, err := io.Copy(f, io.LimitReader(rc, maxBinarySize+1))
-		if err != nil {
-			return fmt.Errorf("解压 %s: %w", entry.Name, err)
-		}
-		if n > maxBinarySize {
-			return fmt.Errorf("发布包内的可执行文件超过 %s，拒绝解压", humanSize(maxBinarySize))
-		}
-		if n == 0 {
-			return fmt.Errorf("发布包内的 %s 是空文件", want)
-		}
-		return f.Sync()
 	}
-	return fmt.Errorf("发布包里没有找到 %s", want)
+	if matched == nil {
+		return fmt.Errorf("发布包里没有找到 %s（或历史命名 %s）", want, legacyWant)
+	}
+	entry := matched
+	rc, err := entry.Open()
+	if err != nil {
+		return fmt.Errorf("读取 %s: %w", entry.Name, err)
+	}
+	defer rc.Close()
+
+	f, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err != nil {
+		return fmt.Errorf("写出新二进制: %w", err)
+	}
+	defer f.Close()
+
+	n, err := io.Copy(f, io.LimitReader(rc, maxBinarySize+1))
+	if err != nil {
+		return fmt.Errorf("解压 %s: %w", entry.Name, err)
+	}
+	if n > maxBinarySize {
+		return fmt.Errorf("发布包内的可执行文件超过 %s，拒绝解压", humanSize(maxBinarySize))
+	}
+	if n == 0 {
+		return fmt.Errorf("发布包内的 %s 是空文件", path.Base(entry.Name))
+	}
+	return f.Sync()
 }
 
 // checkWritable 提前确认目录可写。没有这一步，非 root 运行、或二进制被放在系统
