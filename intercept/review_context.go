@@ -32,6 +32,18 @@ type ReviewInput struct {
 	// 删除操作匹配时，作用对象归属已明（任务声明的测试数据），可判 allow；
 	// 不匹配仍按常规判据（真实业务数据）处理。
 	CleanupFingerprints []string `json:"cleanup_fingerprints,omitempty"`
+	// LocalScript 非空表示本次 Bash 命令执行的是本地脚本文件，这里附带其源码
+	// 预览（工作目录内、头 8K+尾 4K 截断）——脚本副作用据此可判，不再
+	// 「内容不可见只能 ASK」。读取失败时 ReadError 说明原因，仍按信息不足处理。
+	LocalScript *LocalScriptRef `json:"local_script,omitempty"`
+}
+
+// LocalScriptRef 被执行脚本的源码引用（随裁判输入下发）。
+type LocalScriptRef struct {
+	Path      string `json:"path"`
+	Content   string `json:"content,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+	ReadError string `json:"read_error,omitempty"`
 }
 
 type reviewContextKey struct{}
@@ -71,5 +83,7 @@ func BuildReviewInput(ctx context.Context, tool string, arguments json.RawMessag
 			in.Background = &background
 		}
 	}
+	// Bash 执行本地脚本 → 附带脚本源码（副作用可判，不再"内容不可见只能ASK"）
+	AttachLocalScript(&in, arguments)
 	return in, nil
 }
