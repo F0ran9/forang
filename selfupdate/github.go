@@ -95,7 +95,7 @@ func FetchLatest(ctx context.Context, c *http.Client) (*Release, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "artex-selfupdate")
+	req.Header.Set("User-Agent", "forang-selfupdate")
 
 	resp, err := c.Do(req)
 	if err != nil {
@@ -124,8 +124,14 @@ func FetchLatest(ctx context.Context, c *http.Client) (*Release, error) {
 }
 
 // AssetName 返回当前平台对应的发布包名，与 build.sh 的 package_binary 保持一致：
-// artex-<版本>-<os>-<arch>.zip（版本号不带 v 前缀）。
+// forang-<版本>-<os>-<arch>.zip（版本号不带 v 前缀）。
+// ≤v0.5.21 的历史发布资产名为 artex-*，见 LegacyAssetName（回滚旧版时兜底）。
 func AssetName(tag, goos, goarch string) string {
+	return fmt.Sprintf("forang-%s-%s-%s.zip", strings.TrimPrefix(tag, "v"), goos, goarch)
+}
+
+// LegacyAssetName ≤v0.5.21 的历史资产命名（回滚到旧版本时按此兜底查找）。
+func LegacyAssetName(tag, goos, goarch string) string {
 	return fmt.Sprintf("artex-%s-%s-%s.zip", strings.TrimPrefix(tag, "v"), goos, goarch)
 }
 

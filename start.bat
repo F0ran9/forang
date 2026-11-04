@@ -19,7 +19,9 @@ rem （selfupdate 包）。脚本保持傻瓜化，详见 start.sh 顶部的说�
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
-set "BIN=artex.exe"
+rem 新版产物名 forang.exe；历史部署二进制仍叫 artex.exe——两者都认。
+set "BIN=forang.exe"
+if not exist "%BIN%" set "BIN=artex.exe"
 if not exist "%BIN%" (
 	echo [artex] 找不到可执行文件 %BIN% 1>&2
 	exit /b 1

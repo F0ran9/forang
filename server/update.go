@@ -243,7 +243,15 @@ func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
 		out["published_at"] = rel.PublishedAt.Format(time.RFC3339)
 	}
 
+	// 新命名 forang-*；查不到时兜底旧命名 artex-*（回滚/升级到 ≤v0.5.21 的历史发布）。
 	asset := selfupdate.AssetName(latest, runtime.GOOS, runtime.GOARCH)
+	if _, ok := rel.FindAsset(asset); !ok {
+		if legacy := selfupdate.LegacyAssetName(latest, runtime.GOOS, runtime.GOARCH); legacy != asset {
+			if _, ok := rel.FindAsset(legacy); ok {
+				asset = legacy
+			}
+		}
+	}
 	out["asset"] = asset
 	if a, ok := rel.FindAsset(asset); ok {
 		out["asset_available"] = true

@@ -56,8 +56,16 @@ func Stage(ctx context.Context, c *http.Client, rel *Release, currentVersion str
 		return err
 	}
 
+	// 新命名 forang-* 优先，缺失时兜底历史命名 artex-*（≤v0.5.21，回滚场景）。
 	name := AssetName(rel.TagName, runtime.GOOS, runtime.GOARCH)
 	asset, ok := rel.FindAsset(name)
+	if !ok {
+		if legacy := LegacyAssetName(rel.TagName, runtime.GOOS, runtime.GOARCH); legacy != name {
+			if a2, ok2 := rel.FindAsset(legacy); ok2 {
+				name, asset, ok = legacy, a2, true
+			}
+		}
+	}
 	if !ok {
 		return fmt.Errorf("该版本没有提供 %s/%s 的发布包（缺少 %s）", runtime.GOOS, runtime.GOARCH, name)
 	}

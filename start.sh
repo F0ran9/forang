@@ -20,8 +20,10 @@ set -u
 
 cd "$(dirname "$0")" || exit 1
 
-BIN=./artex
-[ -x "$BIN" ] || { echo "[artex] 找不到可执行文件 $BIN" >&2; exit 1; }
+# 新版产物名 forang；历史部署二进制仍叫 artex——两者都认。
+BIN=./forang
+[ -x "$BIN" ] || BIN=./artex
+[ -x "$BIN" ] || { echo "[forang] 找不到可执行文件 ./forang（或 ./artex）" >&2; exit 1; }
 
 RESTART_CODE=75
 MAX_DELAY=60

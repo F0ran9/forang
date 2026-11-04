@@ -61,12 +61,12 @@ update_local(){
     ( cd web && npm ci && npm run build:static )
     rm -rf server/webui/dist && cp -r web/out server/webui/dist
     info "重新编译内嵌单二进制…"
-    CGO_ENABLED=0 go build -tags embedui -trimpath -o artex ./cmd/artex
+    CGO_ENABLED=0 go build -tags embedui -trimpath -o forang ./cmd/artex
   else
     warn "未检测到 npm：编译**不内嵌前端**的后端（前端需另跑 npm run dev）"
-    CGO_ENABLED=0 go build -o artex ./cmd/artex
+    CGO_ENABLED=0 go build -o forang ./cmd/artex
   fi
-  ok "编译完成 → ./artex"
+  ok "编译完成 → ./forang"
   warn "请重启正在运行的 artex 进程以生效（重启时会自动迁移 schema）"
 }
 
