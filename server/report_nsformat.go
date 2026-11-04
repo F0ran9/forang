@@ -1,9 +1,9 @@
 package server
 
-// report_nsformat.go — FORANG 渗透测试报告（参照行业通用交付模板）：
-// 封面（标题/文档编号/密级/日期）→ 目标信息/资产列表 → 测试内容（五类方法论概述）→
-// 漏洞信息（每漏洞一表：【等级】标题 | 漏洞描述 | 相关URL | 相关截图（页面图+接口取证图）
-// | 加固建议）→ 建议总结。无第三方品牌标识。
+// report_nsformat.go — FORANG 渗透测试报告（参照行业交付模板：封面表 + 目录域 +
+// 页眉密级 + 页脚页码 + 品牌色标题 + 等级配色漏洞小节 + 漏洞汇总表 + 攻击动作留痕）。
+// 结构对齐真实交付报告：目标信息 → 测试内容（五类方法论）→ 漏洞信息（汇总+逐项）→
+// 攻击动作痕迹 → 建议总结。无第三方品牌标识。
 
 import (
 	"encoding/json"
@@ -22,16 +22,8 @@ var sevLabelCN = map[string]string{"critical": "严重", "high": "高", "medium"
 func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 	doc := NewDocx()
 
-	// ===== 封面 =====
-	for i := 0; i < 6; i++ {
-		doc.Paragraph("")
-	}
-	doc.Heading(1, "渗透测试报告")
-	doc.Paragraph("")
 	target := t.Description
-	doc.Heading(2, target)
 	// 封面要素可配（设置页「报告封面」卡）：org=机构署名、密级、编号前缀。
-	// 缺省保持 FORANG 内部资料默认，交付给客户前按需改。
 	org := "FORANG 自主渗透测试平台"
 	classification := "内部资料"
 	prefix := "FORANG"
@@ -44,32 +36,33 @@ func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 	if v, ok, _ := s.m.pg.GetSetting("report.cover_prefix"); ok && strings.TrimSpace(v) != "" {
 		prefix = strings.TrimSpace(v)
 	}
-	doc.Paragraph("文档编号: " + prefix + "-" + t.ID + "-" + time.Now().Format("20060102"))
-	doc.Paragraph("密级: " + classification)
-	// 每页页眉带密级标识：纸质报告散页流转也能看出密级（密级≠内部资料时加 ★）。
-	hdrText := classification
-	if classification != "内部资料" && classification != "公开" {
-		hdrText = classification + " ★"
+	sysName := target
+	if sysName == "" {
+		sysName = "目标系统"
 	}
-	doc.SetHeader("密级：" + hdrText)
-	doc.Paragraph("版本编号: V1.0")
-	doc.Paragraph("日期: " + time.Now().Format("2006-01-02"))
-	doc.Paragraph("© " + time.Now().Format("2006") + " " + org)
-	doc.PageBreak()
+	doc.SetHeader("密级：" + classification)
+	doc.CoverPage(sysName, "渗透测试报告", [][2]string{
+		{"文档编号", prefix + "-" + t.ID + "-" + time.Now().Format("20060102")},
+		{"密级", classification},
+		{"版本编号", "V1.0"},
+		{"日期", time.Now().Format("2006-01-02")},
+	}, "© "+time.Now().Format("2006")+" "+org)
+
+	// ===== 目录 =====
+	doc.TOCPage()
 
 	// ===== 一. 目标信息 =====
-	doc.Heading(1, "一. 目标信息")
-	doc.HRule()
+	doc.Heading(1, "1. 目标信息")
 	doc.Heading(2, "1.1 资产列表")
-	doc.Paragraph("资产: " + target)
+	doc.Table([]string{"序号", "资产"}, [][]string{{"1", target}})
 	if t.Goal != "" {
-		doc.Heading(2, "1.2 测试目标")
+		doc.Heading(2, "1.2 测试范围与目标")
 		doc.Paragraph(t.Goal)
 	}
 
 	// ===== 二. 测试内容 =====
-	doc.Heading(1, "二. 测试内容")
-	doc.HRule()
+	doc.Heading(1, "2. 测试内容")
+	doc.Paragraph("本次测试参照 OWASP Testing Guide 方法论，覆盖以下五大类测试项：")
 	contents := [][2]string{
 		{"2.1 配置管理测试", "基础配置管理测试、应用管理界面测试、HTTP方法测试、SSL/TLS测试、应用配置管理测试、过期/备份页面测试"},
 		{"2.2 认证测试", "认证模式绕过测试、用户枚举测试、暴力破解测试、竞争条件测试、图形验证码测试、密码修改点测试、密码重置点测试、用户注册点测试、注销登录测试"},
@@ -82,22 +75,72 @@ func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 		doc.Paragraph(c[1])
 	}
 
-	// ===== 三. 漏洞信息（按等级排序，每漏洞一张表）=====
-	doc.Heading(1, "三. 漏洞信息")
-	doc.HRule()
+	// ===== 三. 漏洞信息（汇总 + 逐项）=====
 	sorted := append([]*db.DBFinding(nil), fs...)
 	sort.Slice(sorted, func(i, j int) bool {
 		return sevOrder[sorted[i].Severity] < sevOrder[sorted[j].Severity]
 	})
+	doc.Heading(1, "3. 漏洞信息")
+
+	// 3.1 风险概览：等级分布表
+	doc.Heading(2, "3.1 风险概览")
+	dist := map[string]int{}
+	for _, f := range sorted {
+		sev := sevLabelCN[f.Severity]
+		if sev == "" {
+			sev = f.Severity
+		}
+		dist[sev]++
+	}
+	order := []string{"严重", "高", "中", "低", "信息"}
+	var distRows [][]CellSpec
+	total := 0
+	for _, sev := range order {
+		if dist[sev] > 0 {
+			distRows = append(distRows, []CellSpec{
+				{Text: sev, Color: sevColorOf(sev), Bold: true},
+				{Text: fmt.Sprintf("%d", dist[sev])},
+			})
+			total += dist[sev]
+		}
+	}
+	doc.TableRich([]string{"危险等级", "数量"}, distRows)
+	doc.Paragraph(fmt.Sprintf("共发现 **%d** 项安全问题，按危险等级汇总如上，逐项详情见下。", total))
+
+	// 3.2 漏洞汇总表
+	doc.Heading(2, "3.2 漏洞汇总")
+	var sumRows [][]CellSpec
+	for i, f := range sorted {
+		sev := sevLabelCN[f.Severity]
+		if sev == "" {
+			sev = f.Severity
+		}
+		title := f.Name
+		if title == "" {
+			title = f.VulnClass
+		}
+		url := firstURL(f)
+		if len(url) > 60 {
+			url = url[:60] + "…"
+		}
+		sumRows = append(sumRows, []CellSpec{
+			{Text: fmt.Sprintf("3.%d", i+3)}, // 汇总表为 3.2，逐项小节从 3.3 起
+			{Text: title},
+			{Text: sev, Color: sevColorOf(sev), Bold: true},
+			{Text: url},
+		})
+	}
+	doc.TableRich([]string{"编号", "漏洞名称", "危险等级", "相关URL"}, sumRows)
+
+	// 逐项漏洞小节（3.3 起，每项独立分页）
 	for i, f := range sorted {
 		doc.PageBreak()
-		s.buildNSVulnSection(doc, i+1, f)
+		s.buildNSVulnSection(doc, i+3, f)
 	}
 
 	// ===== 四. 攻击动作痕迹 =====
 	doc.PageBreak()
-	doc.Heading(1, "四. 攻击动作痕迹")
-	doc.HRule()
+	doc.Heading(1, "4. 攻击动作痕迹")
 	actions := s.taskActionRows(t)
 	if len(actions) == 0 {
 		doc.Paragraph("本任务无记录在案的攻击动作（纯侦察/人工验证类任务）。")
@@ -112,15 +155,39 @@ func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 
 	// ===== 五. 建议总结 =====
 	doc.PageBreak()
-	doc.Heading(1, "五. 建议总结")
-	doc.HRule()
+	doc.Heading(1, "5. 建议总结")
 	doc.Paragraph("针对本次测试发现的安全问题，建议从以下方面加强系统安全防护：")
 	doc.Paragraph("1. 及时修复本报告列出的各漏洞项，优先处理高危与严重等级问题；对涉及默认凭据、未授权访问的服务，立即收紧访问控制并轮换相关凭据。")
 	doc.Paragraph("2. 部署 WAF/IDS 等防护设备并对管理后台、运维接口（如 Actuator、Druid、Derby 等诊断端点）实施访问隔离，仅允许受信网段访问。")
 	doc.Paragraph("3. 建立配置基线：关闭未使用的诊断端点，移除或轮换默认凭据（如 serverIdentity 等框架默认身份头），禁用前端硬编码口令。")
 	doc.Paragraph("4. 完善日志审计与备份策略，将关键日志外发至独立日志服务器，防止单点破坏。")
-	doc.Paragraph("注: Web 漏洞会随时间推移而变化，基于评估严谨性考虑，本报告仅具备两个月的时效性。")
+	doc.Paragraph("注：Web 漏洞会随时间推移而变化，基于评估严谨性考虑，本报告仅具备两个月的时效性。")
 	return doc
+}
+
+// findingShotCount 统计可嵌入的截图证据数（文件存在才算）。
+func (s *Server) findingShotCount(f *db.DBFinding) int {
+	n := 0
+	if evs, err := s.ListFindingEvidence(f.ID); err == nil {
+		for _, e := range evs {
+			if e.Kind == "screenshot" && e.Path != "" {
+				if _, serr := os.Stat(e.Path); serr == nil {
+					n++
+				}
+			}
+		}
+	}
+	return n
+}
+
+// firstURL 取漏洞第一个流量绑定 URL（汇总表展示用）。
+func firstURL(f *db.DBFinding) string {
+	for _, b := range f.TrafficBindings {
+		if b.Snapshot.URL != "" {
+			return b.Snapshot.URL
+		}
+	}
+	return "-"
 }
 
 // actionRow 报告里的攻击动作行。
@@ -189,7 +256,7 @@ func (s *Server) taskActionRows(t *Task) []actionRow {
 	return out
 }
 
-// buildNSVulnSection 单个漏洞章节：标题 + 字段表 + 截图。
+// buildNSVulnSection 单个漏洞小节：等级色标题 + 字段行 + POC 代码框 + 截图 + 建议。
 func (s *Server) buildNSVulnSection(doc *Docx, idx int, f *db.DBFinding) {
 	title := f.Name
 	if title == "" {
@@ -199,9 +266,9 @@ func (s *Server) buildNSVulnSection(doc *Docx, idx int, f *db.DBFinding) {
 	if sev == "" {
 		sev = f.Severity
 	}
-	doc.VulnHeading(fmt.Sprintf("%d.【%s】%s", idx, sev, title))
+	doc.VulnHeading(idx, sev, title)
 
-	// 评审信息
+	// 评审信息（CVSS）
 	cvssLine := ""
 	if upg, err := s.GetFindingUpgrade(f.ID); err == nil && upg != nil {
 		if upg.Cvss > 0 {
@@ -215,7 +282,7 @@ func (s *Server) buildNSVulnSection(doc *Docx, idx int, f *db.DBFinding) {
 		}
 	}
 
-	// 漏洞描述（加粗标签行）
+	// 漏洞描述
 	desc := strings.TrimSpace(f.Summary)
 	if desc == "" {
 		desc = f.Evidence
@@ -235,9 +302,11 @@ func (s *Server) buildNSVulnSection(doc *Docx, idx int, f *db.DBFinding) {
 			urlList = append(urlList, u)
 		}
 	}
-	doc.FieldLine("相关URL：", "")
-	for _, u := range urlList {
-		doc.Paragraph(u)
+	if len(urlList) > 0 { // 无流量绑定的源码审计类发现不输出空字段行
+		doc.FieldLine("相关URL：", "")
+		for _, u := range urlList {
+			doc.Paragraph(u)
+		}
 	}
 
 	// POC 请求包：可直粘 Repeater/Burp 重放的完整原始 HTTP 请求（packet 列）。
@@ -246,8 +315,10 @@ func (s *Server) buildNSVulnSection(doc *Docx, idx int, f *db.DBFinding) {
 		doc.CodeBlock(pkt)
 	}
 
-	// 相关截图：结构化截图（页面图+接口取证图）实际嵌入
-	doc.FieldLine("相关截图：", "")
+	// 相关截图：结构化截图实际嵌入；既无截图也无证据文本时不输出空字段行
+	if shotCount := s.findingShotCount(f); shotCount > 0 || strings.TrimSpace(f.Evidence) != "" {
+		doc.FieldLine("相关截图：", "")
+	}
 	shotCount := 0
 	if evs, err := s.ListFindingEvidence(f.ID); err == nil {
 		for _, e := range evs {
@@ -256,7 +327,7 @@ func (s *Server) buildNSVulnSection(doc *Docx, idx int, f *db.DBFinding) {
 					continue
 				}
 				caption := firstNonEmpty(e.Note, "相关截图")
-				doc.Image(e.Path, "▲ "+caption)
+				doc.Image(e.Path, caption)
 				shotCount++
 			}
 		}
