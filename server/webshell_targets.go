@@ -38,28 +38,29 @@ func (s *Server) wsTargetsList(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	type item struct {
-		ID         int64  `json:"id"`
-		Group      string `json:"group"`
-		Name       string `json:"name"`
-		URL        string `json:"url"`
-		Password   string `json:"password"`
-		Encoder    string `json:"encoder"`
-		ScriptType string `json:"script_type"`
-		Note       string `json:"note"`
-		Headers    string `json:"headers"`
-		Alive      bool   `json:"alive"`
-		LastCheck  string `json:"last_check"`
-		UpdatedAt  string `json:"updated_at"`
+		ID          int64  `json:"id"`
+		Group       string `json:"group"`
+		Name        string `json:"name"`
+		URL         string `json:"url"`
+		HasPassword bool   `json:"has_password"` // 1949：列表不再回显密码明文（前端展示与执行均走 target_id）
+		Encoder     string `json:"encoder"`
+		ScriptType  string `json:"script_type"`
+		Note        string `json:"note"`
+		Headers     string `json:"headers"`
+		Alive       bool   `json:"alive"`
+		LastCheck   string `json:"last_check"`
+		UpdatedAt   string `json:"updated_at"`
 	}
 	out := []item{}
 	for rows.Next() {
 		var it item
+		var pw string
 		var ts sql.NullTime
-		if err := rows.Scan(&it.ID, &it.Group, &it.Name, &it.URL, &it.Password, &it.Encoder,
+		if err := rows.Scan(&it.ID, &it.Group, &it.Name, &it.URL, &pw, &it.Encoder,
 			&it.ScriptType, &it.Note, &it.Headers, &it.Alive, &it.LastCheck, &ts); err != nil {
 			continue
 		}
-		it.Password = s.wsDecryptPassword(it.Password)
+		it.HasPassword = strings.TrimSpace(pw) != ""
 		if ts.Valid {
 			it.UpdatedAt = ts.Time.Format("2006-01-02 15:04")
 		}
@@ -103,9 +104,15 @@ func (s *Server) wsTargetsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if b.ID > 0 {
-		_, err := s.m.PG().Exec(`UPDATE webshell_targets SET group_name=$2,name=$3,url=$4,password=$5,
+		// 密码留空 = 保持原密码（前端编辑表单不再回显密码，见列表脱敏）。
+		var pwArg any
+		if strings.TrimSpace(b.Password) != "" {
+			pwArg = s.wsEncryptPassword(b.Password) // nil = SQL NULL = 保持原值
+		}
+		_, err := s.m.PG().Exec(`UPDATE webshell_targets SET group_name=$2,name=$3,url=$4,
+			password=CASE WHEN $5::text IS NULL THEN password ELSE $5 END,
 			encoder=$6,script_type=$7,note=$8,headers=$9,updated_at=now() WHERE id=$1`,
-			b.ID, b.Group, b.Name, b.URL, s.wsEncryptPassword(b.Password), b.Encoder, b.ScriptType, truncateStr(b.Note, 4000), b.Headers)
+			b.ID, b.Group, b.Name, b.URL, pwArg, b.Encoder, b.ScriptType, truncateStr(b.Note, 4000), b.Headers)
 		if err != nil {
 			writeErr(w, 500, err.Error())
 			return

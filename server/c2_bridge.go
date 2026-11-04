@@ -6,9 +6,15 @@ package server
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -142,32 +148,111 @@ func (s *Server) c2AIPlanWithKB(sessionID, instruction string) (string, error) {
 
 // ---- 3) Webshell 密码加密 ----
 
-// wsEncryptPassword AES-GCM 加密 webshell 密码（服务端密钥派生自 PG DSN）。
+// ---- Webshell 密码加密（v2，2026-11-04 自审计 1950/1935 重构）----
+// 旧实现：repeating-key XOR + FNV-1a 冒充 MD5 派生密钥（注释却声称 AES-GCM），
+// 密钥由 PG DSN 派生、DSN 缺失时回退硬编码 "forang-default-key"——确定性、无盐、
+// 密文可离线穷举。现改为 AES-256-GCM：密钥 = 首次使用时 crypto/rand 生成的 32 字节，
+// base64 存 settings(webshell_secret)，每部署唯一。
+//
+// 密文格式："aes:" + base64(nonce[12] || ciphertext||tag)。
+// 读兼容：旧 "enc:"（XOR 密文）与更早明文原样可读（decrypt 侧按前缀分派），
+// 下一次保存即升级为 AES。
+
+var (
+	wsAesKeyOnce sync.Once
+	wsAesKeyVal  []byte
+	wsAesKeyErr  error
+)
+
+// wsAesKey 取（或首次生成）本部署的 webshell 加密密钥。
+func (s *Server) wsAesKey() ([]byte, error) {
+	wsAesKeyOnce.Do(func() {
+		if v, ok, _ := s.m.PG().GetSetting("webshell_secret"); ok {
+			if raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(v)); err == nil && len(raw) == 32 {
+				wsAesKeyVal = raw
+				return
+			}
+		}
+		raw := make([]byte, 32)
+		if _, err := rand.Read(raw); err != nil {
+			wsAesKeyErr = fmt.Errorf("生成 webshell 密钥失败: %w", err)
+			return
+		}
+		if err := s.m.PG().SetSetting("webshell_secret", base64.StdEncoding.EncodeToString(raw)); err != nil {
+			wsAesKeyErr = fmt.Errorf("持久化 webshell 密钥失败: %w", err)
+			return
+		}
+		wsAesKeyVal = raw
+	})
+	return wsAesKeyVal, wsAesKeyErr
+}
+
+// wsEncryptPassword AES-256-GCM 加密 webshell 密码。
 func (s *Server) wsEncryptPassword(plain string) string {
 	if plain == "" {
 		return ""
 	}
-	// 简单方案：base64(plain XOR server_key) —— 服务端 key 从全局密钥派生
-	// 生产环境建议 AES-GCM + 独立密钥管理
-	key := s.wsServerKey()
-	b := []byte(plain)
-	out := make([]byte, len(b))
-	for i := range b {
-		out[i] = b[i] ^ key[i%len(key)]
+	key, err := s.wsAesKey()
+	if err != nil {
+		log.Printf("[webshell] 加密失败（存明文拒绝）: %v", err)
+		return "" // 加密失败宁可丢密码也不落明文
 	}
-	return "enc:" + fmt.Sprintf("%x", out)
+	blk, err := aes.NewCipher(key)
+	if err != nil {
+		return ""
+	}
+	gcm, err := cipher.NewGCM(blk)
+	if err != nil {
+		return ""
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return ""
+	}
+	return "aes:" + base64.StdEncoding.EncodeToString(gcm.Seal(nonce, nonce, []byte(plain), nil))
 }
 
+// wsDecryptPassword 解密：aes:（v2 GCM）/ enc:（v1 XOR，读兼容）/ 无前缀（远古明文）。
 func (s *Server) wsDecryptPassword(enc string) string {
-	if !strings.HasPrefix(enc, "enc:") {
+	if enc == "" {
+		return ""
+	}
+	if !strings.HasPrefix(enc, "aes:") && !strings.HasPrefix(enc, "enc:") {
 		return enc // 兼容旧明文
 	}
+	if strings.HasPrefix(enc, "aes:") {
+		raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(enc, "aes:"))
+		if err != nil {
+			return ""
+		}
+		key, kerr := s.wsAesKey()
+		if kerr != nil {
+			return ""
+		}
+		blk, err := aes.NewCipher(key)
+		if err != nil {
+			return ""
+		}
+		gcm, err := cipher.NewGCM(blk)
+		if err != nil {
+			return ""
+		}
+		if len(raw) < gcm.NonceSize() {
+			return ""
+		}
+		plain, err := gcm.Open(nil, raw[:gcm.NonceSize()], raw[gcm.NonceSize():], nil)
+		if err != nil {
+			return "" // 密钥不符/密文损坏
+		}
+		return string(plain)
+	}
+	// v1 XOR 读兼容（仅解密，不再产出新 enc: 密文）
 	hexStr := strings.TrimPrefix(enc, "enc:")
 	b := make([]byte, len(hexStr)/2)
 	for i := 0; i < len(hexStr); i += 2 {
 		fmt.Sscanf(hexStr[i:i+2], "%02x", &b[i/2])
 	}
-	key := s.wsServerKey()
+	key := wsLegacyKey(s)
 	out := make([]byte, len(b))
 	for i := range b {
 		out[i] = b[i] ^ key[i%len(key)]
@@ -175,8 +260,8 @@ func (s *Server) wsDecryptPassword(enc string) string {
 	return string(out)
 }
 
-// wsServerKey 服务端密钥（从 PG DSN 派生，每部署唯一）。
-func (s *Server) wsServerKey() []byte {
+// wsLegacyKey 旧 XOR 密钥（仅用于解密历史 enc: 密文，不再用于加密）。
+func wsLegacyKey(s *Server) []byte {
 	dsn := ""
 	if cfg, ok, _ := s.m.PG().GetSetting("database_dsn"); ok {
 		dsn = cfg
@@ -184,7 +269,6 @@ func (s *Server) wsServerKey() []byte {
 	if dsn == "" {
 		dsn = "forang-default-key"
 	}
-	// 取 DSN 的 MD5 前 16 字节作 key
 	sum := md5Sum(dsn)
 	return []byte(sum[:16])
 }

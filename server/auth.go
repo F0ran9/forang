@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"math/big"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -133,6 +135,58 @@ func extractToken(r *http.Request) string {
 	return ""
 }
 
+// ---- SSE 一次性票据（自测 1958）----
+// POST /api/auth/sse-ticket（需 JWT）→ {ticket, expires_in}；GET <sse>?ticket=…
+// 票据 60 秒有效、单次使用，仅限 /stream|/events 结尾的 GET。
+
+var (
+	sseTicketMu    sync.Mutex
+	sseTicketLive  = map[string]time.Time{}
+	sseTicketTTL   = 60 * time.Second
+	sseTicketSweep = 5 * time.Minute
+)
+
+func issueSSETicket() (string, int) {
+	raw := make([]byte, 24)
+	_, _ = rand.Read(raw)
+	tk := base64.RawURLEncoding.EncodeToString(raw)
+	now := time.Now()
+	sseTicketMu.Lock()
+	defer sseTicketMu.Unlock()
+	// 顺手清理过期项（签发频率低，无需独立协程）
+	if len(sseTicketLive) > 512 {
+		for k, exp := range sseTicketLive {
+			if now.After(exp) {
+				delete(sseTicketLive, k)
+			}
+		}
+	}
+	sseTicketLive[tk] = now.Add(sseTicketTTL)
+	return tk, int(sseTicketTTL / time.Second)
+}
+
+func consumeSSETicket(tk string) bool {
+	sseTicketMu.Lock()
+	defer sseTicketMu.Unlock()
+	exp, ok := sseTicketLive[tk]
+	if !ok {
+		return false
+	}
+	delete(sseTicketLive, tk) // 一次性
+	return time.Now().Before(exp)
+}
+
+func isSSEPath(r *http.Request) bool {
+	return r.Method == http.MethodGet &&
+		(strings.HasSuffix(r.URL.Path, "/stream") || strings.HasSuffix(r.URL.Path, "/events"))
+}
+
+// sseTicketIssue POST /api/auth/sse-ticket — 给 EventSource 换一次性短票据。
+func (s *Server) sseTicketIssue(w http.ResponseWriter, r *http.Request) {
+	tk, ttl := issueSSETicket()
+	writeJSON(w, 200, map[string]any{"ticket": tk, "expires_in": ttl})
+}
+
 // requireAuth wraps h with JWT validation.
 // /api/auth/* and /api/health are exempt.
 func (s *Server) requireAuth(h http.Handler) http.Handler {
@@ -140,6 +194,17 @@ func (s *Server) requireAuth(h http.Handler) http.Handler {
 		p := r.URL.Path
 		if strings.HasPrefix(p, "/api/auth/") || p == "/api/health" {
 			h.ServeHTTP(w, r)
+			return
+		}
+		// SSE 票据（自测 1958 修复）：EventSource 无法带 Authorization 头，原方案把
+		// 长效 JWT 拼进 ?token= 进日志/历史。现改 ?ticket= 一次性 60s 票据——泄露面
+		// 从"长效全权限"缩到"60 秒单次 SSE"。带 Authorization 的普通请求不受影响。
+		if tk := r.URL.Query().Get("ticket"); tk != "" && isSSEPath(r) {
+			if consumeSSETicket(tk) {
+				h.ServeHTTP(w, r)
+				return
+			}
+			writeErr(w, 401, "ticket 无效或已使用")
 			return
 		}
 		tok := extractToken(r)

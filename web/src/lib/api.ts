@@ -191,15 +191,34 @@ function mockReport(_task?: string): string {
 > （demo）本报告由 mock 数据生成，仅用于界面演示。`;
 }
 
-export function sseUrl(path: string): string {
-  const base =
+export function sseBase(): string {
+  return (
     process.env.NEXT_PUBLIC_SSE_BASE ??
     (process.env.NODE_ENV !== "production" && typeof window !== "undefined"
       ? `${window.location.protocol}//${window.location.hostname}:8787`
-      : "");
-  const token = getToken();
+      : "")
+  );
+}
+
+export function sseUrl(path: string): string {
+  // 兼容旧签名：仅供无需鉴权的流使用；鉴权流请改用 sseConnect（票据，1958 修复）。
+  return `${sseBase()}${path}`;
+}
+
+// sseConnect 建立带鉴权的 SSE：先 POST /api/auth/sse-ticket 换一次性 60s 票据，
+// 再以 ?ticket= 开流。EventSource 无法带 Authorization 头，旧方案把长效 JWT 拼进
+// URL（进日志/历史，1958）——票据泄露面仅 60 秒单次。
+export async function sseConnect(path: string): Promise<EventSource> {
+  const base = sseBase();
+  let q = "ticket=";
+  try {
+    const r = await post<{ ticket: string }>("/auth/sse-ticket");
+    q += encodeURIComponent(r.ticket ?? "");
+  } catch {
+    q += ""; // 换票失败：不带票据开流 → 401 → onerror（调用方已有降级路径）
+  }
   const sep = path.includes("?") ? "&" : "?";
-  return token ? `${base}${path}${sep}token=${encodeURIComponent(token)}` : `${base}${path}`;
+  return new EventSource(`${base}${path}${sep}${q}`);
 }
 
 const get = <T>(p: string) => http<T>(p);
@@ -1290,9 +1309,9 @@ export const api = {
   kbDictDelete: (id: number) => del<{ ok: boolean }>(`/kb/dicts/${id}`),
   kbDictExportUrl: (kind: string) => `/api/kb/dicts/export?kind=${kind}`,
   // ---- Webshell 控制台 / C2 指挥台（UI 直连）----
-  webshellExec: (payload: { url: string; password: string; encoder: string; script_type: string; op: string; cmd?: string; path?: string; content?: string; content_b64?: string; cwd?: string; timeout?: number; headers?: string }) =>
+  webshellExec: (payload: { target_id?: number; url?: string; password?: string; encoder?: string; script_type?: string; op: string; cmd?: string; path?: string; content?: string; content_b64?: string; cwd?: string; timeout?: number; headers?: string }) =>
     post<{ data: { ok: boolean; output: string; cwd: string; error: string; data_len: number; data_b64?: string } }>("/tools/webshell/exec", payload),
-  webshellExt: (payload: { url: string; password: string; encoder: string; script_type: string; op: string; headers?: string; timeout?: number; ext: Record<string, unknown> }) =>
+  webshellExt: (payload: { target_id?: number; url?: string; password?: string; encoder?: string; script_type?: string; op: string; headers?: string; timeout?: number; ext: Record<string, unknown> }) =>
     post<{ data: { ok: boolean; output: string; error: string; data_len: number; data_b64?: string } }>("/tools/webshell/ext", payload),
   wsGenerate: (payload: { script_type: string; encoder: string; password: string; filename?: string; gate_header?: string; gate_value?: string; evasive?: boolean; evasive_level?: number }) =>
     post<{ data: { path: string; filename: string; code: string; size: number; self_check?: { script_type: string; checked: number; leaked: { name: string }[]; passed: boolean } } }>("/tools/webshell/generate", payload),
@@ -1554,7 +1573,8 @@ export interface WSTarget {
   group: string;
   name: string;
   url: string;
-  password: string;
+  password: string; // 仅编辑时上行；列表接口不再回显（has_password 替代）
+  has_password?: boolean;
   encoder: string;
   script_type: string;
   note: string;

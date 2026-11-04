@@ -20,10 +20,11 @@ import (
 	"time"
 )
 
-// DefaultURL / DefaultToken 与 Python 侧默认值一致。
+// DefaultURL 保持与 Python 侧一致；DefaultToken 已移除（2026-11-04 自审计 1934）：
+// 静态默认 token = 任何未改配置的部署共享同一凭据。现 fail-closed——必须显式配置
+// GOC2_TOKEN 环境变量或平台设置里的 c2_token，否则 C2 调用返回明确错误。
 const (
-	DefaultURL   = "http://172.25.0.1:18400"
-	DefaultToken = "goc2-admin"
+	DefaultURL = "http://172.25.0.1:18400"
 )
 
 // Config goc2 admin 面连接配置。
@@ -38,10 +39,7 @@ func FromEnv() Config {
 	if u == "" {
 		u = DefaultURL
 	}
-	t := strings.TrimSpace(os.Getenv("GOC2_TOKEN"))
-	if t == "" {
-		t = DefaultToken
-	}
+	t := strings.TrimSpace(os.Getenv("GOC2_TOKEN")) // 空=未配置；调用侧对空 token 给出明确错误
 	return Config{BaseURL: strings.TrimRight(u, "/"), Token: t}
 }
 
@@ -97,6 +95,9 @@ func (c *Client) Request(ctx context.Context, method, path string, params url.Va
 			return nil, err
 		}
 		body = bytes.NewReader(b)
+	}
+	if strings.TrimSpace(c.cfg.Token) == "" {
+		return nil, fmt.Errorf("goc2 未配置访问 token：请在平台设置（或环境变量 GOC2_TOKEN）里配置 c2_token（自审计 1934 后不再提供默认 token）")
 	}
 	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {

@@ -783,6 +783,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/auth/status", s.authStatus)
 	mux.HandleFunc("POST /api/auth/init", s.authInit)
 	mux.HandleFunc("POST /api/auth/login", s.authLogin)
+	mux.HandleFunc("POST /api/auth/sse-ticket", s.sseTicketIssue) // EventSource 一次性短票据（1958）
 	mux.HandleFunc("GET /api/auth/consent", s.authConsentGet)
 	mux.HandleFunc("POST /api/auth/consent", s.authConsentPost)
 	mux.HandleFunc("POST /api/auth/change-password", s.authChangePassword)
@@ -1203,7 +1204,7 @@ func (s *Server) Handler() http.Handler {
 	api := cors(s.requireAuth(mux))
 	root := http.NewServeMux()
 	root.Handle("/api/", api)
-	root.Handle("/debug/pprof/", http.DefaultServeMux) // 诊断：goroutine 栈转储（过 gate+JWT）
+	root.Handle("/debug/pprof/", s.requireAuth(http.DefaultServeMux)) // 诊断：goroutine 栈转储（真正过 gate+JWT；自测 1941 曾裸挂未授权）
 	root.Handle("/", s.webuiHandler())
 	return s.gateMiddleware(root)
 }
@@ -4216,9 +4217,24 @@ func (s *Server) gc(w http.ResponseWriter, r *http.Request) {
 
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		// 同源放行（生产同源部署/反代）；跨源仅显式白名单（FORANG_CORS_ORIGIN，dev 的
+		// next dev :3000 → :8787 直连场景用）。原 ACAO:* + ?token= SSE 组合曾构成跨源
+		// 流读取面（自测 1958）。
+		if o := r.Header.Get("Origin"); o != "" {
+			allowed := ""
+			if u, err := url.Parse(o); err == nil && u.Host != "" && u.Host == r.Host {
+				allowed = o // 同源
+			} else if allow := strings.TrimSpace(os.Getenv("FORANG_CORS_ORIGIN")); allow != "" && o == allow {
+				allowed = o // 显式白名单
+			}
+			if allowed != "" {
+				h := w.Header()
+				h.Set("Access-Control-Allow-Origin", allowed)
+				h.Set("Vary", "Origin")
+				h.Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+				h.Set("Access-Control-Allow-Headers", "Content-Type,Authorization")
+			}
+		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(204)
 			return

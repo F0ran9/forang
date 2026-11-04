@@ -71,6 +71,7 @@ func (s *Server) webshellExecAPI(w http.ResponseWriter, r *http.Request) {
 	var b struct {
 		URL        string `json:"url"`
 		Password   string `json:"password"`
+		TargetID   int64  `json:"target_id"` // 已存目标：服务端自取连接参数，前端无需传明文（1949）
 		Encoder    string `json:"encoder"`
 		ScriptType string `json:"script_type"`
 		Op         string `json:"op"`
@@ -87,8 +88,18 @@ func (s *Server) webshellExecAPI(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad json: "+err.Error())
 		return
 	}
+	if b.TargetID > 0 { // 按已存目标解析连接参数（密码服务端解密，不经前端）
+		var pwEnc string
+		if err := s.m.PG().QueryRow(`SELECT url, password, encoder, script_type, COALESCE(headers,'')
+			FROM webshell_targets WHERE id=$1`, b.TargetID).
+			Scan(&b.URL, &pwEnc, &b.Encoder, &b.ScriptType, &b.Headers); err != nil {
+			writeErr(w, 404, "webshell 目标不存在")
+			return
+		}
+		b.Password = s.wsDecryptPassword(pwEnc)
+	}
 	if strings.TrimSpace(b.URL) == "" || strings.TrimSpace(b.Password) == "" {
-		writeErr(w, 400, "url 与 password 必填")
+		writeErr(w, 400, "url 与 password 必填（或 target_id 对应目标无密码）")
 		return
 	}
 	if b.Encoder == "" {
@@ -132,6 +143,7 @@ func (s *Server) webshellExtAPI(w http.ResponseWriter, r *http.Request) {
 	var b struct {
 		URL        string `json:"url"`
 		Password   string `json:"password"`
+		TargetID   int64  `json:"target_id"` // 已存目标：服务端自取连接参数（1949）
 		Encoder    string `json:"encoder"`
 		ScriptType string `json:"script_type"`
 		Op         string `json:"op"`
@@ -143,8 +155,18 @@ func (s *Server) webshellExtAPI(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad json: "+err.Error())
 		return
 	}
+	if b.TargetID > 0 { // 按已存目标解析连接参数（密码服务端解密，不经前端）
+		var pwEnc string
+		if err := s.m.PG().QueryRow(`SELECT url, password, encoder, script_type, COALESCE(headers,'')
+			FROM webshell_targets WHERE id=$1`, b.TargetID).
+			Scan(&b.URL, &pwEnc, &b.Encoder, &b.ScriptType, &b.Headers); err != nil {
+			writeErr(w, 404, "webshell 目标不存在")
+			return
+		}
+		b.Password = s.wsDecryptPassword(pwEnc)
+	}
 	if strings.TrimSpace(b.URL) == "" || strings.TrimSpace(b.Password) == "" {
-		writeErr(w, 400, "url 与 password 必填")
+		writeErr(w, 400, "url 与 password 必填（或 target_id 对应目标无密码）")
 		return
 	}
 	if b.Timeout <= 0 || b.Timeout > 180 {

@@ -70,7 +70,14 @@ func (s *Server) proxySubCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	proxies, err := fetchProxySubscription(u)
 	if err != nil {
-		writeJSON(w, 200, map[string]any{"error": err.Error()})
+		// 1952：错误原文（dial tcp 172.25.x.x:port: connection refused/i/o timeout
+		// 差异）构成内网端口探测预言机。API 只回分类信息，原文进服务端日志。
+		msg := err.Error()
+		if isNetworkDialError(err) {
+			log.Printf("[proxy-sub] check 拉取失败(%s): %v", u, err)
+			msg = "无法访问订阅地址（连接失败或超时）"
+		}
+		writeJSON(w, 200, map[string]any{"error": msg})
 		return
 	}
 	// 并发健康检查（全部节点，最多 20 个避免刷爆）
@@ -168,6 +175,20 @@ func (s *Server) StartProxySubscriptionLoop() {
 			}
 		}
 	}()
+}
+
+// isNetworkDialError 判断错误是否携带网络层细节（dial/连接类）——这类原文不再回显。
+func isNetworkDialError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if ue, ok := err.(interface{ Unwrap() error }); ok && ue.Unwrap() != nil {
+		return true // url.Error 包装的传输错误
+	}
+	s := err.Error()
+	return strings.Contains(s, "dial") || strings.Contains(s, "connect") ||
+		strings.Contains(s, "timeout") || strings.Contains(s, "refused") ||
+		strings.Contains(s, "lookup ") || strings.Contains(s, "no such host")
 }
 
 // fetchProxySubscription 拉取订阅链接并解析出 socks5/http/https 代理列表。

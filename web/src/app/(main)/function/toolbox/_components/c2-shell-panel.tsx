@@ -22,8 +22,8 @@ export function C2ShellPanel({ beaconId }: { beaconId: string }) {
 
   const connect = () => {
     if (esRef.current) esRef.current.close();
-    const token = localStorage.getItem("forang_token") || "";
-    const es = new EventSource(`/api/tools/c2/shell/ws?session_id=${beaconId}&token=${token}`);
+    // 1958：token 不再拼 URL（同源请求自动携带 forang_token cookie 鉴权）。
+    const es = new EventSource(`/api/tools/c2/shell/ws?session_id=${beaconId}`);
     esRef.current = es;
 
     es.addEventListener("shell_open", (e) => {

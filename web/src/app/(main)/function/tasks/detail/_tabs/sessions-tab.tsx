@@ -51,7 +51,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSideQuestions } from "@/hooks/use-side-questions";
-import { api, sseUrl } from "@/lib/api";
+import { api, sseConnect } from "@/lib/api";
 import { shouldSubmitOnKey, useChatSendMode } from "@/lib/chat-send-mode";
 import { MOCK } from "@/lib/mock/enabled";
 import { isBtwCommand } from "@/lib/side-questions";
@@ -969,10 +969,14 @@ export function SessionsTab({ taskId }: { taskId: string }) {
             unread: 0,
           };
         });
-        // Open the single task SSE from the snapshot cursor.
-        const es = new EventSource(
-          sseUrl(`/api/exploration/activity/stream?task=${encodeURIComponent(taskId)}&since=${snapshotRef.current}`),
-        );
+        // Open the single task SSE from the snapshot cursor（一次性票据，1958）。
+        sseConnect(
+          `/api/exploration/activity/stream?task=${encodeURIComponent(taskId)}&since=${snapshotRef.current}`,
+        ).then((es) => {
+        if (!alive) {
+          es.close();
+          return;
+        }
         esRef.current = es;
         es.onopen = () => setSseLive(true);
         es.onerror = () => setSseLive(false); // EventSource auto-reconnects; DB compensates the gap
@@ -1033,6 +1037,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
             return { ...prev, [k]: { ...cur, items, lastTs: a.ts, unread, hasMore, earliestSeq } };
           });
         };
+      }); // sseConnect then
       })
       .catch((err) => {
         if (!alive || reqTokenRef.current.mainboot !== token) return;

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { toast } from "sonner";
 
-import { sseUrl } from "@/lib/api";
+import { sseConnect } from "@/lib/api";
 import { isBtwCommand, type SideExchange, type SideHistory, sideAPI } from "@/lib/side-questions";
 
 // crypto.randomUUID 仅在安全上下文可用(https/localhost);经 IP+http 访问时降级。
@@ -128,24 +128,38 @@ export function useSideQuestions(parent: string | null) {
   useEffect(() => {
     if (!runningID) return;
     const version = epoch.current;
-    const stream = new EventSource(sseUrl(`/api/side-questions/${runningID}/events`));
-    stream.addEventListener("snapshot", (event) => {
-      if (version !== epoch.current) return;
-      try {
-        const item = JSON.parse((event as MessageEvent).data) as SideExchange;
-        if (item.id !== runningID) return;
-        setItems((old) => merge(old, [item]));
-        restoreFailedDraft([item]);
-        if (item.status !== "running") stream.close();
-      } catch {
-        setError("旁路数据解析失败，请重新打开面板");
+    let stream: EventSource | null = null;
+    let stopped = false;
+    const wire = (s: EventSource) => {
+      s.addEventListener("snapshot", (event) => {
+        if (version !== epoch.current) return;
+        try {
+          const item = JSON.parse((event as MessageEvent).data) as SideExchange;
+          if (item.id !== runningID) return;
+          setItems((old) => merge(old, [item]));
+          restoreFailedDraft([item]);
+          if (item.status !== "running") s.close();
+        } catch {
+          setError("旁路数据解析失败，请重新打开面板");
+        }
+      });
+      s.addEventListener("cleared", () => {
+        s.close();
+        if (version === epoch.current) setItems([]);
+      });
+    };
+    sseConnect(`/api/side-questions/${runningID}/events`).then((s) => {
+      if (stopped) {
+        s.close();
+        return;
       }
+      stream = s;
+      wire(s);
     });
-    stream.addEventListener("cleared", () => {
-      stream.close();
-      if (version === epoch.current) setItems([]);
-    });
-    return () => stream.close();
+    return () => {
+      stopped = true;
+      stream?.close();
+    };
   }, [runningID, streamEpoch, restoreFailedDraft]);
 
   const ask = async (input: string) => {

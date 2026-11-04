@@ -138,7 +138,7 @@ export default function WebshellConsole() {
               >
                 <td className="px-2 py-1"><input type="checkbox" checked={checked.has(t.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggle(t.id)} /></td>
                 <td className="py-1 font-mono text-blue-500" title={t.url}>{t.url}</td>
-                <td className="font-mono text-muted-foreground">{t.password ? "••••" : "-"}</td>
+                <td className="font-mono text-muted-foreground">{t.has_password ? "••••" : "-"}</td>
                 <td>{t.encoder}</td>
                 <td>{t.script_type}</td>
                 <td className="text-muted-foreground">{t.group}</td>
@@ -164,7 +164,7 @@ export default function WebshellConsole() {
               <Input placeholder="名称（备注列显示）" value={edit.name || ""} onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
               <Input placeholder="URL（http://target/shell.php）" value={edit.url || ""} onChange={(e) => setEdit({ ...edit, url: e.target.value })} />
               <div className="grid grid-cols-4 gap-2">
-                <Input placeholder="密码" value={edit.password || ""} onChange={(e) => setEdit({ ...edit, password: e.target.value })} />
+                <Input placeholder={edit.id ? "密码（留空保持不变）" : "密码"} type="password" value={edit.password || ""} onChange={(e) => setEdit({ ...edit, password: e.target.value })} />
                 <select className="rounded border bg-transparent p-1.5 text-sm" value={edit.encoder || "raw"} onChange={(e) => setEdit({ ...edit, encoder: e.target.value })}>
                   {ENCODERS.map((x) => <option key={x} value={x}>{x}</option>)}
                 </select>
@@ -363,7 +363,8 @@ const DPre = ({ children }: { children: React.ReactNode }) => (
 
 function useRunner(target: WSTarget) {
   const [busy, setBusy] = React.useState(false);
-  const base = { url: target.url, password: target.password, encoder: target.encoder, script_type: target.script_type, headers: target.headers || "" };
+  // 1949：列表不再回显密码——执行走 target_id，服务端自取连接参数。
+  const base = { target_id: target.id };
   const exec = async (op: string, extra: Record<string, unknown>) => {
     setBusy(true);
     try {

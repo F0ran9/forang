@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { sseUrl } from "@/lib/api";
+import { sseConnect } from "@/lib/api";
 import { MOCK } from "@/lib/mock/enabled";
 import type { LogLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -64,17 +64,32 @@ export default function LogsPage() {
       setLines(MOCK_LOGS);
       return;
     }
-    const es = new EventSource(sseUrl("/api/logs/stream?since=0"));
-    es.onmessage = (e) => {
-      if (pausedRef.current) return;
-      try {
-        const l = JSON.parse(e.data) as LogLine;
-        setLines((prev) => (prev.some((x) => x.seq === l.seq) ? prev : [...prev, l].slice(-3000)));
-      } catch {
-        /* ignore malformed frame */
-      }
+    let es: EventSource | null = null;
+    let stopped = false;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    const open = async () => {
+      es = await sseConnect("/api/logs/stream?since=0");
+      es.onmessage = (e) => {
+        if (pausedRef.current) return;
+        try {
+          const l = JSON.parse(e.data) as LogLine;
+          setLines((prev) => (prev.some((x) => x.seq === l.seq) ? prev : [...prev, l].slice(-3000)));
+        } catch {
+          /* ignore malformed frame */
+        }
+      };
+      es.onerror = () => {
+        // 票据一次性：断线后换新票据重连（渐进退避）
+        es?.close();
+        if (!stopped) retry = setTimeout(open, 3000);
+      };
     };
-    return () => es.close();
+    open();
+    return () => {
+      stopped = true;
+      if (retry) clearTimeout(retry);
+      es?.close();
+    };
   }, []);
 
   // Mark "has more" once we have any db_id in view.

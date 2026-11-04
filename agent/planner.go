@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/intercept"
@@ -20,6 +21,9 @@ import (
 // exploration graph changes (debounced), it reads the exploration route, queries
 // assets, judges whether the task goal is met, and emits 0..N exploration intents
 // into the frontier. It is the sole intent generator.
+// plannerRoundBudget 单轮规划的默认墙钟上限（无任务 deadline 时的兜底预算）。
+const plannerRoundBudget = 15 * time.Minute
+
 type Planner struct {
 	presetID string // 三端预设 Agent: 方法论提示词注入(不改工具权限)
 	findingRecorder   FindingRecorder
@@ -406,9 +410,11 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 		sysBody += constraintBlock(ts) // 操作约束(若有)注入系统提示,框定探索边界
 	}
 	system, boundary := deferredSystem(sysBody, def)
-	// planner 无自身墙钟预算;有 deadline 时把 MaxDuration 夹逼到剩余,让在跑的规划轮在
-	// 任务到点时进收尾(因超时→任务超时词,因步数→per-run 词)。
-	maxDur, clamped := clampMaxDuration(tc.DeadlineUnix, 0)
+	// planner 单轮默认墙钟预算:无任务 deadline 时也不再无限。LLM 流卡死曾让规划轮
+	// 永挂(实测任务 #312:planner 12:12 后 50 分钟无输出,任务卡 running,只能 pause)。
+	// 有 deadline 时取 min(剩余, 15min);到点走 SDK 收尾(因超时→per-run 词),任务
+	// 仍活,下一心跳重试规划。
+	maxDur, clamped := clampMaxDuration(tc.DeadlineUnix, plannerRoundBudget)
 	settle := wrapupSettlement("planner", nil)
 	if tc.DeadlineUnix > 0 {
 		settle = wrapupSettlementForTask("planner", nil, clamped)
