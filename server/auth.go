@@ -128,10 +128,8 @@ func extractToken(r *http.Request) string {
 	if c, err := r.Cookie("forang_token"); err == nil && c.Value != "" {
 		return c.Value
 	}
-	p := r.URL.Path
-	if r.Method == http.MethodGet && (strings.HasSuffix(p, "/stream") || strings.HasSuffix(p, "/events")) {
-		return r.URL.Query().Get("token")
-	}
+	// 1958 收尾：SSE 不再接受 ?token=（长效 JWT 进日志/历史）。EventSource 的两条
+	// 合法通道：①同源 forang_token cookie；②一次性 ?ticket=（sse-ticket，见上）。
 	return ""
 }
 
