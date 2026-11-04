@@ -57,7 +57,7 @@ func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 	doc.Table([]string{"序号", "资产"}, [][]string{{"1", target}})
 	if t.Goal != "" {
 		doc.Heading(2, "1.2 测试范围与目标")
-		doc.Paragraph(t.Goal)
+		goalLines(doc, t.Goal)
 	}
 
 	// ===== 二. 测试内容 =====
@@ -163,6 +163,19 @@ func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 	doc.Paragraph("4. 完善日志审计与备份策略，将关键日志外发至独立日志服务器，防止单点破坏。")
 	doc.Paragraph("注：Web 漏洞会随时间推移而变化，基于评估严谨性考虑，本报告仅具备两个月的时效性。")
 	return doc
+}
+
+// goalLines 把任务目标文本逐行渲染为独立段落：换行在 Word 里不会被单个 <w:p>
+// 保留（旧版整段硬塞导致 1)~6) 步骤全糊成一段、字距被两端对齐撑开）。
+// 编号行（1) 2)…/1. 2.…/-、•）加左缩进，视觉上分条。
+func goalLines(doc *Docx, goal string) {
+	for _, ln := range strings.Split(goal, "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+		doc.GoalLine(ln)
+	}
 }
 
 // findingShotCount 统计可嵌入的截图证据数（文件存在才算）。

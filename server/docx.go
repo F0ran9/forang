@@ -169,6 +169,24 @@ func (d *Docx) Paragraph(text string) *Docx {
 	return d
 }
 
+// GoalLine 目标/范围文本行：编号行（1) 2)…、①、-、•）加左缩进；长 token 场景
+// 用左对齐（jc both 会把无空格断行的长串撑得字距极大）。
+func (d *Docx) GoalLine(text string) *Docx {
+	indent := ""
+	if r := []rune(text); len(r) > 1 {
+		c, c2 := r[0], r[1]
+		numbered := (c >= '0' && c <= '9' && (c2 == ')' || c2 == '.' || c2 == '、'))
+		bullet := c == '-' || c == '•' || c == '①' || c == '·' // -、•、①、· 类要点符
+		if numbered || bullet {
+			indent = `<w:ind w:left="360"/>`
+		}
+	}
+	d.body.WriteString(`<w:p><w:pPr><w:spacing w:line="312" w:lineRule="auto"/>` + indent + `</w:pPr>`)
+	d.body.WriteString(runsFromMarkdown(text))
+	d.body.WriteString(`</w:p>`)
+	return d
+}
+
 // FieldLine 字段行：加粗深色标签 + 常规内容（「漏洞描述： xxx」）。
 func (d *Docx) FieldLine(label, text string) *Docx {
 	d.body.WriteString(`<w:p><w:pPr><w:spacing w:before="160" w:after="80" w:line="312" w:lineRule="auto"/><w:keepNext/></w:pPr>`)
