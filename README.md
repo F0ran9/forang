@@ -180,3 +180,6 @@ go build -tags embedui -o forang ./cmd/artex
 - 审批治理 / 发包留证 / 监督模式等方法论参考 [Full-Chain-Sentinel-System](https://github.com/zgsfsec/Full-Chain-Sentinel-System)（MIT）。
 - Agent 运行时 [norma](https://github.com/Autumn-27/norma)。
 - 许可证：AGPL-3.0（见 LICENSE）。
+
+<!-- ver-note -->
+> v0.5.23：release 产物与自更新资产全面更名 forang-*；一键更新解包双名兼容（前向 forang、回滚 artex）。
