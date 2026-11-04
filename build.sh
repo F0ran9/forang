@@ -182,6 +182,7 @@ package_binary() {
     chmod +x "$package_root/start.sh"
   fi
   cp -R skills "$package_root/"
+  cp -R docker "$package_root/" 2>/dev/null || true # forang-agent 任务容器镜像（缺失时服务端自动构建）
   cp config.example.json "$package_root/"
   if [ -f README.md ]; then cp README.md "$package_root/"; fi
   (cd "$ARTEX_PACKAGE_DIR" && zip -q -r -9 "$(basename "$archive")" "$(basename "$package_root")")

@@ -16,7 +16,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,10 +28,12 @@ import (
 )
 
 const (
-	containerSettingEnabled = "task_container.enabled"
-	containerSettingImage   = "task_container.image"
-	containerSettingNetwork = "task_container.network" // host / bridge
-	defaultContainerImage   = "kalilinux/kali-rolling:latest"
+	containerSettingEnabled  = "task_container.enabled"
+	containerSettingImage    = "task_container.image"
+	containerSettingNetwork  = "task_container.network" // host / bridge
+	defaultContainerImage    = "forang-agent:latest"    // 仓库 docker/forang-agent.Dockerfile（内置工具集）
+	agentDockerfileName      = "forang-agent.Dockerfile"
+	agentImageBuildTimeout   = 20 * time.Minute
 )
 
 func (s *Server) containerConfig() (on bool, image, network string) {
@@ -62,6 +66,64 @@ func dockerCmd(ctx context.Context, args ...string) (string, error) {
 	return buf.String(), err
 }
 
+// ensureAgentImage 镜像缺失时从随包 Dockerfile 自动构建（forang-agent 内置
+// curl/python3/nmap/sqlmap 等工具集——裸 kali 镜像连 curl 都没有，agent 只能
+// 退回 repeater_send）。非 forang-agent 镜像名不做自动构建（自定义镜像自管）。
+// Dockerfile 查找顺序：可执行文件目录/docker/ → workRoot/docker/。
+func ensureAgentImage(ctx context.Context, image string) error {
+	out, err := dockerCmd(ctx, "image", "inspect", image)
+	if err == nil {
+		return nil // 已存在
+	}
+	_ = out
+	if !strings.HasPrefix(image, "forang-agent") {
+		return nil // 自定义镜像：不自动构建
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return nil
+	}
+	candidates := []string{
+		filepath.Join(filepath.Dir(exe), "docker", agentDockerfileName),
+		filepath.Join(workRoot, "docker", agentDockerfileName),
+	}
+	var dir string
+	for _, c := range candidates {
+		if st, serr := os.Stat(c); serr == nil && !st.IsDir() {
+			dir = filepath.Dir(c)
+			break
+		}
+	}
+	if dir == "" {
+		return fmt.Errorf("未找到 %s（镜像未构建且随包目录无 Dockerfile），请置 docker/forang-agent.Dockerfile 后重启或手动 docker build", agentDockerfileName)
+	}
+	log.Printf("[container] 镜像 %s 缺失，自动构建（%s，最长 %s）…", image, dir, agentImageBuildTimeout)
+	if err := buildAgentImage(ctx, image, dir); err != nil {
+		return fmt.Errorf("自动构建失败: %v（可手动执行: docker build -t %s %s）", err, image, dir)
+	}
+	log.Printf("[container] 镜像 %s 构建完成", image)
+	return nil
+}
+
+// buildAgentImage docker build（长超时；国内构建建议先设 APT_MIRROR build-arg
+// 指向镜像站，这里默认走 Dockerfile 内置源）。
+func buildAgentImage(ctx context.Context, image, dir string) error {
+	c, cancel := context.WithTimeout(ctx, agentImageBuildTimeout)
+	defer cancel()
+	var buf bytes.Buffer
+	cmd := exec.CommandContext(c, "docker", "build", "-t", image, "-f", filepath.Join(dir, agentDockerfileName), dir)
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	if err := cmd.Run(); err != nil {
+		tail := buf.String()
+		if len(tail) > 800 {
+			tail = tail[len(tail)-800:]
+		}
+		return fmt.Errorf("%v: %s", err, tail)
+	}
+	return nil
+}
+
 // ensureTaskContainer: 不存在则创建+启动，存在未跑则 start。
 func ensureTaskContainer(ctx context.Context, taskID int64, image, network string) error {
 	name := containerName(taskID)
@@ -75,6 +137,9 @@ func ensureTaskContainer(ctx context.Context, taskID int64, image, network strin
 		}
 		// 存在但坏了：删掉重建。
 		_, _ = dockerCmd(ctx, "rm", "-f", name)
+	}
+	if err := ensureAgentImage(ctx, image); err != nil {
+		return fmt.Errorf("任务镜像 %s 不可用: %v", image, err)
 	}
 	args := []string{"run", "-d", "--name", name}
 	if network == "host" {
