@@ -104,7 +104,8 @@ func (s *Server) c2ListenersAPI(w http.ResponseWriter, r *http.Request) {
 var c2PayloadFormats = map[string]string{
 	"amd64_exe": "exe", "x86_exe": "exe", "amd64_exe_g": "exe",
 	"amd64_dll": "dll", "linux_elf": "bin", "linux_elf_g": "bin",
-	"linux_arm64": "bin", "shellcode": "bin",
+	"linux_arm64": "bin", "darwin_amd64": "bin", "darwin_arm64": "bin",
+	"shellcode": "bin",
 }
 
 // POST /api/tools/c2/generate — CS/vshell 风格一键载荷：真实 beacon 二进制，
@@ -113,6 +114,7 @@ func (s *Server) c2GenerateAPI(w http.ResponseWriter, r *http.Request) {
 	var b struct {
 		ListenerID string `json:"listener_id"`
 		Format     string `json:"format"`
+		Server     string `json:"server"` // 可选：回连地址覆盖（跨网段部署时指定 LAN/公网地址）
 	}
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
@@ -124,10 +126,10 @@ func (s *Server) c2GenerateAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	ext, ok := c2PayloadFormats[b.Format]
 	if !ok {
-		writeErr(w, 400, "format 非法（支持 amd64_exe/x86_exe/amd64_exe_g/amd64_dll/linux_elf/linux_elf_g/linux_arm64/shellcode）")
+		writeErr(w, 400, "format 非法（支持 amd64_exe/x86_exe/amd64_exe_g/amd64_dll/linux_elf/linux_elf_g/linux_arm64/darwin_amd64/darwin_arm64/shellcode）")
 		return
 	}
-	raw, meta, err := c2Client().GeneratePayload(r.Context(), b.ListenerID, b.Format)
+	raw, meta, err := c2Client().GeneratePayload(r.Context(), b.ListenerID, b.Format, b.Server)
 	if err != nil {
 		writeErr(w, 502, "goc2 生成失败: "+err.Error())
 		return

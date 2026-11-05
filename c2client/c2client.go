@@ -234,11 +234,15 @@ func (c *Client) DeleteListener(ctx context.Context, id string) error {
 // GeneratePayload 生成可直接部署的 beacon 二进制（goc2 /api/v1/c2/generate）。
 // 连接参数（server/listener/encoder）在编译时内嵌——下载即用，无需命令行参数。
 // 返回：二进制 + 元数据（filename/format/language/server/size/encoder）。
-func (c *Client) GeneratePayload(ctx context.Context, listenerID, format string) ([]byte, map[string]any, error) {
-	resp, err := c.Request(ctx, http.MethodPost, "/generate", nil, map[string]any{
+func (c *Client) GeneratePayload(ctx context.Context, listenerID, format, server string) ([]byte, map[string]any, error) {
+	body := map[string]any{
 		"listener_id": listenerID,
 		"format":      format,
-	})
+	}
+	if strings.TrimSpace(server) != "" {
+		body["server"] = strings.TrimSpace(server) // 回连地址覆盖（默认请求 Host+listener端口）
+	}
+	resp, err := c.Request(ctx, http.MethodPost, "/generate", nil, body)
 	if err != nil {
 		return nil, nil, err
 	}

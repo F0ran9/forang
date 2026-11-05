@@ -924,6 +924,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tools/c2/tasks", s.c2TasksAPI)
 	mux.HandleFunc("GET /api/tools/c2/listeners", s.c2ListenersAPI)
 	mux.HandleFunc("POST /api/tools/c2/generate", s.c2GenerateAPI) // 载荷生成：真实 beacon 二进制（连接参数内嵌）
+	mux.HandleFunc("POST /api/tools/c2/loader-generate", s.c2LoaderGenerateAPI) // 免杀加载器：shellcode→模板渲染→交叉编译
 	mux.HandleFunc("PUT /api/tools/c2/clients/{id}/notes", s.c2NotesAPI) // CS 风格会话备注
 	mux.HandleFunc("POST /api/tools/c2/task", s.c2TaskAPI) // CS 通用任务（download/upload/sleep/…）
 	mux.HandleFunc("DELETE /api/tools/c2/clients/{id}", s.c2RemoveAPI) // CS Remove 下线
