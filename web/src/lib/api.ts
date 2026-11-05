@@ -1315,6 +1315,8 @@ export const api = {
     post<{ data: { ok: boolean; output: string; error: string; data_len: number; data_b64?: string } }>("/tools/webshell/ext", payload),
   wsGenerate: (payload: { script_type: string; encoder: string; password: string; filename?: string; gate_header?: string; gate_value?: string; evasive?: boolean; evasive_level?: number }) =>
     post<{ data: { path: string; filename: string; code: string; size: number; self_check?: { script_type: string; checked: number; leaked: { name: string }[]; passed: boolean } } }>("/tools/webshell/generate", payload),
+  wsGenerateAI: (payload: { script_type: string; password: string; features?: string; llm_profile?: number }) =>
+    post<{ data: { path: string; filename: string; code: string; size: number; generator: string; self_check?: { passed: boolean } } }>("/tools/webshell/generate-ai", payload),
   wsTargets: (q?: string) =>
     get<{ data: WSTarget[] }>(`/tools/webshell/targets${q ? "?" + new URLSearchParams({ q }).toString() : ""}`),
   wsTargetSave: (payload: Partial<WSTarget>) => post<{ ok: boolean; id: number }>("/tools/webshell/targets", payload),
@@ -1349,7 +1351,7 @@ export const api = {
     };
   },
   // c2LoaderGenerate 免杀加载器：donut shellcode → 技术模板（随机密钥）→ 交叉编译 exe。
-  c2LoaderGenerate: async (payload: { listener_id: string; technique: string }): Promise<{ blob: Blob; filename: string }> => {
+  c2LoaderGenerate: async (payload: { listener_id: string; technique: string; ai_poly?: boolean }): Promise<{ blob: Blob; filename: string }> => {
     const token = getToken();
     const r = await fetch("/api/tools/c2/loader-generate", {
       method: "POST",

