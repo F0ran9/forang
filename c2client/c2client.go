@@ -9,6 +9,7 @@ package c2client
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -228,6 +229,38 @@ func (c *Client) ListListeners(ctx context.Context) ([]any, error) {
 func (c *Client) DeleteListener(ctx context.Context, id string) error {
 	_, err := c.Request(ctx, http.MethodDelete, "/listeners/"+url.PathEscape(id), nil, nil)
 	return err
+}
+
+// GeneratePayload 生成可直接部署的 beacon 二进制（goc2 /api/v1/c2/generate）。
+// 连接参数（server/listener/encoder）在编译时内嵌——下载即用，无需命令行参数。
+// 返回：二进制 + 元数据（filename/format/language/server/size/encoder）。
+func (c *Client) GeneratePayload(ctx context.Context, listenerID, format string) ([]byte, map[string]any, error) {
+	resp, err := c.Request(ctx, http.MethodPost, "/generate", nil, map[string]any{
+		"listener_id": listenerID,
+		"format":      format,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	b64, _ := resp["binary_b64"].(string)
+	if b64 == "" {
+		detail, _ := resp["detail"].(string)
+		if detail == "" {
+			detail = fmt.Sprintf("%v", resp)
+		}
+		return nil, nil, fmt.Errorf("goc2 未返回二进制: %s", detail)
+	}
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return nil, nil, fmt.Errorf("binary_b64 解码失败: %w", err)
+	}
+	meta := map[string]any{}
+	for k, v := range resp {
+		if k != "binary_b64" {
+			meta[k] = v
+		}
+	}
+	return raw, meta, nil
 }
 
 // ListCredentials GET /credentials — 凭据库。

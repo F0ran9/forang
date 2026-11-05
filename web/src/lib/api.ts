@@ -1327,6 +1327,27 @@ export const api = {
   c2Tasks: (sessionId: string, taskId?: string) =>
     get<{ data: Record<string, unknown>[] }>(`/tools/c2/tasks?${new URLSearchParams({ session_id: sessionId, ...(taskId ? { task_id: taskId } : {}) }).toString()}`),
   c2Listeners: () => get<{ data: Record<string, unknown>[] }>("/tools/c2/listeners"),
+  // c2Generate 一键生成 beacon 载荷（真实二进制，连接参数编译时内嵌）。
+  // 返回 Blob 供前端下载；meta.server（内嵌回连地址）经响应头带回。
+  c2Generate: async (payload: { listener_id: string; format: string }): Promise<{ blob: Blob; filename: string; server: string }> => {
+    const token = getToken();
+    const r = await fetch("/api/tools/c2/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => "");
+      throw new Error(t || `generate ${r.status}`);
+    }
+    const cd = r.headers.get("Content-Disposition") || "";
+    const m = /filename="([^"]+)"/.exec(cd);
+    return {
+      blob: await r.blob(),
+      filename: m?.[1] || "agent.bin",
+      server: r.headers.get("X-Agent-Server") || "",
+    };
+  },
   c2Plugins: () => get<{ data: { id: number; name: string; description: string; commands: string[]; builtin: boolean }[] }>("/tools/c2/plugins"),
   c2PluginCreate: (payload: { name: string; description?: string; commands: string[] }) =>
     post<{ ok: boolean; id: number }>("/tools/c2/plugins", payload),

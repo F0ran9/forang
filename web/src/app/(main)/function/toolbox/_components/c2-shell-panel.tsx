@@ -122,107 +122,130 @@ export function C2ShellPanel({ beaconId }: { beaconId: string }) {
 }
 
 // ---------- Agent 生成器 ----------
+// CS/vshell 风格一键载荷：选监听器 + 平台格式 → 真实 beacon 二进制（连接参数
+// 编译时内嵌），下载即部署。旧版只本地拼配置 JSON 让用户自己找工具链编译。
+type ListenerLite = { id: string; name: string; host: string; port: number; protocol: string };
+
+const AGENT_FORMATS: { value: string; label: string }[] = [
+  { value: "amd64_exe", label: "Windows x64 EXE" },
+  { value: "x86_exe", label: "Windows x86 EXE" },
+  { value: "amd64_dll", label: "Windows x64 DLL" },
+  { value: "amd64_exe_g", label: "Windows x64 EXE（调试版）" },
+  { value: "linux_elf", label: "Linux x64 ELF" },
+  { value: "linux_elf_g", label: "Linux x64 ELF（调试版）" },
+  { value: "linux_arm64", label: "Linux ARM64 ELF" },
+  { value: "shellcode", label: "Shellcode（donut）" },
+];
+
 export function C2AgentBuilder() {
-  const [config, setConfig] = React.useState({
-    os: "linux",
-    arch: "amd64",
-    interval: 5,
-    jitter: 20,
-    persist: "none", // none / cron / systemd
-    disguise: "none", // none / polkitd / systemd-udevd
-  });
-  const [buildResult, setBuildResult] = React.useState<{ downloadUrl?: string; size?: number; sha256?: string } | null>(null);
+  const [listeners, setListeners] = React.useState<ListenerLite[]>([]);
+  const [listenerId, setListenerId] = React.useState("");
+  const [format, setFormat] = React.useState("amd64_exe");
+  const [interval_, setInterval_] = React.useState(5);
+  const [jitter, setJitter] = React.useState(20);
+  const [result, setResult] = React.useState<{ url: string; filename: string; size: number; sha256: string; server: string } | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState("");
+
+  const loadListeners = React.useCallback(async () => {
+    try {
+      const r = await api.c2Listeners();
+      const list = ((r as unknown as { data: ListenerLite[] }).data ?? []).map((l: ListenerLite) => ({
+        id: l.id, name: l.name, host: l.host, port: l.port, protocol: l.protocol ?? "",
+      }));
+      setListeners(list);
+      if (list.length > 0 && !listenerId) setListenerId(list[0].id);
+    } catch (e) {
+      setErr("监听器加载失败: " + (e instanceof Error ? e.message : String(e)));
+    }
+  }, [listenerId]);
+
+  React.useEffect(() => { void loadListeners(); }, [loadListeners]);
 
   const build = async () => {
-    setBusy(true);
+    if (!listenerId) { setErr("请先选择监听器"); return; }
+    setBusy(true); setErr(""); setResult(null);
     try {
-      // 生成 beacon 配置 JSON（goc2 实际生成由 goc2-server 承担）
-      const cfg = {
-        ...config,
-        server: window.location.origin,
-        generated: new Date().toISOString(),
-      };
-      // 模拟：生成配置 JSON（真实场景调 goc2 生成 API）
-      const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: "application/json" });
+      const { blob, filename, server } = await api.c2Generate({ listener_id: listenerId, format });
+      const buf = await blob.arrayBuffer();
+      // WebCrypto 仅安全上下文（HTTPS/localhost）可用——HTTP 部署下降级跳过哈希
+      let sha256 = "";
+      if (typeof crypto !== "undefined" && crypto.subtle) {
+        const digest = await crypto.subtle.digest("SHA-256", buf);
+        sha256 = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+      }
       const url = URL.createObjectURL(blob);
-      setBuildResult({ downloadUrl: url, size: blob.size });
+      setResult({ url, filename, size: blob.size, sha256, server });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
     } finally { setBusy(false); }
   };
+
+  const sel = listeners.find((l) => l.id === listenerId);
 
   return (
     <div className="mx-auto max-w-2xl space-y-3 text-sm">
       <div className="flex items-center gap-2">
         <PackageIcon className="size-5 text-blue-500" />
         <span className="text-base font-semibold">Agent 生成器</span>
+        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">连接参数编译内嵌 · 下载即部署</span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">操作系统</label>
-          <select className="w-full rounded border bg-transparent p-2 text-sm" value={config.os} onChange={(e) => setConfig({ ...config, os: e.target.value })}>
-            <option value="linux">Linux</option>
-            <option value="windows">Windows</option>
-            <option value="darwin">macOS</option>
+      {err && <div className="rounded border border-red-500/40 bg-red-500/10 p-2 text-xs text-red-600">{err}</div>}
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-2">
+          <label className="mb-1 block text-xs text-muted-foreground">监听器（回连目标）</label>
+          <select className="w-full rounded border bg-transparent p-2 text-sm" value={listenerId} onChange={(e) => setListenerId(e.target.value)}>
+            {listeners.length === 0 && <option value="">（无可用监听器）</option>}
+            {listeners.map((l) => (
+              <option key={l.id} value={l.id}>{l.name} · {l.host}:{l.port} ({l.protocol})</option>
+            ))}
+          </select>
+        </div>
+        <div className="col-span-2">
+          <label className="mb-1 block text-xs text-muted-foreground">载荷格式</label>
+          <select className="w-full rounded border bg-transparent p-2 text-sm" value={format} onChange={(e) => setFormat(e.target.value)}>
+            {AGENT_FORMATS.map((f) => (<option key={f.value} value={f.value}>{f.label}</option>))}
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs text-muted-foreground">架构</label>
-          <select className="w-full rounded border bg-transparent p-2 text-sm" value={config.arch} onChange={(e) => setConfig({ ...config, arch: e.target.value })}>
-            <option value="amd64">x86_64</option>
-            <option value="arm64">aarch64</option>
-            <option value="386">x86</option>
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">回连间隔（秒）</label>
-          <input type="number" className="w-full rounded border bg-transparent p-2 text-sm" value={config.interval}
-                 onChange={(e) => setConfig({ ...config, interval: Number(e.target.value) || 5 })} />
+          <label className="mb-1 block text-xs text-muted-foreground">回连间隔（秒，部署后 sleep 指令可调）</label>
+          <input type="number" className="w-full rounded border bg-transparent p-2 text-sm" value={interval_}
+                 onChange={(e) => setInterval_(Number(e.target.value) || 5)} />
         </div>
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">抖动（%）</label>
-          <input type="number" className="w-full rounded border bg-transparent p-2 text-sm" value={config.jitter}
-                 onChange={(e) => setConfig({ ...config, jitter: Number(e.target.value) || 20 })} />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">持久化</label>
-          <select className="w-full rounded border bg-transparent p-2 text-sm" value={config.persist} onChange={(e) => setConfig({ ...config, persist: e.target.value })}>
-            <option value="none">无</option>
-            <option value="cron">Cron</option>
-            <option value="systemd">Systemd 用户服务</option>
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">进程伪装</label>
-          <select className="w-full rounded border bg-transparent p-2 text-sm" value={config.disguise} onChange={(e) => setConfig({ ...config, disguise: e.target.value })}>
-            <option value="none">无</option>
-            <option value="polkitd">polkitd</option>
-            <option value="systemd-udevd">systemd-udevd</option>
-            <option value="accounts-daemon">accounts-daemon</option>
-          </select>
+          <input type="number" className="w-full rounded border bg-transparent p-2 text-sm" value={jitter}
+                 onChange={(e) => setJitter(Number(e.target.value) || 20)} />
         </div>
       </div>
 
       <button
         className="flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-500 disabled:opacity-40"
         onClick={build}
-        disabled={busy}
+        disabled={busy || listeners.length === 0}
       >
-        <CogIcon className="size-4" /> {busy ? "生成中…" : "生成 Agent 配置"}
+        <CogIcon className="size-4" /> {busy ? "生成中…" : "生成 Agent 载荷"}
       </button>
 
-      {buildResult && (
-        <div className="rounded border border-green-500/40 bg-green-500/10 p-3">
+      {result && (
+        <div className="space-y-1 rounded border border-green-500/40 bg-green-500/10 p-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-green-600">✓ 配置生成完成（{buildResult.size} 字节）</span>
-            <a href={buildResult.downloadUrl} download="agent-config.json"
+            <span className="text-sm font-medium text-green-600">✓ {result.filename} 生成完成（{result.size} 字节）</span>
+            <a href={result.url} download={result.filename}
                className="flex items-center gap-1 rounded border border-green-600 px-3 py-1 text-xs text-green-600 hover:bg-green-500/20">
               <DownloadIcon className="size-3" /> 下载
             </a>
           </div>
-          <div className="mt-1 text-[10px] text-muted-foreground">
-            配置文件含服务器地址/回连参数/持久化选项——用 goc2 工具链编译为二进制后部署
-          </div>
+          {result.sha256 && (
+            <div className="break-all font-mono text-[10px] text-muted-foreground">sha256: {result.sha256}</div>
+          )}
+          {result.server && (
+            <div className="text-[10px] text-muted-foreground">
+              内嵌回连地址：{result.server} · 在授权目标上执行即回连 {sel ? `监听器 ${sel.name}` : "所选监听器"}；回连间隔/抖动部署后可用 sleep 任务调整
+            </div>
+          )}
         </div>
       )}
     </div>

