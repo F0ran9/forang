@@ -211,7 +211,7 @@ export function C2AgentBuilder() {
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2">
           <label className="mb-1 block text-xs text-muted-foreground">监听器（回连目标）</label>
-          <select className="w-full rounded border bg-transparent p-2 text-sm" value={listenerId} onChange={(e) => setListenerId(e.target.value)}>
+          <select className="w-full rounded border bg-zinc-900 p-2 text-sm text-zinc-100 [color-scheme:dark]" value={listenerId} onChange={(e) => setListenerId(e.target.value)}>
             {listeners.length === 0 && <option value="">（无可用监听器）</option>}
             {listeners.map((l) => (
               <option key={l.id} value={l.id}>{l.name} · {l.host}:{l.port} ({l.protocol})</option>
@@ -220,7 +220,7 @@ export function C2AgentBuilder() {
         </div>
         <div className="col-span-2">
           <label className="mb-1 block text-xs text-muted-foreground">载荷格式</label>
-          <select className="w-full rounded border bg-transparent p-2 text-sm" value={format} onChange={(e) => setFormat(e.target.value)}>
+          <select className="w-full rounded border bg-zinc-900 p-2 text-sm text-zinc-100 [color-scheme:dark]" value={format} onChange={(e) => setFormat(e.target.value)}>
             {AGENT_FORMATS.map((f) => (<option key={f.value} value={f.value}>{f.label}</option>))}
           </select>
         </div>
@@ -245,16 +245,16 @@ export function C2AgentBuilder() {
       </button>
 
       <div className="rounded border border-amber-500/40 bg-amber-500/5 p-3 space-y-2">
-        <div className="flex items-center gap-2 text-xs font-semibold text-amber-600">
+        <div className="flex items-center gap-2 text-xs font-semibold text-amber-400">
           <ShieldIcon className="size-4" /> 免杀加载器（shellcode → 随机密钥模板 → 重编译）
         </div>
-        <select className="w-full rounded border bg-transparent p-2 text-sm" value={technique} onChange={(e) => setTechnique(e.target.value)}>
+        <select className="w-full rounded border bg-zinc-900 p-2 text-sm text-zinc-100 [color-scheme:dark]" value={technique} onChange={(e) => setTechnique(e.target.value)}>
           <option value="t0_drop">T0 稳定：内嵌加密 beacon → 随机名落盘执行（回连最可靠）</option>
           <option value="t1_classic">T1 经典：HellsGate + DoubleXOR + IPv4 + ETW/AMSI 补丁 + NTDLL 脱钩</option>
           <option value="t3_sleep">T3 强免杀：+ VEH 保护 + 睡眠混淆 + 深度沙箱检测 + 行为延迟</option>
         </select>
         <button
-          className="flex items-center gap-2 rounded bg-amber-600 px-4 py-2 text-white hover:bg-amber-500 disabled:opacity-40"
+          className="flex items-center gap-2 rounded bg-amber-500 px-4 py-2 font-medium text-zinc-950 hover:bg-amber-400 disabled:opacity-40"
           onClick={loaderBuild}
           disabled={busy || listeners.length === 0}
         >
