@@ -190,7 +190,10 @@ func (s *Server) sseTicketIssue(w http.ResponseWriter, r *http.Request) {
 func (s *Server) requireAuth(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		if strings.HasPrefix(p, "/api/auth/") || p == "/api/health" {
+		// 载荷直链下载免鉴权：文件名本身是一次性秘密（生成才知道）+ 10min TTL，
+		// window.location.href 无法携带 Authorization 头（浏览器导航请求）
+		if strings.HasPrefix(p, "/api/auth/") || p == "/api/health" ||
+			strings.HasPrefix(p, "/api/tools/c2/download/") {
 			h.ServeHTTP(w, r)
 			return
 		}

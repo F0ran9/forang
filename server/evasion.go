@@ -178,6 +178,9 @@ func (s *Server) c2LoaderGenerateAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := fmt.Sprintf("loader_%s_%d.exe", b.Technique, time.Now().Unix())
+	// 落盘供直链下载 + 直链 URL 头
+	_ = s.saveC2Payload(name, exe)
+	w.Header().Set("X-Download-Url", "/api/tools/c2/download/"+name)
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
 	if b.AIPoly {

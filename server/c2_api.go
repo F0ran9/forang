@@ -9,6 +9,9 @@ package server
 // 与 agent 工具 c2_beacons/c2_exec 同一内核。
 
 import (
+	"time"
+	"path/filepath"
+	"os"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -108,6 +111,46 @@ var c2PayloadFormats = map[string]string{
 	"shellcode": "bin",
 }
 
+// c2DownloadGet GET /api/tools/c2/download/{name} — 载荷直链下载。
+// 企业管理浏览器忽略 blob URL 的 download 属性（文件名变 UUID）——直链由服务端
+// 发 Content-Disposition，浏览器原生处理文件名，万无一失。文件来自生成时落盘
+// 的 evidence/c2-payload/（生成端点写），10 分钟后自动过期（TTL 清理）。
+func (s *Server) c2DownloadGet(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.PathValue("name"), "/")
+	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") {
+		writeErr(w, 400, "bad name")
+		return
+	}
+	p := filepath.Join(s.m.dir, "evidence", "c2-payload", name)
+	st, err := os.Stat(p)
+	if err != nil {
+		writeErr(w, 404, "文件不存在或已过期（10 分钟 TTL），请重新生成")
+		return
+	}
+	// TTL：10 分钟
+	if time.Since(st.ModTime()) > 10*time.Minute {
+		_ = os.Remove(p)
+		writeErr(w, 410, "文件已过期（10 分钟 TTL），请重新生成")
+		return
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
+	_, _ = w.Write(data)
+}
+
+// saveC2Payload 生成产物落盘（供直链下载）。
+func (s *Server) saveC2Payload(name string, data []byte) string {
+	dir := filepath.Join(s.m.dir, "evidence", "c2-payload")
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, name), data, 0o600)
+	return name
+}
+
 // POST /api/tools/c2/generate — CS/vshell 风格一键载荷：真实 beacon 二进制，
 // 连接参数编译时内嵌，下载即部署（不再只出配置 JSON 让用户自己编译）。
 func (s *Server) c2GenerateAPI(w http.ResponseWriter, r *http.Request) {
@@ -145,6 +188,9 @@ func (s *Server) c2GenerateAPI(w http.ResponseWriter, r *http.Request) {
 	if srv, _ := meta["server"].(string); srv != "" {
 		w.Header().Set("X-Agent-Server", srv) // 前端展示内嵌回连地址
 	}
+	// 落盘供直链下载（企业管理浏览器 blob download 属性失效的兜底）
+	_ = s.saveC2Payload(name, raw)
+	w.Header().Set("X-Download-Url", "/api/tools/c2/download/"+name) // 前端直链
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
 	_, _ = w.Write(raw)

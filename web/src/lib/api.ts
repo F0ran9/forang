@@ -1331,7 +1331,7 @@ export const api = {
   c2Listeners: () => get<{ data: Record<string, unknown>[] }>("/tools/c2/listeners"),
   // c2Generate 一键生成 beacon 载荷（真实二进制，连接参数编译时内嵌）。
   // 返回 Blob 供前端下载；meta.server（内嵌回连地址）经响应头带回。
-  c2Generate: async (payload: { listener_id: string; format: string }): Promise<{ blob: Blob; filename: string; server: string }> => {
+  c2Generate: async (payload: { listener_id: string; format: string }): Promise<{ blob: Blob; filename: string; server: string; downloadUrl: string }> => {
     const token = getToken();
     const r = await fetch("/api/tools/c2/generate", {
       method: "POST",
@@ -1344,14 +1344,17 @@ export const api = {
     }
     const cd = r.headers.get("Content-Disposition") || "";
     const m = /filename="([^"]+)"/.exec(cd);
+    const data = await r.arrayBuffer();
+    const blob = new Blob([data], { type: "application/octet-stream" });
     return {
-      blob: await r.blob(),
+      blob,
       filename: m?.[1] || "agent.bin",
       server: r.headers.get("X-Agent-Server") || "",
+      downloadUrl: r.headers.get("X-Download-Url") || "", // 服务端直链（企业管理浏览器 blob download 失效的兜底）
     };
   },
   // c2LoaderGenerate 免杀加载器：donut shellcode → 技术模板（随机密钥）→ 交叉编译 exe。
-  c2LoaderGenerate: async (payload: { listener_id: string; technique: string; ai_poly?: boolean }): Promise<{ blob: Blob; filename: string }> => {
+  c2LoaderGenerate: async (payload: { listener_id: string; technique: string; ai_poly?: boolean }): Promise<{ blob: Blob; filename: string; downloadUrl: string }> => {
     const token = getToken();
     const r = await fetch("/api/tools/c2/loader-generate", {
       method: "POST",
@@ -1364,7 +1367,9 @@ export const api = {
     }
     const cd = r.headers.get("Content-Disposition") || "";
     const m = /filename="([^"]+)"/.exec(cd);
-    return { blob: await r.blob(), filename: m?.[1] || "loader.exe" };
+    const data = await r.arrayBuffer();
+    const blob = new Blob([data], { type: "application/octet-stream" });
+    return { blob, filename: m?.[1] || "loader.exe", downloadUrl: r.headers.get("X-Download-Url") || "" };
   },
   c2Plugins: () => get<{ data: { id: number; name: string; description: string; commands: string[]; builtin: boolean }[] }>("/tools/c2/plugins"),
   c2PluginCreate: (payload: { name: string; description?: string; commands: string[] }) =>

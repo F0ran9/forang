@@ -147,7 +147,7 @@ export function C2AgentBuilder() {
   const [aiPoly, setAiPoly] = React.useState(false);
   const [interval_, setInterval_] = React.useState(5);
   const [jitter, setJitter] = React.useState(20);
-  const [result, setResult] = React.useState<{ url: string; filename: string; size: number; sha256: string; server: string } | null>(null);
+  const [result, setResult] = React.useState<{ url: string; filename: string; size: number; sha256: string; server: string; downloadUrl?: string } | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState("");
 
@@ -170,7 +170,7 @@ export function C2AgentBuilder() {
     if (!listenerId) { setErr("请先选择监听器"); return; }
     setBusy(true); setErr(""); setResult(null);
     try {
-      const { blob, filename, server } = await api.c2Generate({ listener_id: listenerId, format });
+      const { blob, filename, server, downloadUrl } = await api.c2Generate({ listener_id: listenerId, format });
       const buf = await blob.arrayBuffer();
       // WebCrypto 仅安全上下文（HTTPS/localhost）可用——HTTP 部署下降级跳过哈希
       let sha256 = "";
@@ -179,7 +179,7 @@ export function C2AgentBuilder() {
         sha256 = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
       }
       const url = URL.createObjectURL(blob);
-      setResult({ url, filename, size: blob.size, sha256, server });
+      setResult({ url, filename, size: blob.size, sha256, server, downloadUrl });
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally { setBusy(false); }
@@ -189,19 +189,33 @@ export function C2AgentBuilder() {
     if (!listenerId) { setErr("请先选择监听器"); return; }
     setBusy(true); setErr(""); setResult(null);
     try {
-      const { blob, filename } = await api.c2LoaderGenerate({ listener_id: listenerId, technique, ai_poly: aiPoly && technique !== "t0_drop" });
+      const { blob, filename, downloadUrl } = await api.c2LoaderGenerate({ listener_id: listenerId, technique, ai_poly: aiPoly && technique !== "t0_drop" });
       const url = URL.createObjectURL(blob);
-      setResult({ url, filename, size: blob.size, sha256: "", server: "" });
+      setResult({ url, filename, size: blob.size, sha256: "", server: "", downloadUrl });
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally { setBusy(false); }
   };
 
   // 程序化下载（<a download> 对 blob URL 在部分浏览器/策略下不生效——文件名变 UUID）
-  const forceDownload = (url: string, filename: string) => {
+  const forceDownload = (url: string, filename: string, directUrl?: string) => {
+    // 直链优先：服务端 Content-Disposition 原生文件名（企业管理浏览器 blob 属性失效的终极兜底）
+    if (directUrl) {
+      // 隐藏 iframe 下载：不导航走当前页（window.location.href 会离开平台页面）
+      const iframe = document.createElement("iframe");
+      iframe.style.display = "none";
+      iframe.src = directUrl;
+      document.body.appendChild(iframe);
+      setTimeout(() => { document.body.removeChild(iframe); }, 30000);
+      return;
+    }
+    // 企业管理浏览器（"由所属组织管理"）对 blob URL 的 download 属性可能忽略——
+    // octet-stream MIME + title + download 三重确保文件名
     const a = document.createElement("a");
     a.href = url;
     a.download = filename;
+    a.title = filename;
+    a.type = "application/octet-stream";
     a.style.display = "none";
     document.body.appendChild(a);
     a.click();
@@ -283,7 +297,7 @@ export function C2AgentBuilder() {
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-green-600">✓ {result.filename} 生成完成（{result.size} 字节）</span>
             <button
-              onClick={() => forceDownload(result.url, result.filename)}
+              onClick={() => forceDownload(result.url, result.filename, result.downloadUrl)}
               className="flex items-center gap-1 rounded border border-green-600 px-3 py-1 text-xs text-green-600 hover:bg-green-500/20">
               <DownloadIcon className="size-3" /> 下载
             </button>
