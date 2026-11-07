@@ -59,7 +59,7 @@ func (s *Server) llmGenerate(ctx context.Context, profileID int64, system, user 
 		}
 		done <- genResult{strings.TrimSpace(stripCodeFence(sb.String())), nil}
 	}()
-	wall := 8 * time.Minute // AI webshell ~1min；免杀骨架变形 ~1min；8min 是宽限
+	wall := 4 * time.Minute // AI webshell ~1min；免杀骨架变形 ~1min；8min 是宽限
 	select {
 	case r := <-done:
 		return r.text, r.err

@@ -113,7 +113,7 @@ func (c *Client) Request(ctx context.Context, method, path string, params url.Va
 		return nil, fmt.Errorf("goc2 不可达（%s）: %w", c.cfg.BaseURL, err)
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20)) // DLL+trailer 的 JSON 可达 ~25MB（b64 膨胀），16MB 会截断致解析失败
 	if err != nil {
 		return nil, err
 	}

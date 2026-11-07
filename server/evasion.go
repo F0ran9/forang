@@ -112,7 +112,7 @@ func (s *Server) c2LoaderGenerateAPI(w http.ResponseWriter, r *http.Request) {
 			skeleton := src[:m[0]] + src[m[1]:]
 			log.Printf("[evasion] AI 骨架 %d bytes（数据块已抽走）", len(skeleton))
 			for attempt := 1; attempt <= 2 && !aiApplied; attempt++ {
-				mutated, err := s.llmGenerate(r.Context(), b.LLMProfile, aiSys, skeleton, 16000)
+				mutated, err := s.llmGenerate(r.Context(), b.LLMProfile, aiSys, skeleton, 8000)
 				if err != nil {
 					log.Printf("[evasion] AI 变形第 %d 次生成失败: %v", attempt, err)
 					break
