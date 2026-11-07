@@ -163,6 +163,14 @@ func (s *Server) c2GenerateAPI(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad json: "+err.Error())
 		return
 	}
+	// server 缺省时取请求 Host（用户访问平台的 IP——物理机可达）。
+	// goc2 默认用请求来源 IP（FORANG 服务器的 Docker 网桥 172.25.0.1）做 trailer，
+	// 物理机不可达——必须显式传。
+	if strings.TrimSpace(b.Server) == "" {
+		if h := strings.SplitN(r.Host, ":", 2)[0]; h != "" && h != "0.0.0.0" {
+			b.Server = h
+		}
+	}
 	if strings.TrimSpace(b.ListenerID) == "" {
 		writeErr(w, 400, "listener_id 必填")
 		return
