@@ -555,21 +555,28 @@ function ProcessPanel({ beacon }: { beacon: BeaconRow }) {
   const [raw, setRaw] = React.useState("");
   const [rows, setRows] = React.useState<{ pid: string; cmd: string }[]>([]);
   const { busy, exec } = useTask(beacon.id);
-
+    const isWin = (beacon.osType || "").toLowerCase().includes("win");
   const list = async () => {
-    const r = await exec("ps aux | head -80");
+    const r = await exec(isWin ? "tasklist" : "ps aux | head -80");
     setRaw(r.output || r.error || "");
     const es: { pid: string; cmd: string }[] = [];
-    for (const line of (r.output || "").split("\n").slice(1)) {
-      const m = line.trim().match(/^\S+\s+(\d+)\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+(.+)$/);
-      if (m) es.push({ pid: m[1], cmd: m[2].slice(0, 90) });
+    if (isWin) {
+      for (const line of (r.output || "").split("\n")) {
+        const m = line.trim().match(/^(\S+)\s+(\d+)\s+\S+\s+\d+\s+\S+$/);
+        if (m) es.push({ pid: m[2], cmd: m[1].slice(0, 90) });
+      }
+    } else {
+      for (const line of (r.output || "").split("\n").slice(1)) {
+        const m = line.trim().match(/^\S+\s+(\d+)\s+\S+.*?\s+\S+\s+(.+)$/);
+        if (m) es.push({ pid: m[1], cmd: m[2].slice(0, 90) });
+      }
     }
     setRows(es);
   };
 
   const kill = async (pid: string) => {
     if (!window.confirm(`kill -9 ${pid}？`)) return;
-    await exec(`kill -9 ${pid}`);
+    await exec(isWin ? `taskkill /F /PID ${pid}` : `kill -9 ${pid}`);
     setTimeout(list, 1500);
   };
 
