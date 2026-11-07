@@ -197,6 +197,17 @@ export function C2AgentBuilder() {
     } finally { setBusy(false); }
   };
 
+  // 程序化下载（<a download> 对 blob URL 在部分浏览器/策略下不生效——文件名变 UUID）
+  const forceDownload = (url: string, filename: string) => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); }, 100);
+  };
+
   const sel = listeners.find((l) => l.id === listenerId);
 
   return (
@@ -271,10 +282,11 @@ export function C2AgentBuilder() {
         <div className="space-y-1 rounded border border-green-500/40 bg-green-500/10 p-3">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-green-600">✓ {result.filename} 生成完成（{result.size} 字节）</span>
-            <a href={result.url} download={result.filename}
-               className="flex items-center gap-1 rounded border border-green-600 px-3 py-1 text-xs text-green-600 hover:bg-green-500/20">
+            <button
+              onClick={() => forceDownload(result.url, result.filename)}
+              className="flex items-center gap-1 rounded border border-green-600 px-3 py-1 text-xs text-green-600 hover:bg-green-500/20">
               <DownloadIcon className="size-3" /> 下载
-            </a>
+            </button>
           </div>
           {result.sha256 && (
             <div className="break-all font-mono text-[10px] text-muted-foreground">sha256: {result.sha256}</div>
