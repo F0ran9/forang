@@ -180,17 +180,17 @@ export default function C2Console() {
         <span className={`rounded px-1.5 text-[10px] ${status?.reachable ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}>
           {status?.reachable ? "teamserver 在线" : "不可达"}
         </span>
-        <span className="font-mono text-[11px] text-zinc-400">{status?.url} · token {status?.token_masked}</span>
+        <span className="font-mono text-[13px] text-zinc-400">{status?.url} · token {status?.token_masked}</span>
         <span className="rounded bg-zinc-700 px-1.5 text-[10px]">Beacons {beacons.length}</span>
         <span className="rounded bg-zinc-700 px-1.5 text-[10px]">Listeners {listeners.length}</span>
         <div className="ml-auto flex gap-1">
-          <button className="flex items-center gap-1 rounded border border-zinc-600 px-2 py-1 text-[11px] hover:bg-zinc-700" onClick={() => setCfgOpen(!cfgOpen)}>
+          <button className="flex items-center gap-1 rounded border border-zinc-600 px-2 py-1 text-[13px] hover:bg-zinc-700" onClick={() => setCfgOpen(!cfgOpen)}>
             <SettingsIcon className="size-3.5" /> 偏好设置
           </button>
-          <button className="flex items-center gap-1 rounded border border-zinc-600 px-2 py-1 text-[11px] hover:bg-zinc-700" onClick={() => setBuilderOpen(!builderOpen)}>
+          <button className="flex items-center gap-1 rounded border border-zinc-600 px-2 py-1 text-[13px] hover:bg-zinc-700" onClick={() => setBuilderOpen(!builderOpen)}>
             <PackageIcon className="size-3.5" /> 生成器
           </button>
-          <button className="flex items-center gap-1 rounded border border-zinc-600 px-2 py-1 text-[11px] hover:bg-zinc-700" onClick={() => setReload((n) => n + 1)}>
+          <button className="flex items-center gap-1 rounded border border-zinc-600 px-2 py-1 text-[13px] hover:bg-zinc-700" onClick={() => setReload((n) => n + 1)}>
             <RefreshCw className="size-3.5" /> 刷新
           </button>
         </div>
@@ -204,8 +204,8 @@ export default function C2Console() {
       )}
       {cfgOpen && (
         <div className="flex flex-wrap items-center gap-2 border-b border-zinc-700 bg-zinc-800/70 px-3 py-2 text-xs">
-          <Input className="h-7 w-64 border-zinc-600 bg-zinc-800 font-mono text-[11px] text-zinc-200" placeholder="goc2 admin URL" value={cfgUrl} onChange={(e) => setCfgUrl(e.target.value)} />
-          <Input className="h-7 w-56 border-zinc-600 bg-zinc-800 font-mono text-[11px] text-zinc-200" placeholder="admin token（留空不改）" value={cfgToken} onChange={(e) => setCfgToken(e.target.value)} />
+          <Input className="h-7 w-64 border-zinc-600 bg-zinc-800 font-mono text-[13px] text-zinc-200" placeholder="goc2 admin URL" value={cfgUrl} onChange={(e) => setCfgUrl(e.target.value)} />
+          <Input className="h-7 w-56 border-zinc-600 bg-zinc-800 font-mono text-[13px] text-zinc-200" placeholder="admin token（留空不改）" value={cfgToken} onChange={(e) => setCfgToken(e.target.value)} />
           <Button size="sm" variant="secondary" onClick={saveCfg}>Connect</Button>
           <span className="text-zinc-500">token 只存服务端</span>
         </div>
@@ -213,7 +213,7 @@ export default function C2Console() {
 
       {/* 会话表 */}
       <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full text-[11px]">
+        <table className="w-full text-[13px]">
           <thead className="sticky top-0 bg-zinc-800 text-zinc-400">
             <tr className="text-left">
               <th className="px-2 py-1.5">*</th>
@@ -239,8 +239,8 @@ export default function C2Console() {
                 <td className="truncate text-amber-300" title={b.notes}>{b.notes || ""}</td>
                 <td>
                   <span className="flex gap-1.5">
-                    <button title="备注" onClick={(e) => { e.stopPropagation(); editNote(b); }}><PencilIcon className="size-3 text-zinc-500 hover:text-zinc-200" /></button>
-                    <button title="下线会话" onClick={(e) => { e.stopPropagation(); removeBeacon(b); }}><TrashIcon className="size-3 text-zinc-500 hover:text-red-400" /></button>
+                    <button title="备注" onClick={(e) => { e.stopPropagation(); editNote(b); }}><PencilIcon className="size-4 text-zinc-500 hover:text-zinc-200" /></button>
+                    <button title="下线会话" onClick={(e) => { e.stopPropagation(); removeBeacon(b); }}><TrashIcon className="size-4 text-zinc-500 hover:text-red-400" /></button>
                   </span>
                 </td>
               </tr>
@@ -281,7 +281,7 @@ function SessionPanel({ beacon, panel, setPanel, onClose, onRefresh }: {
   ];
   return (
     <div className="flex h-72 flex-col border-t border-zinc-700 bg-black">
-      <div className="flex items-center gap-1 bg-zinc-800/80 px-3 py-1 text-[11px]">
+      <div className="flex items-center gap-1 bg-zinc-800/80 px-3 py-1 text-[13px]">
         <span className="font-semibold text-red-400">{beacon.hostname}</span>
         <span className="text-zinc-500">{beacon.id.slice(0, 16)}…</span>
         <span className="mx-2 h-3 w-px bg-zinc-600" />
@@ -313,7 +313,8 @@ function SessionPanel({ beacon, panel, setPanel, onClose, onRefresh }: {
 // ---------- Interact（Beacon Console） ----------
 
 function InteractPanel({ beacon, onRefresh }: { beacon: BeaconRow; onRefresh: () => void }) {
-  const [out, setOut] = React.useState("");
+  // 命令历史持久化：切 Tab 不丢（sessionStorage per beacon）
+  const [out, setOut] = React.useState(() => sessionStorage.getItem(`c2_out_${beacon.id}`) ?? "");
   const [cmd, setCmd] = React.useState("");
   const { busy, exec, run } = useTask(beacon.id);
   const hist = React.useRef<string[]>([]);
@@ -321,8 +322,11 @@ function InteractPanel({ beacon, onRefresh }: { beacon: BeaconRow; onRefresh: ()
   const outRef = React.useRef<HTMLPreElement>(null);
 
   React.useEffect(() => {
-    setOut(`[*] 会话 ${beacon.hostname}（${beacon.internalIp}）· ${beacon.osType}/${beacon.arch}\n[*] 内置：sleep N 调心跳 | getuid | ps | clear | help；shell/sh 前缀剥离。\n`);
+    if (!out.trim()) {
+      setOut(`[*] 会话 ${beacon.hostname}（${beacon.internalIp}）· ${beacon.osType}/${beacon.arch}\n[*] 内置：sleep N 调心跳 | getuid | ps | clear | help；shell/sh 前缀剥离。\n`);
+    }
   }, [beacon.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { sessionStorage.setItem(`c2_out_${beacon.id}`, out); }, [out, beacon.id]);
   React.useEffect(() => { if (outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight; }, [out]);
 
   const append = (s: string) => setOut((o) => o + s + "\n");
@@ -371,11 +375,11 @@ function InteractPanel({ beacon, onRefresh }: { beacon: BeaconRow; onRefresh: ()
 
   return (
     <div className="flex h-full flex-col">
-      <pre ref={outRef} className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap px-3 py-1.5 font-mono text-[11px] leading-relaxed text-zinc-300">{out}</pre>
+      <pre ref={outRef} className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap px-3 py-1.5 font-mono text-[13px] leading-relaxed text-zinc-300">{out}</pre>
       <div className="flex items-center gap-1 border-t border-zinc-800 px-3 py-1.5">
-        <span className="shrink-0 font-mono text-[11px] text-red-400">beacon&gt;</span>
+        <span className="shrink-0 font-mono text-[13px] text-red-400">beacon&gt;</span>
         <input
-          className="flex-1 bg-transparent font-mono text-[11px] text-zinc-200 outline-none placeholder:text-zinc-600"
+          className="flex-1 bg-transparent font-mono text-[13px] text-zinc-200 outline-none placeholder:text-zinc-600"
           placeholder={busy ? "…" : "shell whoami / sleep 5（Enter，↑↓ 历史）"}
           value={cmd}
           disabled={busy}
@@ -509,16 +513,16 @@ function FilesPanel({ beacon }: { beacon: BeaconRow }) {
   };
 
   return (
-    <div className="flex h-full flex-col text-[11px]">
+    <div className="flex h-full flex-col text-[13px]">
       <div className="flex flex-wrap items-center gap-1 border-b border-zinc-800 px-2 py-1">
-        <button className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 hover:bg-zinc-700 disabled:opacity-40" onClick={() => ls(cwd)} disabled={busy}><RefreshCw className={`size-3 ${busy ? "animate-spin" : ""}`} /> 刷新</button>
-        <button className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 hover:bg-zinc-700" onClick={upload}><FolderUpIcon className="size-3" /> 上传</button>
-        <button className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 hover:bg-zinc-700 disabled:opacity-40" disabled={!selName} onClick={() => selRef.current && download(selRef.current)}><FolderDownIcon className="size-3" /> 下载</button>
-        <button className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 hover:bg-zinc-700" onClick={mkdir}><FolderPlusIcon className="size-3" /> 新目录</button>
-        <button className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 hover:bg-zinc-700 disabled:opacity-40" disabled={!selName} onClick={() => selRef.current && del(selRef.current)}><TrashIcon className="size-3" /> 删除</button>
+        <button className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 hover:bg-zinc-700 disabled:opacity-40" onClick={() => ls(cwd)} disabled={busy}><RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} /> 刷新</button>
+        <button className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 hover:bg-zinc-700" onClick={upload}><FolderUpIcon className="size-3" /> 上传</button>
+        <button className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 hover:bg-zinc-700 disabled:opacity-40" disabled={!selName} onClick={() => selRef.current && download(selRef.current)}><FolderDownIcon className="size-3" /> 下载</button>
+        <button className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 hover:bg-zinc-700" onClick={mkdir}><FolderPlusIcon className="size-3" /> 新目录</button>
+        <button className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 hover:bg-zinc-700 disabled:opacity-40" disabled={!selName} onClick={() => selRef.current && del(selRef.current)}><TrashIcon className="size-3" /> 删除</button>
         <span className="mx-1 h-3 w-px bg-zinc-700" />
         <input
-          className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-zinc-200 outline-none focus:border-blue-500"
+          className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 font-mono text-zinc-200 outline-none focus:border-blue-500"
           value={pathInput} onChange={(e) => setPathInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") ls(pathInput); }}
         />
@@ -583,10 +587,10 @@ function ProcessPanel({ beacon }: { beacon: BeaconRow }) {
   React.useEffect(() => { list(); }, [beacon.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="flex h-full flex-col text-[11px]">
+    <div className="flex h-full flex-col text-[13px]">
       <div className="flex items-center gap-2 border-b border-zinc-800 px-2 py-1">
-        <button className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 hover:bg-zinc-700 disabled:opacity-40" onClick={list} disabled={busy}>
-          <RefreshCw className={`size-3 ${busy ? "animate-spin" : ""}`} /> ps aux（前 80）
+        <button className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 hover:bg-zinc-700 disabled:opacity-40" onClick={list} disabled={busy}>
+          <RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} /> ps aux（前 80）
         </button>
         <span className="text-zinc-500">行内 Kill 对目标进程发 kill -9</span>
       </div>
@@ -634,12 +638,12 @@ function NetworkPanel({ beacon }: { beacon: BeaconRow }) {
   };
 
   return (
-    <div className="flex h-full flex-col text-[11px]">
+    <div className="flex h-full flex-col text-[13px]">
       <div className="flex flex-wrap items-center gap-1 border-b border-zinc-800 px-2 py-1">
-        <input className="w-32 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-zinc-200 outline-none" value={host} onChange={(e) => setHost(e.target.value)} placeholder="host" />
-        <input className="w-56 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-zinc-200 outline-none" value={ports} onChange={(e) => setPorts(e.target.value)} placeholder="ports" />
-        <button className="rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 hover:bg-zinc-700 disabled:opacity-40" onClick={scan} disabled={busy}>Portscan</button>
-        <button className="rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 hover:bg-zinc-700 disabled:opacity-40" onClick={netstat} disabled={busy}>netstat</button>
+        <input className="w-32 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 font-mono text-zinc-200 outline-none" value={host} onChange={(e) => setHost(e.target.value)} placeholder="host" />
+        <input className="w-56 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 font-mono text-zinc-200 outline-none" value={ports} onChange={(e) => setPorts(e.target.value)} placeholder="ports" />
+        <button className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 hover:bg-zinc-700 disabled:opacity-40" onClick={scan} disabled={busy}>Portscan</button>
+        <button className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 hover:bg-zinc-700 disabled:opacity-40" onClick={netstat} disabled={busy}>netstat</button>
         <span className="text-zinc-500">以目标机为跳板探测内网（授权测试）</span>
       </div>
       <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap px-2 py-1 font-mono text-zinc-300">{out || "（结果）"}</pre>
