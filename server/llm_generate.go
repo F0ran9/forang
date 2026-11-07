@@ -5,6 +5,7 @@ package server
 
 import (
 	"context"
+	"log"
 	"fmt"
 	"strings"
 	"time"
@@ -29,6 +30,37 @@ func (s *Server) llmGenerate(ctx context.Context, profileID int64, system, user 
 	if pid == 0 {
 		return "", fmt.Errorf("未配置可用的生成模型（平台设置里激活一个 LLM 配置）")
 	}
+	// 池故障转移：默认/指定 profile 空响应或报错时按池顺序切下一个
+	// （实测 glm anthropic 长代码生成偶发空流，qwen 可用——webshell/变形共用）。
+	ids := []int64{pid}
+	if pool, perr := s.m.pg.PoolProfiles(); perr == nil {
+		for _, p := range pool {
+			if p.ID != pid {
+				ids = append(ids, p.ID)
+			}
+		}
+	}
+	var lastErr error
+	for _, id := range ids {
+		text, err := s.llmGenerateOne(ctx, id, system, user, maxTokens)
+		if err == nil && text != "" {
+			return text, nil
+		}
+		if err != nil {
+			lastErr = err
+			log.Printf("[llm] 生成 profile %d 失败，尝试池转移: %v", id, err)
+		} else {
+			log.Printf("[llm] 生成 profile %d 空响应，尝试池转移", id)
+		}
+	}
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", fmt.Errorf("LLM 生成空响应（全部候选 profile）")
+}
+
+// llmGenerateOne 单 profile 生成（原 llmGenerate 主体）。
+func (s *Server) llmGenerateOne(ctx context.Context, pid int64, system, user string, maxTokens int) (string, error) {
 	prov, _, ok := s.providerForProfile(pid)
 	if !ok {
 		return "", fmt.Errorf("生成模型 profile %d 不可用", pid)
@@ -74,7 +106,7 @@ func stripCodeFence(text string) string {
 	if !strings.HasPrefix(t, "```") {
 		return t
 	}
-	if i := strings.Index(t, "\\n"); i > 0 {
+	if i := strings.Index(t, "\n"); i > 0 {
 		t = t[i+1:]
 	} else {
 		return t
