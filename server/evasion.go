@@ -69,9 +69,26 @@ func (s *Server) c2LoaderGenerateAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lis := s.listenerInfo(b.ListenerID)
+	// 回连地址优先级：用户指定 > 请求 Host（用户访问平台的地址，物理机可达）>
+	// listener bind 地址。listener host 常为 0.0.0.0（绑定地址非回连地址）——
+	// 物理机/容器外不可达，绝不能用。
 	server := strings.TrimSpace(b.Server)
-	if server == "" && lis != nil {
-		server = fmt.Sprintf("%v:%v", lis["host"], lis["port"])
+	if server == "" {
+		if h := strings.SplitN(r.Host, ":", 2)[0]; h != "" && h != "0.0.0.0" {
+			server = h
+		} else if lis != nil {
+			if lh, _ := lis["host"].(string); lh != "" && lh != "0.0.0.0" {
+				server = lh
+			}
+		}
+	}
+	if server != "" && lis != nil {
+		server = fmt.Sprintf("%s:%v", server, lis["port"])
+	}
+	// server 为空时 goc2 shellcode 链会用请求 Host 推导（已有逻辑），但 trailer JSON
+	// 需要显式值——兜底取请求 Host
+	if server == "" {
+		server = r.Host
 	}
 	enc := "aes"
 	if lis != nil {
