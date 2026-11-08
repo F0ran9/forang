@@ -4546,3 +4546,23 @@ async function reportDownload() {
   a.download = `c2-report-${S.selectedAgent.hostname || "agent"}.md`;
   a.click();
 }
+
+
+/* ═══ 报告面板接管：原版 loadReport/downloadReport 走 Flask 契约（/api/report JSON
+ * 结构 + renderReport 解析），FORANG 适配层返回 {report: markdown}——同名覆盖，
+ * 面板按钮/搜索/下载全部走 markdown 渲染。 */
+loadReport = p2ReportLoad;
+downloadReport = function(ev) { if (ev) ev.preventDefault(); reportDownload(); };
+reportSearch = function(q) {
+  q = (q || '').trim().toLowerCase();
+  const el = document.getElementById('report-content');
+  if (!el) return;
+  let n = 0;
+  el.querySelectorAll('li,pre,code,td,p,h1,h2,h3').forEach(node => {
+    const hit = !q || (node.textContent || '').toLowerCase().includes(q);
+    node.style.background = (hit && q) ? 'rgba(88,166,255,.18)' : '';
+    if (hit && q) n++;
+  });
+  const sc = document.getElementById('report-search-count');
+  if (sc) sc.textContent = q ? String(n) : '';
+};
