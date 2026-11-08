@@ -168,7 +168,7 @@ go build -tags embedui -o forang ./cmd/artex
 - **免杀载荷工程**：9 平台格式（win exe/x86/DLL/garble、linux elf/arm64/g、macOS 双架构）、T0/T1/T3 加载器（随机密钥/IPv4 混淆/ETW+AMSI 补丁/NTDLL 脱钩）、AI 源码级多态变形（编译验证失败回退）、回连地址自动解析+云部署手动覆盖
 - **源码审计**：zip 上传 → AI 静态审计 → 带行号证据漏洞（v0.5.9）
 - AI 审批监管（LLM 裁判 + 监督员 + 真实拦截率口径）· 批量资产渗透 · 侦察三件套 Agent 工具化
-- **平台自身安全自审**：静态审计 + 动态渗透双重验证（未授权访问矩阵 17 端点全 401 / 路径遍历 / 存储型 XSS 注入浏览器断言）——修复报告渲染 XSS（DOM 级净化器）与 SSE 裸 JWT（一次性票据化）；Playwright 全站 22 页用户视角走查零错误
+- **平台自身安全自审（全平台白盒 + 黑盒）**：SQL 拼接/命令执行/SSRF/文件读取/zip-tar 解包/JWT 密钥管理/前端 sink 全量白盒清点 + 动态渗透（未授权矩阵 17 端点全 401 / 路径遍历 / SQLi 探针 / 存储型 XSS 注入浏览器断言 / 畸形文件抗性）——修复报告渲染 XSS（DOM 级净化器）与 SSE 裸 JWT（一次性票据化），补齐 XFO/nosniff/Referrer-Policy 安全响应头；Playwright 全站 22 页用户视角走查零错误
 - Webshell 管理器 / 知识库 / 字典中心（详见 [提交历史](https://github.com/F0ran9/forang/commits/main)）
 
 ## 安全与合规

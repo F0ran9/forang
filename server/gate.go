@@ -115,6 +115,12 @@ func (s *Server) gateCookieValid(r *http.Request, token string) bool {
 // gateMiddleware 包装整个 root handler。见文件头注释的语义。
 func (s *Server) gateMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 安全响应头（黑盒自审补齐，最外层覆盖静态/API/gate 全部响应）：
+		// XFO 防点击劫持 / XCTO 防 MIME 嗅探 / Referrer-Policy 防 token 经 Referrer 外送
+		h := w.Header()
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
 		enabled, token := s.gateConfig()
 		if !enabled || token == "" || r.URL.Path == "/api/health" {
 			next.ServeHTTP(w, r)
