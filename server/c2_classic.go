@@ -169,13 +169,13 @@ func (s *Server) c2xPollOnce(first bool) {
 			if tid == "" || seen[tid] {
 				continue
 			}
-			seen[tid] = true
-			if first {
-				continue // 历史任务不推送（messages 接口兜底拉取）
-			}
 			status, _ := tm["status"].(string)
 			if status != "done" && status != "failed" {
-				continue
+				continue // 未完成不标记 seen——完成后才推（否则 queued 期被标 seen 永不推送）
+			}
+			seen[tid] = true
+			if first {
+				continue // 首帧历史任务不推送（messages 接口兜底拉取）
 			}
 			typ, _ := tm["type"].(string)
 			args, _ := tm["args"].(map[string]any)

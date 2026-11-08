@@ -924,6 +924,15 @@ function filesRestorePath() {
   el.value = "/";
 }
 
+// FORANG：Windows 会话路径感知（默认目录/拼接/上级/面包屑分隔）
+function _isWinAgent() {
+  return !!(S.selectedAgent && /win/i.test(S.selectedAgent.os || ""));
+}
+function _winHome() { return "C:\\Users\\Public"; }
+function _joinPath(dir, name) {
+  if (_isWinAgent()) return dir.replace(/[\\]+$/, "") + "\\" + name;
+  return dir.replace(/\/+$/, "") + "/" + name;
+}
 function filesGo(path) {
   document.getElementById("files-path").value = path;
   filesRefresh();
@@ -932,7 +941,7 @@ function filesGo(path) {
 async function filesRefresh(gen = null, force = false) {
   if (!S.selectedAgent) return;
   const myGen = gen ?? S.agentGen;
-  const path = document.getElementById("files-path").value.trim() || "/";
+  const path = document.getElementById("files-path").value.trim() || (_isWinAgent() ? _winHome() : "/");
   const key  = filesAgentKey();
   if (key) localStorage.setItem(key, path);
 
@@ -987,11 +996,12 @@ async function loadFileCache(path, gen = null) {
 function renderBreadcrumb(path) {
   const bc = document.getElementById("files-breadcrumb");
   if (!bc) return;
-  const parts = path.split("/").filter(Boolean);
+  const parts = path.split(_isWinAgent() ? "\\" : "/").filter(Boolean);
   let html = `<span class="bc-seg" style="cursor:pointer;color:var(--accent)" onclick="filesGo('/')">/</span>`;
-  let acc = "";
-  parts.forEach(p => {
-    acc += "/" + p;
+  let acc = _isWinAgent() ? "" : "";
+  parts.forEach((p, i) => {
+    acc += (_isWinAgent() ? (i === 0 ? "" : "\\") : "/") + p;
+    if (_isWinAgent() && i === 0) acc = p;
     const target = acc;
     html += `<span style="color:var(--text-muted)"> › </span>
              <span class="bc-seg" style="cursor:pointer" onclick="filesGo('${esc(target)}')">${esc(p)}</span>`;
@@ -1053,25 +1063,26 @@ function renderFileList(path, entries) {
 }
 
 function enterDir(name) {
-  const cur  = document.getElementById("files-path").value.trim() || "/";
-  const next = cur === "/" ? `/${name}` : `${cur}/${name}`;
+  const cur = document.getElementById("files-path").value.trim() || (_isWinAgent() ? _winHome() : "/");
+  const next = _joinPath(cur, name);
   document.getElementById("files-path").value = next;
   filesRefresh();
 }
 
 function filesGoUp() {
-  const cur = document.getElementById("files-path").value.trim() || "/";
-  if (cur === "/") return;
-  const idx    = cur.lastIndexOf("/");
-  const parent = idx <= 0 ? "/" : cur.slice(0, idx);
-  document.getElementById("files-path").value = parent;
+  const cur = document.getElementById("files-path").value.trim() || (_isWinAgent() ? _winHome() : "/");
+  const sep  = _isWinAgent() ? "\\" : "/";
+  if (!cur.includes(sep)) return;
+  const idx = cur.lastIndexOf(sep);
+  const parent = idx <= 2 ? cur.slice(0, 3) : cur.slice(0, idx); // C:\ 保留盘符
+  document.getElementById("files-path").value = parent || sep;
   filesRefresh();
 }
 
 async function downloadFile(name) {
   if (!S.selectedAgent) return;
-  const path = document.getElementById("files-path").value.trim() || "/";
-  const full = path === "/" ? `/${name}` : `${path}/${name}`;
+  const path = document.getElementById("files-path").value.trim() || (_isWinAgent() ? _winHome() : "/");
+  const full = _joinPath(path, name);
   const sent = await sendRaw(`upload ${full}`);
   if (!sent.ok) { toast("下载请求失败: " + sent.error, "error"); return; }
   toast(`Download request sent → file will appear in Library`, "info");
@@ -1079,8 +1090,8 @@ async function downloadFile(name) {
 
 async function previewFile(name) {
   if (!S.selectedAgent) return;
-  const path = document.getElementById("files-path").value.trim() || "/";
-  const full = path === "/" ? `/${name}` : `${path}/${name}`;
+  const path = document.getElementById("files-path").value.trim() || (_isWinAgent() ? _winHome() : "/");
+  const full = _joinPath(path, name);
   showPreviewLoading(full);
   await sendRaw(`readfile ${full}`);
 }
@@ -1088,8 +1099,8 @@ async function previewFile(name) {
 async function deleteFile(name) {
   if (!S.selectedAgent) return;
   if (!confirm(`确认删除 ${agentTag()} 上的文件？\n\n  ${name}\n\n此操作不可撤销。`)) return;
-  const path = document.getElementById("files-path").value.trim() || "/";
-  const full = path === "/" ? `/${name}` : `${path}/${name}`;
+  const path = document.getElementById("files-path").value.trim() || (_isWinAgent() ? _winHome() : "/");
+  const full = _joinPath(path, name);
   const sent = await sendRaw(`rm -f "${full}"`);
   if (!sent.ok) { toast("删除命令发送失败: " + sent.error, "error"); return; }
   toast(`已发送删除命令 ${agentTag()} ${name}`, "info");
@@ -1254,8 +1265,8 @@ async function uploadFile() {
 // sendit.sh: upload from agent to temp URL, controller auto-downloads it back
 async function senditFile(name) {
   if (!S.selectedAgent) return;
-  const path = document.getElementById("files-path").value.trim() || "/";
-  const full = path === "/" ? `/${name}` : `${path}/${name}`;
+  const path = document.getElementById("files-path").value.trim() || (_isWinAgent() ? _winHome() : "/");
+  const full = _joinPath(path, name);
 
   const r = await fetch("/api/files/sendit", {
     method:  "POST",
