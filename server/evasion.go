@@ -15,6 +15,7 @@ import (
 	"log"
 	"encoding/binary"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -78,7 +79,10 @@ func (s *Server) c2LoaderGenerateAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if server != "" && lis != nil {
-		server = fmt.Sprintf("%s:%v", server, lis["port"])
+		// 已带端口（显式覆盖 host:port）不重复补——否则拼出 ip:port:port
+		if _, _, err := net.SplitHostPort(server); err != nil {
+			server = fmt.Sprintf("%s:%v", server, lis["port"])
+		}
 	}
 	// server 为空时 goc2 shellcode 链会用请求 Host 推导（已有逻辑），但 trailer JSON
 	// 需要显式值——兜底取请求 Host

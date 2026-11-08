@@ -1331,7 +1331,7 @@ export const api = {
   c2Listeners: () => get<{ data: Record<string, unknown>[] }>("/tools/c2/listeners"),
   // c2Generate 一键生成 beacon 载荷（真实二进制，连接参数编译时内嵌）。
   // 返回 Blob 供前端下载；meta.server（内嵌回连地址）经响应头带回。
-  c2Generate: async (payload: { listener_id: string; format: string }): Promise<{ blob: Blob; filename: string; server: string; downloadUrl: string }> => {
+  c2Generate: async (payload: { listener_id: string; format: string; server?: string }): Promise<{ blob: Blob; filename: string; server: string; downloadUrl: string }> => {
     const token = getToken();
     const r = await fetch("/api/tools/c2/generate", {
       method: "POST",
@@ -1354,7 +1354,7 @@ export const api = {
     };
   },
   // c2LoaderGenerate 免杀加载器：donut shellcode → 技术模板（随机密钥）→ 交叉编译 exe。
-  c2LoaderGenerate: async (payload: { listener_id: string; technique: string; ai_poly?: boolean }): Promise<{ blob: Blob; filename: string; downloadUrl: string }> => {
+  c2LoaderGenerate: async (payload: { listener_id: string; technique: string; ai_poly?: boolean; server?: string }): Promise<{ blob: Blob; filename: string; downloadUrl: string }> => {
     const token = getToken();
     const r = await fetch("/api/tools/c2/loader-generate", {
       method: "POST",
