@@ -467,7 +467,7 @@ function FilesPanel({ beacon }: { beacon: BeaconRow }) {
   const ls = async (p?: string) => {
     const dest = p ?? cwd;
     setMsg("");
-    const r = await exec(isWin ? `dir /A ${JSON.stringify(dest)}` : `ls -la ${JSON.stringify(dest)}`);
+    const r = await exec(isWin ? `dir /A "${dest}"` : `ls -la ${JSON.stringify(dest)}`);
     if (!r.output) { setMsg("[!] " + (r.error || "无输出")); setEntries([]); setRaw(r.output); return; }
     setRaw(r.output);
     const es = isWin ? parseDirWin(r.output) : parseLs(r.output);
@@ -519,9 +519,10 @@ function FilesPanel({ beacon }: { beacon: BeaconRow }) {
 
   const del = async (f: FileEntry) => {
     if (!window.confirm(`删除 ${f.name}？`)) return;
+    const jp = jpath(f.name);
     const rmCmd = isWin
-      ? (f.isDir ? `rmdir /S /Q ${JSON.stringify(jpath(f.name))}` : `del /F /Q ${JSON.stringify(jpath(f.name))}`)
-      : `rm -rf ${JSON.stringify(jpath(f.name))}`;
+      ? (f.isDir ? `rmdir /S /Q "${jp}"` : `del /F /Q "${jp}"`)
+      : `rm -rf ${JSON.stringify(jp)}`;
     const r = await exec(rmCmd);
     setMsg(r.output || r.error || "[*] 已删除");
     ls(cwd);
@@ -530,7 +531,7 @@ function FilesPanel({ beacon }: { beacon: BeaconRow }) {
   const mkdir = async () => {
     const n = window.prompt("新目录名");
     if (!n) return;
-    await exec(isWin ? `md ${JSON.stringify(jpath(n))}` : `mkdir -p ${JSON.stringify(jpath(n))}`);
+    await exec(isWin ? `md "${jpath(n)}"` : `mkdir -p ${JSON.stringify(jpath(n))}`);
     ls(cwd);
   };
 
