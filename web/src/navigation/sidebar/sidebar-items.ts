@@ -73,6 +73,8 @@ export const sidebarItems: NavGroup[] = [
       { id: "chat", title: "对话", url: "/chat", icon: MessageSquare },
       { id: "tasks", title: "任务", url: "/function/tasks", icon: Target },
       { id: "approvals", title: "审批与审计", url: "/system/intercept/approvals", icon: ClipboardList },
+      { id: "c2", title: "C2 指挥", url: "/function/c2", icon: Radio },
+      { id: "webshell", title: "Webshell", url: "/function/webshell", icon: ShieldAlert },
       { id: "toolbox", title: "工具箱", url: "/function/toolbox", icon: Hammer },
       { id: "knowledge", title: "知识库", url: "/function/knowledge", icon: BookOpen },
       { id: "findings", title: "漏洞中台", url: "/function/findings", icon: Bug },

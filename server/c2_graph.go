@@ -314,13 +314,26 @@ func (s *Server) c2AIPlan(graphCtx, instruction string) (string, error) {
 // c2GetOrCreateRoot 获取或创建 beacon 根节点。
 func (s *Server) c2GetOrCreateRoot(sessionID string) int64 {
 	var id int64
-	err := s.m.PG().QueryRow(`SELECT id FROM c2_graph_nodes WHERE session_id=$1 AND node_type='beacon' LIMIT 1`, sessionID).Scan(&id)
+	err := s.m.PG().QueryRow(`SELECT id FROM c2_graph_nodes WHERE session_id=$1 AND node_type='beacon' LIMIT 1`).Scan(&id)
 	if err == nil {
 		return id
 	}
 	s.m.PG().QueryRow(`INSERT INTO c2_graph_nodes (session_id, node_type, label, detail, status)
 		VALUES ($1,'beacon','Beacon 会话','初始接入点','done') RETURNING id`, sessionID).Scan(&id)
 	return id
+}
+
+// c2GraphAction 手动面板动作入图（exec/插件/采集/定时任务/网络探测）。
+// 此前图只记 AI 自动驾驶路径——手动操作全不进图导致链路图恒空。
+func (s *Server) c2GraphAction(sessionID, action, label, output string, ok bool) {
+	rootID := s.c2GetOrCreateRoot(sessionID)
+	status := "done"
+	if !ok {
+		status = "failed"
+	}
+	s.m.PG().QueryRow(`INSERT INTO c2_graph_nodes (session_id, parent_id, node_type, label, detail, status)
+		VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+		sessionID, rootID, action, truncateStr(label, 120), truncateStr(output, 4000), status)
 }
 
 // GET /api/tools/c2/ai/suggestions?session_id= — AI 建议下一步。
