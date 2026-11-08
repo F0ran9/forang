@@ -4303,7 +4303,7 @@ async function _capi(path, opts) {
 async function procRefresh() {
   const aid = _agentOrToast(); if (!aid) return;
   const tbody = document.getElementById("proc-tbody");
-  tbody.innerHTML = '<tr><td colspan="4" style="padding:16px;text-align:center;opacity:.55">加载中…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="4" style="padding:16px;text-align:center;opacity:.55">命令已下发，等待 Beacon 回传（约 3~10 秒）…</td></tr>';
   const d = await _capi(`/api/proc?agent_id=${encodeURIComponent(aid)}`);
   if (!d) return;
   if (!d.procs?.length) {
@@ -4400,9 +4400,10 @@ async function graphRefresh() {
     return;
   }
   const typeColor = { beacon: "#8b949e", action: "#58a6ff", plugin: "#d2a8ff", collect: "#3fb950", schedule: "#d29922" };
+  const typeLabel = { beacon: "会话", action: "动作", plugin: "插件", collect: "采集", schedule: "定时" };
   list.innerHTML = d.nodes.map(n => `
     <div style="display:flex;gap:12px;padding:10px 14px;background:var(--bg-2);border:1px solid var(--border);border-radius:6px">
-      <span style="flex-shrink:0;font-size:10px;font-weight:700;color:#fff;background:${typeColor[n.type] || "#888"};border-radius:4px;padding:2px 8px;height:fit-content">${esc(n.type)}</span>
+      <span style="flex-shrink:0;font-size:10px;font-weight:700;color:#fff;background:${typeColor[n.type] || "#888"};border-radius:4px;padding:2px 8px;height:fit-content">${esc(typeLabel[n.type] || n.type)}</span>
       <div style="flex:1;min-width:0">
         <div style="font-size:12px;font-weight:600">${esc(n.label)} ${n.status === "failed" ? '<span style="color:#f85149">✗</span>' : ""}</div>
         ${n.detail ? `<pre style="margin:4px 0 0;font-size:10px;opacity:.6;white-space:pre-wrap;max-height:120px;overflow:auto;font-family:var(--mono)">${esc(n.detail.slice(0, 800))}</pre>` : ""}

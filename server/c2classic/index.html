@@ -337,7 +337,6 @@
       </div>
 
       <!-- SysInfo -->
-      <div class="tab-panel" <!-- FORANG 功能面板：进程 -->
       <div class="tab-panel" id="panel-proc">
         <div class="panel-toolbar">
           <div class="toolbar-left"><span class="panel-title">📋 进程管理</span>
@@ -393,7 +392,7 @@
         <div id="graph-list" style="flex:1;overflow:auto;padding:12px 18px;display:flex;flex-direction:column;gap:8px"></div>
       </div>
 
-      id="panel-sysinfo">
+<div class="tab-panel" id="panel-sysinfo">
         <div class="panel-toolbar">
           <span class="panel-title" id="sysinfo-title">系统信息 &amp; 敏感数据</span>
           <div class="toolbar-right">
@@ -401,13 +400,12 @@
             <button class="btn-sm" onclick="triggerSysinfo()">🖥 采集系统信息</button>
             <select id="sensitive-history-sel" onchange="loadSensitiveSnapshot()" style="display:none"></select>
             <button class="btn-sm btn-warning" onclick="triggerSensitive()">🔑 采集敏感数据</button>
-            <button class="btn-sm btn-danger" onclick="uninstallAgent()" title="下发卸载命令给 Agent">🗑 卸载 Agent</button>
           </div>
         </div>
         <div style="flex:1;overflow:hidden;display:flex;flex-direction:column">
           <div style="padding:5px 14px;font-size:11px;font-weight:600;color:var(--text-muted);background:var(--bg-2);border-bottom:1px solid var(--border);flex-shrink:0">🖥 系统信息</div>
           <div id="sysinfo-content" class="mono-output" style="height:42%;overflow:auto;border-bottom:1px solid var(--border)"></div>
-          <div style="padding:5px 14px;font-size:11px;font-weight:600;color:var(--text-muted);background:var(--bg-2);border-bottom:1px solid var(--border);flex-shrink:0">🔑 敏感数据</div>
+          <div style="padding:5px 14px;font-size:11px;font-weight:600;color:var(--text-muted);background:var(--bg-2);border-bottom:1px solid var(--border);flex-shrink:0">🔑 <span id="sensitive-title">敏感数据</span></div>
           <div id="sensitive-content" class="sections-output" style="flex:1;overflow:auto"></div>
         </div>
       </div>

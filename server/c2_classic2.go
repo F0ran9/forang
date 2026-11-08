@@ -353,6 +353,14 @@ func (s *Server) c2xReport(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var sb strings.Builder
 	sb.WriteString("# C2 行动报告\n\n")
+	// 动作名中文化映射
+	zhAction := func(a string) string {
+		m := map[string]string{"exec": "命令执行", "plugin_run": "插件执行", "sysinfo": "系统信息采集", "sysinfo_collect": "系统信息采集", "sensitive_scan": "敏感文件扫描", "portscan": "端口扫描", "proc_kill": "进程终止", "pty_attach": "交互Shell", "schedule_add": "添加定时任务", "schedule_ls": "查询定时任务", "schedule_clear": "清空定时任务", "file_to_agent": "文件下发", "beacon_online": "Beacon上线"}
+		if v, ok := m[a]; ok {
+			return v
+		}
+		return a
+	}
 	// 会话信息
 	clients, _ := c2Client().ListClients(r.Context(), nil)
 	for _, c := range clients {
@@ -397,7 +405,7 @@ func (s *Server) c2xReport(w http.ResponseWriter, r *http.Request) {
 			if err := rows2.Scan(&action, &detail, &cnt); err != nil {
 				continue
 			}
-			fmt.Fprintf(&sb, "| %s | %s | %d |\n", action, truncateStr(strings.ReplaceAll(detail, "|", "\\|"), 60), cnt)
+			fmt.Fprintf(&sb, "| %s | %s | %d |\n", zhAction(action), truncateStr(strings.ReplaceAll(detail, "|", "\\|"), 60), cnt)
 		}
 		sb.WriteString("\n")
 	}
