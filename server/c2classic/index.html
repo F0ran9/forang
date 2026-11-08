@@ -65,6 +65,10 @@
       <button class="tab-btn" data-tab="net">🔍 网络探测</button>
       <button class="tab-btn" data-tab="plugins">🧩 插件</button>
       <button class="tab-btn" data-tab="graph">🕸 链路图</button>
+      <button class="tab-btn" data-tab="wsshell">🖥 反弹Shell</button>
+      <button class="tab-btn" data-tab="library">📚 资料库</button>
+      <button class="tab-btn" data-tab="tunnel">🔗 隧道</button>
+      <button class="tab-btn" data-tab="report">📋 报告</button>
       <button class="tab-btn" data-tab="sysinfo" data-i18n="nav.sysinfo">🖥 系统信息</button>
       <div id="tab-indicator" aria-hidden="true"></div>
     </nav>
@@ -411,110 +415,12 @@
       <!-- Tunnel -->
       <div class="tab-panel" id="panel-tunnel">
         <div class="panel-toolbar">
-          <div class="toolbar-left">
-            <span class="panel-title">🔗 SOCKS5 隧道（Stowaway）</span>
-            <span id="stow-badge" class="shell-badge shell-stopped">● 未运行</span>
-            <span id="stow-server-info" style="font-size:11px;color:var(--text-muted)"></span>
-            <span id="tunnel-agent-indicator" class="agent-indicator"></span>
-          </div>
-          <div class="toolbar-right">
-            <button class="btn-sm btn-primary" onclick="stowStart()" title="在控制器本机启动 Stowaway Admin（监听+SOCKS5）">▶ 启动服务端</button>
-            <button class="btn-sm btn-danger"  onclick="stowStop()" title="停止控制器本机的 Stowaway Admin">⏹ 停止服务端</button>
-            <button class="btn-sm" onclick="stowSaveConfig()" data-i18n="builder.saveBtn">💾 保存配置</button>
-          </div>
+          <div class="toolbar-left"><span class="panel-title">🔗 隧道（SOCKS5 + Forwarders）</span></div>
+          <div class="toolbar-right"><button class="btn-sm" onclick="tunnelLoad()">🔄 刷新</button></div>
         </div>
-
-        <!-- 架构说明条 -->
-        <div style="padding:6px 16px;background:var(--bg-2);border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);line-height:1.7">
-          架构：<b>服务端</b>=控制器本机的 stowaway_admin（左侧配置，已随部署包内置，无需下载）；
-          <b>目标端</b>=Agent <b>内置</b>的隧道节点（右侧点"启动"下发 <code>tunnel IP:端口 Secret</code> 即可，不在目标机落任何额外文件）。
-          浏览器/工具连本机 SOCKS5 端口即可穿透目标内网。
-        </div>
-
-        <!-- tmux info bar (same style as Shell Tab) -->
-        <div id="stow-tmux-bar" style="display:none;padding:5px 16px;background:#0d1117;border-bottom:1px solid var(--border);font-size:12px;font-family:var(--mono);color:#57ab5a;align-items:center;gap:10px;flex-wrap:wrap">
-          📟 tmux:&nbsp;<code id="stow-tmux-name" style="color:#e3b341"></code>
-          &nbsp;&nbsp;
-          <span style="color:#768390">Attach:</span>&nbsp;
-          <code id="stow-tmux-attach" style="cursor:pointer;color:#57ab5a" onclick="navigator.clipboard.writeText(this.textContent);toast('Copied','success')"></code>
-        </div>
-        <div style="display:flex;flex:1;overflow:hidden">
-
-          <!-- Left: Admin config -->
-          <div style="width:340px;min-width:280px;border-right:1px solid var(--border);padding:16px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:10px">
-            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">
-              🖥 服务端配置（控制器本机）
-            </div>
-
-            <div class="settings-grid" style="grid-template-columns:auto 1fr;gap:6px 10px">
-              <label style="font-size:12px">监听端口：</label>
-              <input type="text" id="stow-listen" placeholder="9998" style="width:100%;box-sizing:border-box">
-              <label style="font-size:12px">SOCKS5 端口：</label>
-              <input type="text" id="stow-socks"  placeholder="1080" style="width:100%;box-sizing:border-box">
-            </div>
-            <div style="font-size:11px;color:var(--text-muted)">
-              传输 Secret（与 Settings 隧道 Secret 相同，此处不回显全文）:
-              <code id="stow-secret-show" style="color:var(--text);cursor:pointer">…</code>
-            </div>
-            <div style="font-size:11px;color:var(--text-muted)">
-              SOCKS5 账号: <code id="stow-socks-user" style="color:var(--text)">s5admin</code>
-              / 密码: <code id="stow-socks-pass" style="color:var(--text)">123456</code>
-              （与 Admin 启动参数一致）
-            </div>
-
-            <!-- Binary info -->
-            <div style="font-size:11px;color:var(--text-muted)">
-              二进制（部署包内置）: <code id="stow-bin-path" style="font-size:10px"></code>
-              <span id="stow-bin-missing" style="color:var(--red);display:none">⚠ 缺失</span>
-            </div>
-          </div>
-
-          <!-- Right: Agent (target side) -->
-          <div style="flex:1;padding:16px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:10px">
-            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">
-              🎯 目标端（Agent 内置，无需落地文件）
-            </div>
-
-            <div class="settings-grid" style="max-width:560px">
-              <label>回连 IP：</label>
-              <div style="display:flex;gap:8px;align-items:center">
-                <input type="text" id="tn-ip" placeholder="1.2.3.4" style="width:160px">
-                <label>端口：</label>
-                <input type="text" id="tn-port" placeholder="9998" style="width:75px">
-              </div>
-              <label>Secret：</label>
-              <div style="display:flex;gap:8px;align-items:center">
-                <input type="password" id="tn-secret" placeholder="留空=沿用已有" autocomplete="off" style="width:160px">
-                <button class="btn-sm" onclick="saveTunnelConfig()">💾 保存</button>
-              </div>
-            </div>
-
-            <div class="info-bar" style="max-width:560px">
-              <span class="label-muted">Built-in tunnel</span>
-              <span class="label-muted" style="margin-left:12px">no external binary needed</span>
-            </div>
-
-            <div class="tunnel-actions">
-              <button class="btn-action btn-success" onclick="tunnelAction('start')" title="向目标 Agent 下发隧道启动命令（内置节点，无文件落地）">▶ 启动目标端隧道</button>
-              <button class="btn-action btn-danger"  onclick="tunnelAction('stop')" title="停止 Agent 内置隧道节点——纯内存实现，停止即清理，无文件残留">⏹ 停止目标端（即清理）</button>
-            </div>
-
-            <details class="usage-guide" style="max-width:560px;margin-top:8px">
-              <summary>📋 使用流程</summary>
-              <div class="guide-body">
-                <p>① 点上方 <strong>▶ 启动服务端</strong> —— 控制器本机 Admin 监听 :&lt;监听端口&gt;</p>
-                <p>② 填好回连 IP / 端口（Secret 自动带出），点 <strong>▶ 启动目标端隧道</strong> —— Agent 内置节点回连</p>
-                <p>③ Admin 自动在本机开 SOCKS5 :&lt;SOCKS5端口&gt;（s5admin / 123456）</p>
-                <p>④ 浏览器/工具代理填 <code>127.0.0.1:&lt;SOCKS5端口&gt;</code>，即可以目标机为跳板访问其内网</p>
-                <p>⑤ 收工：<strong>⏹ 停止目标端</strong>（内置节点纯内存，停止即清理）+ <strong>⏹ 停止服务端</strong>（关 Admin）</p>
-              </div>
-            </details>
-          </div>
-
-        </div>
+        <pre id="tunnel-out" style="flex:1;overflow:auto;margin:0;padding:16px 20px;font-family:var(--mono);font-size:11px;line-height:1.6;color:var(--text-1);white-space:pre-wrap">（隧道状态）</pre>
       </div>
 
-      <!-- Library -->
       <div class="tab-panel" id="panel-library">
         <div class="panel-toolbar">
           <span class="panel-title">📚 资料库</span>
@@ -949,87 +855,15 @@
       <!-- WS Shell -->
       <div class="tab-panel" id="panel-wsshell">
         <div class="panel-toolbar">
-          <div class="toolbar-left">
-            <span class="panel-title">🔌 反弹 Shell（WS Shell）</span>
-            <span id="wsshell-status-badge" class="wsshell-status-badge">● 已停止</span>
-            <span id="wsshell-server-info" style="font-size:11px;color:var(--text-muted)"></span>
-            <span id="wsshell-agent-indicator" class="agent-indicator"></span>
-          </div>
+          <div class="toolbar-left"><span class="panel-title">🖥 交互 Shell（goc2 PTY）</span>
+            <span id="wsshell-status" class="agent-chip chip-offline">未连接</span></div>
           <div class="toolbar-right">
-            <button class="btn-sm btn-primary" id="wsshell-start-btn" onclick="wsshellStartBackend()" title="在控制器本机启动（或重建）cliws。一次性桥接，下次会话请再点一次">▶ 启动服务端</button>
-            <button class="btn-sm btn-danger"  id="wsshell-stop-btn"  onclick="wsshellStopBackend()" style="display:none" title="停止控制器本机的 cliws">⏹ 停止服务端</button>
-            <button class="btn-sm btn-warning" id="wsshell-connect-btn" onclick="wsshellConnect()" title="重建一次性桥接，并向当前 Agent 下发 wspty（不要只开关本页标签）">▶ 启动目标端反弹</button>
-            <button class="btn-sm"             id="wsshell-close-btn"   onclick="wsshellClose()"    style="display:none" title="断开本轮反弹。下次再用请重新点「启动目标端反弹」">⏹ 停止目标端反弹</button>
+            <button class="btn-sm btn-primary" onclick="ptyConnect()">▶ 连接</button>
+            <button class="btn-sm" onclick="ptyDisconnect()">⏹ 断开</button>
           </div>
         </div>
-
-        <!-- 架构说明条 -->
-        <div style="padding:6px 16px;background:var(--bg-2);border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);line-height:1.7">
-          <span data-i18n="wsshell.oneshot_hint">cliws 桥接是一次性会话：启动服务端 → 启动目标端反弹 → 用完关掉。下次再用请重新点「启动目标端反弹」（会自动重建桥接）。不要只开关本页标签，也不要在旧桥接上反复连——会连上但没有数据。</span>
-        </div>
-        <!-- tmux info bar -->
-        <div id="wsshell-tmux-bar" style="display:none;padding:5px 16px;background:#0d1117;border-bottom:1px solid var(--border);font-size:12px;font-family:var(--mono);color:#57ab5a;flex-wrap:wrap;align-items:center;gap:10px">
-          📟 tmux:&nbsp;<code id="wsshell-tmux-name" style="color:#e3b341"></code>
-          &nbsp;&nbsp;
-          <span style="color:#768390">Attach:</span>&nbsp;
-          <code id="wsshell-tmux-attach" style="cursor:pointer;color:#57ab5a" onclick="navigator.clipboard.writeText(this.textContent);toast('Copied','success')" title="点击复制"></code>
-          &nbsp;&nbsp;
-          <span style="color:#768390">Detach:</span>&nbsp;
-          <code style="color:#cdd9e5">Ctrl+b  d</code>
-        </div>
-
-        <!-- Config (collapsible) -->
-        <details id="wsshell-config-details" style="border-bottom:1px solid var(--border)">
-          <summary style="padding:8px 16px;background:var(--bg-2);cursor:pointer;font-size:12px;font-weight:600;color:var(--text-dim);user-select:none">
-            ⚙ WS Shell Config
-          </summary>
-          <div style="padding:10px 16px;background:var(--bg-2);display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
-            <div style="display:flex;flex-direction:column;gap:6px">
-              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                <label style="font-size:12px;color:var(--text-dim);width:80px">控制端 IP:</label>
-                <input type="text" id="wsshell-ip" placeholder="1.2.3.4" style="width:150px">
-                <label style="font-size:12px;color:var(--text-dim)">端口:</label>
-                <input type="text" id="wsshell-port" value="7337" placeholder="7337" style="width:70px">
-              </div>
-              <div style="display:flex;gap:8px;align-items:center">
-                <button class="btn-sm btn-primary" onclick="wsshellSaveConfig()">💾 保存配置</button>
-                <span style="font-size:11px;color:var(--text-3)">Agent 回连此 IP:端口（需开放防火墙）</span>
-              </div>
-            </div>
-          </div>
-        </details>
-
-        <div style="display:flex;flex-direction:column;flex:1;overflow:hidden">
-
-          <!-- Waiting state -->
-          <div id="wsshell-waiting" class="wsshell-waiting" style="display:none">
-            <div class="wsshell-waiting-icon">⏳</div>
-            <div class="wsshell-waiting-text">等待 Agent 反弹连接…</div>
-            <div id="wsshell-wait-hint" class="wsshell-waiting-hint">
-              命令已发送，Agent 在下次轮询时连接（通常 15–30 s）
-            </div>
-          </div>
-
-          <!-- Terminal (xterm.js, shown when connected) -->
-          <div id="wsshell-term-wrap" style="display:none;flex:1;overflow:hidden;padding:4px">
-            <div id="wsshell-term" style="width:100%;height:100%"></div>
-          </div>
-
-          <!-- Session history — bottom bar, shown only when sessions exist -->
-          <div id="wsshell-history-bar" class="wsshell-history-bar" style="display:none">
-            <span style="white-space:nowrap;color:var(--text-3)">历史会话：</span>
-            <select id="wsshell-sessions" onchange="wsshellLoadSession(this.value)" style="font-size:11px;flex:1;max-width:400px">
-              <option value="">-- 选择查看历史记录 --</option>
-            </select>
-            <button onclick="wsshellBackToLive()" id="wsshell-back-btn" class="btn-sm" style="display:none;font-size:11px">↩ 返回直播</button>
-          </div>
-
-          <!-- Session content viewer — shown below terminal, NOT replacing it -->
-          <div id="wsshell-session-viewer" style="display:none;max-height:320px;overflow:auto;padding:10px 16px;font-family:var(--mono);font-size:12px;white-space:pre;background:var(--code-bg);color:var(--text-1);border-top:1px solid var(--border);flex-shrink:0"></div>
-
-        </div>
+        <div id="pty-term" style="flex:1;margin:8px 14px;background:#0d1117;border:1px solid var(--border);border-radius:6px;padding:6px"></div>
       </div>
-
       <!-- Settings -->
       <div class="tab-panel" id="panel-settings">
         <div class="panel-toolbar"><span class="panel-title">Settings</span></div>

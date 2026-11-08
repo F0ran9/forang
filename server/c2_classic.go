@@ -186,8 +186,13 @@ func (s *Server) c2xPollOnce(first bool) {
 			case "download":
 				p, _ := args["path"].(string)
 				size := int64(len(out)) * 3 / 4
+				fname := path.Base(strings.ReplaceAll(p, "\\", "/"))
+				if raw, e := base64.StdEncoding.DecodeString(strings.TrimSpace(out)); e == nil {
+					s.c2xLibSave(id, fname, raw)
+					size = int64(len(raw))
+				}
 				c2xHub.publish("file_downloaded", map[string]any{
-					"agent_id": id, "filename": path.Base(p), "size": size, "method": "direct",
+					"agent_id": id, "filename": fname, "size": size, "method": "direct",
 				})
 			case "upload":
 				// 上传完成无终端输出
