@@ -193,7 +193,10 @@ func (s *Server) requireAuth(h http.Handler) http.Handler {
 		// 载荷直链下载免鉴权：文件名本身是一次性秘密（生成才知道）+ 10min TTL，
 		// window.location.href 无法携带 Authorization 头（浏览器导航请求）
 		if strings.HasPrefix(p, "/api/auth/") || p == "/api/health" ||
-			strings.HasPrefix(p, "/api/tools/c2/download/") {
+			strings.HasPrefix(p, "/api/tools/c2/download/") ||
+			strings.HasPrefix(p, "/api/tools/c2/classic/page") ||
+			strings.HasPrefix(p, "/api/tools/c2/classic/static/") ||
+			strings.HasPrefix(p, "/api/tools/c2/classic/stream") {
 			h.ServeHTTP(w, r)
 			return
 		}

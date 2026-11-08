@@ -1,17 +1,22 @@
 "use client";
 
-// C2 指挥独立模块（原工具箱子页拆出——beacon 管理/交互/后渗透/攻击链路图）。
+// C2 指挥（Classic）— 内嵌 github-C2 风格控制台（goc2 适配层驱动）。
+// iframe 同源：内页 fetch 垫片自动从 localStorage 取 forang_token 鉴权。
 import { TerminalIcon } from "lucide-react";
-
-import C2Console from "../toolbox/_components/c2-console";
 
 export default function C2Page() {
   return (
-    <div className="space-y-4 p-4">
-      <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-        <TerminalIcon className="size-5" /> C2 指挥
-      </h1>
-      <C2Console />
+    <div className="flex h-[calc(100vh-56px)] flex-col">
+      <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-2">
+        <TerminalIcon className="size-4" />
+        <span className="text-sm font-semibold">C2 指挥</span>
+        <span className="text-xs text-zinc-500">Classic Console · goc2 通道</span>
+      </div>
+      <iframe
+        src="/api/tools/c2/classic/page"
+        className="min-h-0 w-full flex-1 border-0"
+        title="FORANG C2 Classic"
+      />
     </div>
   );
 }

@@ -934,6 +934,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tools/mumu/launch", s.mumuLaunch)
 	mux.HandleFunc("POST /api/tools/mumu/connect", s.mumuConnect)
 	mux.HandleFunc("GET /api/tools/mumu/config", s.mumuConfigGet)
+	s.registerC2ClassicRoutes(mux) // Classic C2 控制台（github-C2 UI 移植 + goc2 适配层）
 	mux.HandleFunc("GET /api/tools/c2/plugins", s.c2PluginsList) // C2 插件（后渗透动作库）
 	mux.HandleFunc("POST /api/tools/c2/plugins", s.c2PluginsCreate)
 	mux.HandleFunc("DELETE /api/tools/c2/plugins/{id}", s.c2PluginsDelete)
