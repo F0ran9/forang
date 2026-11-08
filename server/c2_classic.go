@@ -279,12 +279,7 @@ func (s *Server) c2classicStatic(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) c2classicStream(w http.ResponseWriter, r *http.Request) {
-	// EventSource 无法带 header：?token= 直传 JWT（同源 iframe，泄露面等价 cookie）
-	tok := r.URL.Query().Get("token")
-	if tok == "" || s.tokenRejectedByToken(tok) {
-		writeErr(w, 401, "token 无效")
-		return
-	}
+	// 鉴权由 requireAuth 的 ?ticket= 一次性票据完成（isSSEPath 命中 /stream 后缀）
 	fl, ok := w.(http.Flusher)
 	if !ok {
 		writeErr(w, 500, "streaming unsupported")
@@ -315,12 +310,6 @@ func (s *Server) c2classicStream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-}
-
-// tokenRejectedByToken 校验查询串里的 JWT。
-func (s *Server) tokenRejectedByToken(tok string) bool {
-	t, ok := verifyJWTToken(tok, s.jwtKey)
-	return !ok || s.tokenRejected(t)
 }
 
 // ───────────────────────── 适配 API ─────────────────────────
@@ -488,7 +477,7 @@ func (s *Server) c2xFilePreview(w http.ResponseWriter, r *http.Request, agent, p
 			payload["content"] = "[预览失败] base64 解码失败：" + truncateStr(out, 80)
 		}
 	}
-	c2xHub.publish("file_preview", map[string]any{"agent_id": agent, "data": mustJSON(payload)})
+	c2xHub.publish("file_preview", map[string]any{"agent_id": agent, "data": c2xJSON(payload)})
 	writeJSON(w, 200, map[string]any{"command_id": c2xRandID(), "command": "readfile " + p})
 }
 
@@ -1154,6 +1143,12 @@ func (s *Server) c2xGraph(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"nodes": out})
 }
 
+// c2xJSON marshal 容错（不 panic）。
+func c2xJSON(v any) json.RawMessage {
+	b, _ := json.Marshal(v)
+	return b
+}
+
 // ───────────────────────── 路由注册 ─────────────────────────
 
 func (s *Server) registerC2ClassicRoutes(mux *http.ServeMux) {
@@ -1189,9 +1184,4 @@ func (s *Server) registerC2ClassicRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/tools/c2/classic/plugins", s.c2xPluginsList)
 	mux.HandleFunc("POST /api/tools/c2/classic/plugins/run", s.c2xPluginsRun)
 	mux.HandleFunc("GET /api/tools/c2/classic/graph", s.c2xGraph)
-}
-
-func mustJSON(v any) json.RawMessage {
-	b, _ := json.Marshal(v)
-	return b
 }

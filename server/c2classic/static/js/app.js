@@ -7,7 +7,7 @@
   const _fetch = window.fetch.bind(window);
   window.fetch = function (url, opts) {
     opts = opts || {};
-    if (typeof url === "string" && url.startsWith("/api/")) {
+    if (typeof url === "string" && url.startsWith("/api/") && !url.startsWith("/api/auth/")) {
       url = "/api/tools/c2/classic" + url.slice(4);
       const tok = localStorage.getItem("forang_token") || parent.localStorage.getItem("forang_token");
       if (tok) {
@@ -95,12 +95,26 @@ let _sse = null;
 
 function connectSSE() {
   if (_sse) _sse.close();
-  _sse = new EventSource("/api/tools/c2/classic/stream?token=" + (localStorage.getItem("forang_token") || (parent.localStorage.getItem("forang_token") || "")));
+  // 审计修复：EventSource 无法带 Authorization——与平台其它 SSE 一致改用
+  // 一次性 60s 票据（?token= 长效 JWT 会进代理日志/浏览器历史）
+  (async () => {
+    try {
+      const tr = await fetch("/api/auth/sse-ticket", { method: "POST" });
+      const td = await tr.json();
+      _sse = new EventSource("/api/tools/c2/classic/stream?ticket=" + encodeURIComponent(td.ticket || ""));
+      wireSSE();
+    } catch (e) {
+      console.warn("[classic] SSE ticket failed", e);
+    }
+  })();
 
   // Default "message" event: only fires for unnamed SSE data (e.g. "data: connected")
-  _sse.onmessage = () => {};   // absorb, nothing needed
+  // _sse 在异步票据获取后才存在——句柄统一在 wireSSE() 内绑定（审计修复）
 
   // Named: new agent response (renamed from "message" to avoid collision)
+  function wireSSE() {
+  if (!_sse) return;
+  _sse.onmessage = () => {};   // absorb, nothing needed
   _sse.addEventListener("response", e => {
     const d = JSON.parse(e.data);
     // Intercept scan command responses → route to scan output area, not Terminal
@@ -217,7 +231,6 @@ function connectSSE() {
       ? "error" : "info";
     toast(d.message || "notification", kind);
   });
-
   _sse.onerror = () => {
     if (_authExpired) return;
     _origFetch("/api/stats").then(r => {
@@ -231,6 +244,7 @@ function connectSSE() {
       if (S.selectedAgent) loadMessages();
     }, 3000); });
   };
+  }
 }
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
@@ -3065,13 +3079,8 @@ function toggleMdPreview() {
   if (LIB.showPreview) {
     // P2-12: sanitize markdown-rendered HTML to prevent stored XSS
     // (library notes are operator-authored but could contain injected HTML)
-    let html = typeof marked !== "undefined"
-      ? marked.parse(ta.value) : `<pre>${esc(ta.value)}</pre>`;
-    html = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
-               .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, "")
-               .replace(/<object\b[^>]*>[\s\S]*?<\/object>/gi, "")
-               .replace(/\son\w+\s*=\s*"[^"]*"/gi, "")
-               .replace(/\son\w+\s*=\s*'[^']*'/gi, "");
+    const html = typeof marked !== "undefined"
+      ? sanitizeHTML(marked.parse(ta.value)) : `<pre>${esc(ta.value)}</pre>`;
     pre.innerHTML = html;
     ta.style.display  = "none";
     pre.style.display = "block";
@@ -4413,6 +4422,34 @@ async function graphRefresh() {
 }
 
 
+/* ═══ 安全：DOM 级 HTML 净化（审计修复）
+ * marked.parse 不净化 HTML——报告内容由 beacon 回显/审计明细汇聚（目标机可控），
+ * 未净化直接 innerHTML = 目标机 → 操作员浏览器存储型 XSS（窃取 localStorage token）。
+ * 规则：移除危险标签整体、on* 事件属性、javascript:/vbscript:/非图片 data: URL。 */
+function sanitizeHTML(html) {
+  const tpl = document.createElement("template");
+  tpl.innerHTML = String(html || "");
+  const BAD_TAGS = new Set(["script","iframe","object","embed","link","meta","base","style","form","input","button","textarea","select"]);
+  const walk = (root) => {
+    for (const el of [...root.querySelectorAll("*")]) {
+      if (BAD_TAGS.has(el.tagName.toLowerCase())) { el.remove(); continue; }
+      for (const attr of [...el.attributes]) {
+        const n = attr.name.toLowerCase();
+        if (n.startsWith("on")) { el.removeAttribute(attr.name); continue; }
+        if (n === "href" || n === "src" || n === "xlink:href" || n === "action") {
+          const v = (attr.value || "").trim().toLowerCase();
+          if (v.startsWith("javascript:") || v.startsWith("vbscript:") ||
+              (v.startsWith("data:") && !/^data:image\/(png|gif|jpeg|jpg|webp|svg)/.test(v))) {
+            el.removeAttribute(attr.name);
+          }
+        }
+      }
+    }
+  };
+  walk(tpl.content);
+  return tpl.innerHTML;
+}
+
 /* ═════════ 二期移植：反弹Shell（goc2 PTY xterm）/ 隧道 / 报告 ═════════ */
 
 const PTY = { term: null, fit: null, sid: null, agent: null, cursor: 0, timer: null, alive: false };
@@ -4532,7 +4569,7 @@ async function p2ReportLoad() {
   el.innerHTML = '<div style="color:var(--text-muted);padding:20px">Generating…</div>';
   const d = await _capi(`/api/report/${S.selectedAgent.id}`);
   if (!d) return;
-  el.innerHTML = window.marked ? marked.parse(d.report || "") : `<pre>${d.report || ""}</pre>`;
+  el.innerHTML = sanitizeHTML(window.marked ? marked.parse(d.report || "") : `<pre>${esc(d.report || "")}</pre>`);
 }
 
 // 覆盖原 report 下载（原实现走 Flask fmt=md）

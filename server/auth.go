@@ -195,8 +195,8 @@ func (s *Server) requireAuth(h http.Handler) http.Handler {
 		if strings.HasPrefix(p, "/api/auth/") || p == "/api/health" ||
 			strings.HasPrefix(p, "/api/tools/c2/download/") ||
 			strings.HasPrefix(p, "/api/tools/c2/classic/page") ||
-			strings.HasPrefix(p, "/api/tools/c2/classic/static/") ||
-			strings.HasPrefix(p, "/api/tools/c2/classic/stream") {
+			strings.HasPrefix(p, "/api/tools/c2/classic/static/") {
+			// classic/stream 不豁免：与平台其它 SSE 一致走 requireAuth 的 ?ticket= 一次性票据
 			h.ServeHTTP(w, r)
 			return
 		}
