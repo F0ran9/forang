@@ -61,6 +61,10 @@
       <button class="tab-btn active" data-tab="terminal" data-i18n="nav.terminal">⌨ 终端</button>
       <button class="tab-btn" data-tab="schedule">⏱ 定时</button>
       <button class="tab-btn" data-tab="files" data-i18n="nav.files">📁 文件</button>
+      <button class="tab-btn" data-tab="proc">📋 进程</button>
+      <button class="tab-btn" data-tab="net">🔍 网络探测</button>
+      <button class="tab-btn" data-tab="plugins">🧩 插件</button>
+      <button class="tab-btn" data-tab="graph">🕸 链路图</button>
       <button class="tab-btn" data-tab="sysinfo" data-i18n="nav.sysinfo">🖥 系统信息</button>
       <div id="tab-indicator" aria-hidden="true"></div>
     </nav>
@@ -329,7 +333,63 @@
       </div>
 
       <!-- SysInfo -->
-      <div class="tab-panel" id="panel-sysinfo">
+      <div class="tab-panel" <!-- FORANG 功能面板：进程 -->
+      <div class="tab-panel" id="panel-proc">
+        <div class="panel-toolbar">
+          <div class="toolbar-left"><span class="panel-title">📋 进程管理</span>
+            <span id="proc-agent-indicator" class="agent-indicator"></span></div>
+          <div class="toolbar-right">
+            <button class="btn-sm" onclick="procRefresh()">🔄 刷新</button>
+          </div>
+        </div>
+        <div style="flex:1;overflow:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="position:sticky;top:0;background:var(--bg-2)">
+              <th style="text-align:left;padding:6px 12px">PID</th>
+              <th style="text-align:left;padding:6px 12px">名称 / 命令</th>
+              <th style="text-align:left;padding:6px 12px">内存</th>
+              <th style="width:70px"></th></tr></thead>
+            <tbody id="proc-tbody"><tr><td colspan="4" style="padding:16px;text-align:center;opacity:.55">选择 Agent 后点「刷新」获取进程列表</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- FORANG 功能面板：网络探测 -->
+      <div class="tab-panel" id="panel-net">
+        <div class="panel-toolbar">
+          <div class="toolbar-left"><span class="panel-title">🔍 网络探测</span></div>
+          <div class="toolbar-right" style="display:flex;gap:6px;align-items:center">
+            <input type="text" id="net-host" value="127.0.0.1" style="width:120px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-1);color:var(--text);font-family:var(--mono);font-size:12px">
+            <input type="text" id="net-ports" value="22,80,443,3306,5432,6379,8080,8443" style="width:240px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-1);color:var(--text);font-family:var(--mono);font-size:12px">
+            <button class="btn-sm" onclick="netScan()">Portscan</button>
+            <button class="btn-sm" onclick="netNetstat()">netstat</button>
+          </div>
+        </div>
+        <pre id="net-out" style="flex:1;overflow:auto;margin:0;padding:14px 18px;font-family:var(--mono);font-size:11px;line-height:1.5;color:var(--text-1);white-space:pre-wrap">（结果）</pre>
+      </div>
+
+      <!-- FORANG 功能面板：插件 -->
+      <div class="tab-panel" id="panel-plugins">
+        <div class="panel-toolbar">
+          <div class="toolbar-left"><span class="panel-title">🧩 后渗透插件</span></div>
+          <div class="toolbar-right"><button class="btn-sm" onclick="pluginsRefresh()">🔄 刷新</button></div>
+        </div>
+        <div style="flex:1;overflow:auto;padding:12px 18px;display:flex;flex-direction:column;gap:10px">
+          <div id="plugin-list" style="display:flex;flex-direction:column;gap:8px"></div>
+          <pre id="plugin-out" style="display:none;margin:0;padding:12px 14px;background:var(--bg-1);border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:11px;line-height:1.5;color:var(--text-1);white-space:pre-wrap;max-height:50%;overflow:auto"></pre>
+        </div>
+      </div>
+
+      <!-- FORANG 功能面板：链路图 -->
+      <div class="tab-panel" id="panel-graph">
+        <div class="panel-toolbar">
+          <div class="toolbar-left"><span class="panel-title">🕸 攻击链路图</span></div>
+          <div class="toolbar-right"><button class="btn-sm" onclick="graphRefresh()">🔄 刷新</button></div>
+        </div>
+        <div id="graph-list" style="flex:1;overflow:auto;padding:12px 18px;display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+
+      id="panel-sysinfo">
         <div class="panel-toolbar">
           <span class="panel-title" id="sysinfo-title">系统信息 &amp; 敏感数据</span>
           <div class="toolbar-right">
