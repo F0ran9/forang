@@ -116,11 +116,14 @@ func (s *Server) gateCookieValid(r *http.Request, token string) bool {
 func (s *Server) gateMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 安全响应头（黑盒自审补齐，最外层覆盖静态/API/gate 全部响应）：
-		// XFO 防点击劫持 / XCTO 防 MIME 嗅探 / Referrer-Policy 防 token 经 Referrer 外送
+		// XCTO 防 MIME 嗅探 / Referrer-Policy 防 token 经 Referrer 外送。
+		// XFO 不能全局 DENY——/function/c2 顶栏 iframe 内嵌同源 Classic 控制台
+		// （/api/tools/c2/classic/page），会直接拒绝加载。改用 CSP
+		// frame-ancestors：仅同源可嵌，外部站点仍无法 iframe 本平台。
 		h := w.Header()
-		h.Set("X-Frame-Options", "DENY")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("Content-Security-Policy", "frame-ancestors 'self'")
 		enabled, token := s.gateConfig()
 		if !enabled || token == "" || r.URL.Path == "/api/health" {
 			next.ServeHTTP(w, r)
