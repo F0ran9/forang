@@ -55,17 +55,6 @@
 
 ---
 
-## 📈 参考项目热度
-
-> 下图是方法论参考项目 [Full-Chain-Sentinel-System](https://github.com/zgsfsec/Full-Chain-Sentinel-System) 的 Star History，**不是本仓库的 star 数**：2026-10 中旬至 11 月上旬由约 100 增长到 850+。FORANG 的审批治理、发包留证、监督模式等方法论参考自该项目（MIT）。
-
-<p align="center">
-  <img src="screenshots/reference-star-history.png" width="900" alt="Full-Chain-Sentinel-System Star History">
-</p>
-<p align="center"><sub>数据来源 star-history.com · 曲线对应 zgsfsec/full-chain-sentinel-system</sub></p>
-
----
-
 ## 全链路实测（三靶场，非摆拍）
 
 一次批量任务，平台自动完成：
@@ -196,3 +185,14 @@ go build -tags embedui -o forang ./cmd/artex
 <!-- ver-note -->
 > v0.5.50：C2 Classic 控制台（12 面板）+ Windows 全面板适配 + 免杀载荷工程（9 平台/AI 多态）+ 回连地址覆盖；C2 指挥 / Webshell 拆独立一级模块。
 > v0.5.23：release 产物与自更新资产全面更名 forang-*；一键更新解包双名兼容（前向 forang、回滚 artex）。
+
+---
+
+## ⭐ Star History
+
+<p align="center">
+  <a href="https://star-history.com/#F0ran9/forang&amp;Date">
+    <img src="https://api.star-history.com/svg?repos=f0ran9%2Fforang&amp;type=Date" width="800" alt="FORANG Star History">
+  </a>
+</p>
+<p align="center"><sub>图表由 star-history.com 实时生成 · 点击可查看交互版</sub></p>
