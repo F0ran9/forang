@@ -55,6 +55,17 @@
 
 ---
 
+## 📈 参考项目热度
+
+> 下图是方法论参考项目 [Full-Chain-Sentinel-System](https://github.com/zgsfsec/Full-Chain-Sentinel-System) 的 Star History，**不是本仓库的 star 数**：2026-10 中旬至 11 月上旬由约 100 增长到 850+。FORANG 的审批治理、发包留证、监督模式等方法论参考自该项目（MIT）。
+
+<p align="center">
+  <img src="screenshots/reference-star-history.png" width="900" alt="Full-Chain-Sentinel-System Star History">
+</p>
+<p align="center"><sub>数据来源 star-history.com · 曲线对应 zgsfsec/full-chain-sentinel-system</sub></p>
+
+---
+
 ## 全链路实测（三靶场，非摆拍）
 
 一次批量任务，平台自动完成：
