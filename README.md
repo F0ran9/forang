@@ -4,9 +4,9 @@
   <img src="https://img.shields.io/github/stars/F0ran9/forang?style=flat-square&color=00FF88" alt="stars"/>
   <img src="https://img.shields.io/github/forks/F0ran9/forang?style=flat-square&color=00D4FF" alt="forks"/>
   <img src="https://img.shields.io/github/issues/F0ran9/forang?style=flat-square&color=7C3AED" alt="issues"/>
-  <img src="https://img.shields.io/badge/Go-1.25-00ADD8?style=flat-square&logo=go&logoColor=white" alt="go"/>
+  <img src="https://img.shields.io/badge/Go-1.26.3-00ADD8?style=flat-square&logo=go&logoColor=white" alt="go"/>
   <img src="https://img.shields.io/badge/Next.js-14-black?style=flat-square&logo=next.js&logoColor=white" alt="nextjs"/>
-  <img src="https://img.shields.io/badge/PostgreSQL-14-4169E1?style=flat-square&logo=postgresql&logoColor=white" alt="postgres"/>
+  <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white" alt="postgres"/>
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="license"/>
 </p>
 
@@ -108,7 +108,7 @@ docker compose up -d
 
 ### 宿主机二进制
 
-依赖：Go 1.25+、Node 20+、PostgreSQL 14+。
+依赖：Go 1.26.3+、Node 20+、PostgreSQL 16+。
 
 > LLM 图片块扩展（留证截图视觉自检）依赖本项目的 norma 分支：
 > ```bash
@@ -161,7 +161,7 @@ go build -tags embedui -o forang ./cmd/artex
 
 ## 版本
 
-当前 **v0.5.0-forang**。近期重点：
+当前 **v0.5.58**（2026-11-11，见 [Releases](https://github.com/F0ran9/forang/releases)）。近期重点：
 
 - **C2 Classic 控制台**：12 面板（终端/文件/进程/网络探测/插件/链路图/反弹 Shell/资料库/隧道/报告/系统信息/定时），SSE 实时回显，全动作入攻击链路图
 - **Windows 全面板适配**：GBK 输出转码、引号安全 stdin 注入、CREATE_NO_WINDOW 零弹窗、GUI 子系统零黑框——CS/vshell 式无窗体验
@@ -183,6 +183,7 @@ go build -tags embedui -o forang ./cmd/artex
 - 许可证：AGPL-3.0（见 LICENSE）。
 
 <!-- ver-note -->
+> v0.5.58：全平台白盒+黑盒安全自审结论落档（存储型 XSS 净化 / SSE 一次性票据 / 安全响应头 + CSP frame-ancestors 兼容同源 iframe）、Playwright 全站 22 页走查；README 版本与技术栈口径统一，新增 Star History 动态曲线。
 > v0.5.50：C2 Classic 控制台（12 面板）+ Windows 全面板适配 + 免杀载荷工程（9 平台/AI 多态）+ 回连地址覆盖；C2 指挥 / Webshell 拆独立一级模块。
 > v0.5.23：release 产物与自更新资产全面更名 forang-*；一键更新解包双名兼容（前向 forang、回滚 artex）。
 
