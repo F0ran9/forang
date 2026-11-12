@@ -25,9 +25,23 @@
 - `webshell_plugin` 补 `servlet_list`/`jar_load`/`screenshot` 与 `jar_path` 参数；Java 载体拒绝文案与能力边界同步（只剩压缩是脚本载体专属）。
 - playbook 段 [B']：Java 载体缺驱动时「先 jar_load / 指向已有 jar，再 db_exec 带 jar_path，依赖包一起给」，并说明 `servlet_list` 的用途（过滤器链、暴露的管理端点、内存马是否真的登记上）。
 
+#### 更正 0.5.60 的一处说法：Undertow 并不支持运行期注册 Filter
+
+0.5.60 写的是「`servletcontext` 路径给 Undertow / WebLogic / GlassFish 用」。实测（Undertow 2.3.18 + jakarta，最小载体跑在 18083）：
+
+- `ServletContextImpl.addFilter` 先 `ensureNotInitialized()`，已初始化的上下文直接抛 `UT010041: The servlet context has already been initialized, you can only call this method from a ServletContainerInitializer or a ServletContextListener`；
+- 即使绕过它，`ServletPathMatches` 的匹配数据在首次请求后就缓存（`initData()` 只是 `getData()`，没有重建入口），Filter 链在部署期就定死了。
+
+所以这条路径只在「上下文还没初始化」时才可能生效，对运行中的目标基本无效。相应调整：
+
+- `memshell_probe` 对非 Tomcat/Jetty 容器补 `note`，直接说明该容器拒绝运行期注册、这条路径大概率失败，探到的 context 仍可用于信息收集；
+- 注入/卸载失败信息剥到根因（`rootCause`），不再只显示 `InvocationTargetException` —— 上面那句 UT010041 才是可操作的信息。
+
 ### 验证（192.168.17.150）
 
 - Servlet 枚举：Tomcat 10.1.61（`api=jakarta`，2 servlet/1 filter，映射正确）、Jetty 11.0.24（jakarta）、Jetty 9.4.58（`api=javax`）三处均正确。
+- Servlet 枚举另在 Undertow 2.3.18（本机最小载体，jakarta）验证：`servlets=[default, t]` 映射正确，`attributes` 能读到 `jakarta.servlet.context.tempdir`。
+- 内存马在 Undertow 上如实失败（UT010041），不再伪装成「路径都试过了」。
 - Jar + 驱动直连：把 12.9MB 的 sqlite-jdbc 与 68KB 的 slf4j 经平台 API 上传到 Jetty 11 目标（b64 后 17.2MB 报文通过）→ `jar_load` 回报 124 个 class、驱动 `org.sqlite.JDBC` → `db_exec` 带两个 jar 路径建表/插入（affected=1）/查询（`{"id":"1","name":"forang"}`），驱动标识 `org.sqlite.JDBC@/tmp/forang-sqlite.jar,/tmp/forang-slf4j.jar`。
 - 截屏：Tomcat/Jetty 均回 headless 说明（符合预期）。
 - 回归：exec/proc/net/db_probe、内存马注入→触发 `uid=0`→list→卸载→恢复 404 全通；`go test ./webshell/ ./agent/` 全绿。

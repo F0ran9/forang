@@ -306,7 +306,7 @@ func (t *ToolSet) webshellPrivesc() actool.CoreTool {
 // 没装 mysql 客户端也能直连数据库、把内存马挂进容器不回写任何文件。
 func (t *ToolSet) webshellPlugin() actool.CoreTool {
 	return writeTool("webshell_plugin",
-		"在已部署的 webshell 上执行插件（等价于控制台插件面板）。op 取值：db_exec(以目标身份直连其内网数据库执行 SQL)/db_probe(探测目标 classpath 上可用的 JDBC 驱动)/net_scan(以目标为跳板扫描内网端口)/net_list(列目标本机 TCP 连接，不依赖 netstat)/proc_list(进程列表，Linux 读 /proc、Windows 走 tasklist)/servlet_list(枚举 Servlet/Filter 注册与映射，看过滤器链与暴露的管理端点)/jar_load(目标机上已有 jar 的动态装载与驱动探测)/screenshot(截屏，headless 服务器会如实报不可用)/memshell_add_filter(注入内存马)/memshell_list(列已注入内存马)/memshell_del(卸载内存马，支持 Tomcat/Jetty，其他 Servlet 容器走 3.0 动态注册、部分容器不支持运行时卸载会如实报错)。carrier=java 时同样可用（载荷内已用 JDK 自带 API 重写）：db 若目标 classpath 没驱动，用 jar_path 指向目标机上的驱动 jar（可逗号分隔多个，驱动包常依赖 slf4j），载荷会绕过 DriverManager 直接 driver.connect。授权测试场景专用。",
+		"在已部署的 webshell 上执行插件（等价于控制台插件面板）。op 取值：db_exec(以目标身份直连其内网数据库执行 SQL)/db_probe(探测目标 classpath 上可用的 JDBC 驱动)/net_scan(以目标为跳板扫描内网端口)/net_list(列目标本机 TCP 连接，不依赖 netstat)/proc_list(进程列表，Linux 读 /proc、Windows 走 tasklist)/servlet_list(枚举 Servlet/Filter 注册与映射，看过滤器链与暴露的管理端点)/jar_load(目标机上已有 jar 的动态装载与驱动探测)/screenshot(截屏，headless 服务器会如实报不可用)/memshell_add_filter(注入内存马)/memshell_list(列已注入内存马)/memshell_del(卸载内存马；注入只有 Tomcat/Jetty 有专用路径，Undertow 这类容器已实测拒绝运行期注册 Filter（UT010041），会如实报错，别反复重试)。carrier=java 时同样可用（载荷内已用 JDK 自带 API 重写）：db 若目标 classpath 没驱动，用 jar_path 指向目标机上的驱动 jar（可逗号分隔多个，驱动包常依赖 slf4j），载荷会绕过 DriverManager 直接 driver.connect。授权测试场景专用。",
 		obj(map[string]any{
 			"url":         str("webshell 完整 URL"),
 			"password":    str("连接密码"),
