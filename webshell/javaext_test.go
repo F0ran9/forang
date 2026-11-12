@@ -186,6 +186,7 @@ func TestJavaExtOpMapping(t *testing.T) {
 		{"net_list", "net", []string{"list"}},
 		{"db_exec", "db", []string{"pgsql", "10.0.0.5", "5432", "u", "p", "d", "SELECT 1"}},
 		{"db_probe", "db", []string{"drivers"}},
+		{"memshell_probe", "memshell_probe", nil},
 		{"memshell_add_filter", "memshell_inject", []string{"fs", "X-A", "b", "cmd"}},
 		{"memshell_list", "memshell_list", nil},
 		{"memshell_del", "memshell_remove", []string{"fs"}},

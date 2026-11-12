@@ -260,6 +260,26 @@ func workerTrafficBlock(recording bool) string {
 	return "\n\n**流量工具**：\n- traffic_search / traffic_get / traffic_blob：回看响应、找已访问过的资源，**先查流量、不要重复 curl 同一 URL**。traffic_search **必须指定 host**、默认只回 3 条极轻量索引(id/method/url/status/resp_len，无响应内容)，需要更多显式调大 limit；可用 body_contains 在请求/响应正文里做全文搜索(至少 3 字符，支持子串和中文，如找密码/密钥/报错/内网地址)；要看某条原文用 traffic_get(id)，其中超大正文显示为 @blob sha256:<hash>，用 traffic_blob(hash) 分段取全文。"
 }
 
+// webshellPlaybookBlock is 段 [B']: the webshell/post-exploitation playbook.
+//
+// Code-owned (not seeded into agent_prompts) on purpose: the default prompt bodies
+// are first-insert only, so anything written into workerDefaultTmpl never reaches an
+// instance whose prompt row already exists. Keeping this here means an upgrade adds
+// the playbook to every running deployment, while still letting an operator edit the
+// role body in the UI without ever dropping it.
+//
+// Kept short deliberately — it rides along with every work intent, including ones
+// that never touch a shell.
+func webshellPlaybookBlock() string {
+	return "\n\n**拿到 shell 之后（只在确实需要驻留时）**：\n" +
+		"- 先问一句「非上 shell 不可吗」：能直接读文件/打接口就别驻留，少一个落地物就少一处痕迹。\n" +
+		"- 链路是 webshell_gen（生成载体并落库成目标）→ webshell_exec（执行）→ webshell_plugin（插件通道：db_probe/db_exec 直连目标内网库、net_scan 以其为跳板扫内网、net_list/proc_list 看本机连接与进程，不依赖目标装 netstat/ps）。\n" +
+		"- carrier=java 时插件同样可用（载荷用 JDK 自带 API 重写，不在目标落脚本文件）；目标缺 JDBC 驱动时 db_exec 会回「试过哪些类 + 换个办法」，别拿同一组参数反复重试。\n" +
+		"- webshell_privesc 只做只读采集（内核/权限位/可写服务/凭据可读性）给结论，**不内置 exp、不自动提权**；要不要动手由操作员定。\n" +
+		"- 内存马 memshell_add_filter **必须**带 gate_header + gate_value（无门禁等于给目标开公网后门），验证完用 memshell_del 卸载；Tomcat/Jetty 走各自容器接口，其它容器走 Servlet 3.0 动态注册，部分容器不支持运行时卸载，会如实报错。\n" +
+		"- 纪律：不留持久化后门、不改业务数据、不清日志；RCE 验证只用 id/whoami 这类无害命令；用完即卸，卸载与残留情况写进 fact。"
+}
+
 // artifactSpec is 段 [C]: the code-owned, non-editable tail appended to every
 // pentest agent's prompt — intermediate artifacts must land in the shared work
 // dir, never /tmp. Guaranteed present regardless of how the DB body is edited.
@@ -296,7 +316,7 @@ func workerSystem(proxyAddr, caCert, dataDir, runDir string) string {
 	// caCert is present only when the recording MITM is on, which is exactly when
 	// the traffic_* tools are registered — so it gates the traffic-tool note.
 	// Optional finding guidance is added for every role after tool resolution.
-	return body + workerTrafficBlock(caCert != "") + workerArtifactSpec(runDir)
+	return body + workerTrafficBlock(caCert != "") + webshellPlaybookBlock() + workerArtifactSpec(runDir)
 }
 
 // renderIntentTask formats the claimed intent for the worker's launch USER message:

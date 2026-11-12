@@ -80,3 +80,21 @@ func TestRenderSystemOverrideAndFallback(t *testing.T) {
 		t.Fatalf("worker without proxy must NOT inject trafficTool: %q", noProxy)
 	}
 }
+
+// 内存马/后渗透 playbook 是代码尾块（段 [B']），不随 DB 正文走：库里存的是旧没
+// 有这段的正文时，升级后仍必须出现——这正是它不放进 workerDefaultTmpl 的原因。
+func TestWorkerSystemKeepsWebshellPlaybook(t *testing.T) {
+	t.Cleanup(func() { PromptOverride = nil })
+	PromptOverride = func(k string) (string, bool) {
+		if k == "worker" {
+			return "WORKER BODY", true
+		}
+		return "", false
+	}
+	got := workerSystem("", "", "/data", "/data/tasks/1/i1")
+	for _, want := range []string{"WORKER BODY", "拿到 shell 之后", "webshell_privesc", "memshell_add_filter", "中间产物输出规约"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("workerSystem 缺少 %q", want)
+		}
+	}
+}

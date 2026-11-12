@@ -373,6 +373,9 @@ func javaExtOp(op string, p ExtParams) (string, []string, bool) {
 	switch op {
 	case "memshell_add_filter", "memshell":
 		return "memshell_inject", []string{p.FilterName, p.GateHeader, p.GateValue, "cmd"}, true
+	case "memshell_probe":
+		// 只报告容器/Servlet API/可尝试的注入路径，不动容器
+		return "memshell_probe", nil, true
 	case "memshell_list":
 		return "memshell_list", nil, true
 	case "memshell_del":

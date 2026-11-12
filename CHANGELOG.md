@@ -4,6 +4,33 @@
 
 ## [Unreleased]
 
+## [0.5.60] - 2026-11-12
+
+### Webshell
+
+- **内存马跨容器**：此前只能挂 Tomcat（硬依赖 `StandardContext` 与 `org.apache.tomcat.util.descriptor.web.*`）。现按容器挑路径、失败顺次降级，返回里带 `via=` 说明实际走的是哪条：
+  - `tomcat-context`：`FilterDef` + `FilterMap` + `filterConfigs` 三处登记（原路径，行为未变）；
+  - `jetty-handler`：`ServletHandler` 的 `_filters` 列表 + `FilterMapping`；已启动的 Jetty 会拒绝 `addFilter*`，此时直接改列表并手动 `start()` 让容器把 `init(FilterConfig)` 跑完。类名按 `org.eclipse.jetty.servlet.*` → `ee10/ee9/ee8` 顺序探测，覆盖 Jetty 9.4–12；
+  - `servletcontext`：Servlet 3.0 的 `addFilter` + `addMappingForUrlPatterns`，Undertow / WebLogic / GlassFish 这类容器只认这条路。
+- **容器探测（`memshell_probe`）**：输出容器种类、Servlet API（javax/jakarta）、可尝试的注入路径与当前 filter 数；`memshell_list` 也带 `container`/`via`，便于判断「注入成功但没生效」是路径问题还是实例化问题。
+- **卸载语义修正**：容器没有运行时卸载接口时（Servlet 3.0 只增不删），如实回「需重启容器或改用专有路径」，不再假装成功；同名 filter 本来就不存在时回「未找到（可能已卸载）」，不再报失败。
+- `memshell_probe` 纳入 Java 载体白名单（此前只有 UI/脚本载体能调）。
+
+### Agent
+
+- 新增代码尾块 **WebShell 后渗透 playbook**（段 [B']，`webshellPlaybookBlock`）：worker 的提示词正文来自 `agent_prompts`（首次播种后由用户编辑），改代码里的默认正文到不了已部署实例；这段放在代码里随二进制追加，升级即生效。内容：非必要不驻留、`webshell_gen` → `webshell_exec` → `webshell_plugin` 的链路、Java 载体插件可用性与缺驱动时的处理、提权面只读、内存马必须带门禁且验证后卸载。
+- `pentest` 与 `web` 预设同步补「拿到 shell 之后」的方法论段落（`webshell_privesc` 只读、内存马带门禁与卸载纪律）。
+- `webshell_plugin` 工具描述补内存马的容器支持范围。
+
+#### 修复的问题（Jetty 真机上才暴露的五处）
+
+- **Jetty 把容器类对 webapp 隐藏**：`Class.forName("org.eclipse.jetty.servlet.FilterHolder")` 在 JSP 里必然 `ClassNotFoundException`（`WebAppClassLoader` 屏蔽了 `org.eclipse.jetty.*`）。改用「宿主对象自己的类加载器」加载（`hostClass`）。
+- **新建的 FilterHolder 不 `start()` 不生效**：holder 处于未初始化状态时 Jetty 会在建链时跳过，表现为「注入返回成功、`memshell_list` 也列出了，但请求根本不经过它」。注入后补 `start()`。
+- **Jetty 9.4 与 10/11 的内部存储形态不同**：9.4 是 `FilterHolder[]` / `FilterMapping[]` 数组，10/11 是 `List`。按 `List` 强转在 9.4 上会「列表看不到、卸载找不到」，现按两种形态读写（`jettyList` / `storeJettyList`），并补 `invalidateChainsCache()` 让 9.4 丢掉旧链缓存。
+- **反射调用 `chain.doFilter` 必须先 `setAccessible(true)`**：Jetty 的 `ServletHandler$ChainEnd` 是包私有类，方法虽为 public，但从载荷的类加载器看不可访问，会 `IllegalAccessException`——而 Proxy 又会把它裹成 `UndeclaredThrowableException`，最终每个「不带门禁」的请求都 500，页面上看不到任何有用信息。
+- **异常透传**：链式调用抛出的异常原来被「反射 + Proxy」两层包装，业务 500 的真实原因丢失。现解开 `InvocationTargetException`，受检异常包成 `RuntimeException` 抛出。
+- **Servlet 3.0 `addFilter` 在已启动的 Jetty 上不可用**（`Context.checkDynamic` 直接抛 `IllegalStateException`），所以 Jetty 只能走 `jetty-handler`；该路径保留为其它容器（Undertow/WebLogic）与未启动上下文的兜底。
+
 ## [0.5.59] - 2026-11-12
 
 > 0.5.0–0.5.58 的中间迭代未逐条记录，本节汇总本机 webshell 模块成型后的完整能力面。
