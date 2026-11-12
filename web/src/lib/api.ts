@@ -1309,11 +1309,13 @@ export const api = {
   kbDictDelete: (id: number) => del<{ ok: boolean }>(`/kb/dicts/${id}`),
   kbDictExportUrl: (kind: string) => `/api/kb/dicts/export?kind=${kind}`,
   // ---- Webshell 控制台 / C2 指挥台（UI 直连）----
-  webshellExec: (payload: { target_id?: number; url?: string; password?: string; encoder?: string; script_type?: string; op: string; cmd?: string; path?: string; content?: string; content_b64?: string; cwd?: string; timeout?: number; headers?: string }) =>
+  webshellExec: (payload: { target_id?: number; url?: string; password?: string; encoder?: string; script_type?: string; carrier?: string; disguise?: string; op: string; cmd?: string; path?: string; content?: string; content_b64?: string; cwd?: string; timeout?: number; headers?: string }) =>
     post<{ data: { ok: boolean; output: string; cwd: string; error: string; data_len: number; data_b64?: string } }>("/tools/webshell/exec", payload),
+  webshellPrivesc: (payload: { target_id?: number; url?: string; password?: string; encoder?: string; script_type?: string; carrier?: string; disguise?: string; headers?: string; timeout?: number }) =>
+    post<{ data: { os: string; user: string; host: string; summary: string; text: string; findings: { id: string; title: string; risk: string; detail: string; evidence?: string }[] } }>("/tools/webshell/privesc", payload),
   webshellExt: (payload: { target_id?: number; url?: string; password?: string; encoder?: string; script_type?: string; op: string; headers?: string; timeout?: number; ext: Record<string, unknown> }) =>
     post<{ data: { ok: boolean; output: string; error: string; data_len: number; data_b64?: string } }>("/tools/webshell/ext", payload),
-  wsGenerate: (payload: { script_type: string; encoder: string; password: string; filename?: string; gate_header?: string; gate_value?: string; evasive?: boolean; evasive_level?: number }) =>
+  wsGenerate: (payload: { script_type: string; encoder: string; password: string; filename?: string; gate_header?: string; gate_value?: string; carrier?: string; evasive?: boolean; evasive_level?: number }) =>
     post<{ data: { path: string; filename: string; code: string; size: number; self_check?: { script_type: string; checked: number; leaked: { name: string }[]; passed: boolean } } }>("/tools/webshell/generate", payload),
   wsGenerateAI: (payload: { script_type: string; password: string; features?: string; llm_profile?: number }) =>
     post<{ data: { path: string; filename: string; code: string; size: number; generator: string; self_check?: { passed: boolean } } }>("/tools/webshell/generate-ai", payload),
@@ -1623,6 +1625,8 @@ export interface WSTarget {
   script_type: string;
   note: string;
   headers: string;
+  carrier?: string;   // ''/script=脚本载体；java=Java 动态载荷载体
+  disguise?: string;  // ''/png/pdf/gif 响应体伪装链
   alive: boolean;
   last_check: string;
   updated_at: string;

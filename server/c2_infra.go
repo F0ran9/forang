@@ -244,15 +244,17 @@ func (s *Server) backupFull(w http.ResponseWriter, r *http.Request) {
 
 	// webshell targets
 	wsTargets := []map[string]any{}
-	rows, _ = s.m.PG().Query(`SELECT id, group_name, name, url, password, encoder, script_type, note FROM webshell_targets ORDER BY id`)
+	rows, _ = s.m.PG().Query(`SELECT id, group_name, name, url, password, encoder, script_type, note,
+		COALESCE(carrier,''), COALESCE(disguise,'') FROM webshell_targets ORDER BY id`)
 	if rows != nil {
 		for rows.Next() {
 			var id int64
-			var g, n, u, p, e, st, note string
-			if rows.Scan(&id, &g, &n, &u, &p, &e, &st, &note) == nil {
+			var g, n, u, p, e, st, note, carrier, disguise string
+			if rows.Scan(&id, &g, &n, &u, &p, &e, &st, &note, &carrier, &disguise) == nil {
 				wsTargets = append(wsTargets, map[string]any{
 					"id": id, "group": g, "name": n, "url": u, "password": p,
 					"encoder": e, "script_type": st, "note": note,
+					"carrier": carrier, "disguise": disguise,
 				})
 			}
 		}

@@ -672,7 +672,8 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 	tools = append(tools, t.fridaTools()...) // frida 动态调试（脱壳/反检测/明文流量）
 	tools = append(tools, t.surveyTools()...) // 资产测绘（FOFA/Quake/Hunter，未配置时工具报错引导）
 	tools = append(tools, t.apiModelTools()...) // 业务建模（操作员要求时 agent 合并 OpenAPI 文档）
-	tools = append(tools, t.webshellGen(), t.webshellExec()) // webshell 生成/连接（移植自 AI-PENTEST）
+	tools = append(tools, t.webshellGen(), t.webshellExec(), // webshell 生成/连接（移植自 AI-PENTEST）
+		t.webshellPrivesc(), t.webshellPlugin()) // 提权面分析 + 插件通道（数据库/内网/进程/内存马）
 	tools = append(tools, t.c2Tools()...) // C2 指挥（对接 goc2-server 管理 API）
 	tools = append(tools, t.kbSearchTool()) // 知识库检索（跨任务经验复用）
 	tools = append(tools, t.dictAddTool(), t.dictQueryTool()) // 字典中心：沉淀 + 查询
@@ -712,7 +713,8 @@ func (t *ToolSet) MainAgentTools() []actool.CoreTool {
 	tools = append(tools, t.apiModelTools()...)
 	tools = append(tools, t.surveyTools()...)
 	tools = append(tools, t.screenshotTool()) // 网页截图（漏洞证据）
-	tools = append(tools, t.webshellGen(), t.webshellExec()) // webshell 生成/连接（移植自 AI-PENTEST）
+	tools = append(tools, t.webshellGen(), t.webshellExec(), // webshell 生成/连接（移植自 AI-PENTEST）
+		t.webshellPrivesc(), t.webshellPlugin()) // 提权面分析 + 插件通道（数据库/内网/进程/内存马）
 	tools = append(tools, t.c2Tools()...) // C2 指挥（对接 goc2-server 管理 API）
 	tools = append(tools, t.kbSearchTool()) // 知识库检索（跨任务经验复用）
 	tools = append(tools, t.dictAddTool(), t.dictQueryTool()) // 字典中心：沉淀 + 查询

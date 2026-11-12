@@ -27,7 +27,7 @@ var auditDeniedTools = []string{
 	"mcp__*",
 	"traffic_*",
 	"repeater_*", "web_screenshot",
-	"webshell_gen", "webshell_exec", "auto_escalate", "fingerprint",
+	"webshell_gen", "webshell_exec", "webshell_privesc", "webshell_plugin", "auto_escalate", "fingerprint",
 	"port_scan", "dir_scan",
 	"c2_*",
 	"droid_*", "frida_*",

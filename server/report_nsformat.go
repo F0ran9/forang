@@ -214,14 +214,16 @@ type actionRow struct {
 
 // actionLabelCN action 类型 → 中文标签（与前端 ACTION_LABELS 一致）。
 var actionLabelCN = map[string]string{
-	"webshell_gen":  "WebShell 生成",
-	"webshell_exec": "WebShell 执行",
-	"auto_escalate": "自动升级",
-	"c2_exec":       "C2 指挥",
-	"c2_beacon":     "C2 Beacon",
-	"fingerprint":   "指纹识别",
-	"port_scan":     "端口扫描",
-	"dir_scan":      "目录扫描",
+	"webshell_gen":     "WebShell 生成",
+	"webshell_exec":    "WebShell 执行",
+	"webshell_privesc": "提权面分析",
+	"webshell_plugin":  "WebShell 插件",
+	"auto_escalate":    "自动升级",
+	"c2_exec":          "C2 指挥",
+	"c2_beacon":        "C2 Beacon",
+	"fingerprint":      "指纹识别",
+	"port_scan":        "端口扫描",
+	"dir_scan":         "目录扫描",
 }
 
 // taskActionRows 读取本任务探索图的攻击动作节点（kind=action），按时间升序。

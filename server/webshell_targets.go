@@ -30,7 +30,8 @@ func (s *Server) wsTargetsList(w http.ResponseWriter, r *http.Request) {
 		where += " AND group_name = $" + itoa(len(args))
 	}
 	rows, err := s.m.PG().Query(`SELECT id, group_name, COALESCE(name,''), url, password, encoder,
-		script_type, COALESCE(note,''), COALESCE(headers,''), alive, COALESCE(last_check,''), updated_at
+		script_type, COALESCE(note,''), COALESCE(headers,''), COALESCE(carrier,''), COALESCE(disguise,''),
+		alive, COALESCE(last_check,''), updated_at
 		FROM webshell_targets`+" WHERE "+where+" ORDER BY group_name, id DESC LIMIT 500", args...)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -47,6 +48,8 @@ func (s *Server) wsTargetsList(w http.ResponseWriter, r *http.Request) {
 		ScriptType  string `json:"script_type"`
 		Note        string `json:"note"`
 		Headers     string `json:"headers"`
+		Carrier     string `json:"carrier"`
+		Disguise    string `json:"disguise"`
 		Alive       bool   `json:"alive"`
 		LastCheck   string `json:"last_check"`
 		UpdatedAt   string `json:"updated_at"`
@@ -57,7 +60,8 @@ func (s *Server) wsTargetsList(w http.ResponseWriter, r *http.Request) {
 		var pw string
 		var ts sql.NullTime
 		if err := rows.Scan(&it.ID, &it.Group, &it.Name, &it.URL, &pw, &it.Encoder,
-			&it.ScriptType, &it.Note, &it.Headers, &it.Alive, &it.LastCheck, &ts); err != nil {
+			&it.ScriptType, &it.Note, &it.Headers, &it.Carrier, &it.Disguise,
+			&it.Alive, &it.LastCheck, &ts); err != nil {
 			continue
 		}
 		it.HasPassword = strings.TrimSpace(pw) != ""
@@ -81,6 +85,8 @@ func (s *Server) wsTargetsSave(w http.ResponseWriter, r *http.Request) {
 		ScriptType string `json:"script_type"`
 		Note       string `json:"note"`
 		Headers    string `json:"headers"`
+		Carrier    string `json:"carrier"`
+		Disguise   string `json:"disguise"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
@@ -103,6 +109,26 @@ func (s *Server) wsTargetsSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "headers 需为 JSON 对象")
 		return
 	}
+	// 载荷形态要先校验再落库：存进去一个前端下拉里没有、后端也执行不了的值，
+	// 只会在真正连 shell 时才暴露，排查成本高。
+	if b.Carrier == "java" {
+		if b.ScriptType != "jsp" && b.ScriptType != "jspx" {
+			writeErr(w, 400, "Java 载体只支持 jsp/jspx 目标")
+			return
+		}
+	} else if b.Carrier != "" && b.Carrier != "script" {
+		writeErr(w, 400, "未知 carrier: "+b.Carrier+"（可选空/script/java）")
+		return
+	}
+	if d, derr := webshell.GetDisguise(b.Disguise); derr != nil {
+		writeErr(w, 400, derr.Error())
+		return
+	} else if d == nil {
+		b.Disguise = "" // none/off/空 统一归一成「不伪装」
+	}
+	if b.Carrier == "script" {
+		b.Carrier = "" // 归一化：空串即默认脚本载体
+	}
 	if b.ID > 0 {
 		// 密码留空 = 保持原密码（前端编辑表单不再回显密码，见列表脱敏）。
 		var pwArg any
@@ -111,8 +137,8 @@ func (s *Server) wsTargetsSave(w http.ResponseWriter, r *http.Request) {
 		}
 		_, err := s.m.PG().Exec(`UPDATE webshell_targets SET group_name=$2,name=$3,url=$4,
 			password=CASE WHEN $5::text IS NULL THEN password ELSE $5 END,
-			encoder=$6,script_type=$7,note=$8,headers=$9,updated_at=now() WHERE id=$1`,
-			b.ID, b.Group, b.Name, b.URL, pwArg, b.Encoder, b.ScriptType, truncateStr(b.Note, 4000), b.Headers)
+			encoder=$6,script_type=$7,note=$8,headers=$9,carrier=$10,disguise=$11,updated_at=now() WHERE id=$1`,
+			b.ID, b.Group, b.Name, b.URL, pwArg, b.Encoder, b.ScriptType, truncateStr(b.Note, 4000), b.Headers, b.Carrier, b.Disguise)
 		if err != nil {
 			writeErr(w, 500, err.Error())
 			return
@@ -121,9 +147,9 @@ func (s *Server) wsTargetsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id int64
-	err := s.m.PG().QueryRow(`INSERT INTO webshell_targets (group_name,name,url,password,encoder,script_type,note,headers)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-		b.Group, b.Name, b.URL, s.wsEncryptPassword(b.Password), b.Encoder, b.ScriptType, truncateStr(b.Note, 4000), b.Headers).Scan(&id)
+	err := s.m.PG().QueryRow(`INSERT INTO webshell_targets (group_name,name,url,password,encoder,script_type,note,headers,carrier,disguise)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+		b.Group, b.Name, b.URL, s.wsEncryptPassword(b.Password), b.Encoder, b.ScriptType, truncateStr(b.Note, 4000), b.Headers, b.Carrier, b.Disguise).Scan(&id)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -151,7 +177,8 @@ func (s *Server) wsTargetsCheck(w http.ResponseWriter, r *http.Request) {
 		IDs []int64 `json:"ids"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&b)
-	rows, err := s.m.PG().Query(`SELECT id, url, password, encoder, script_type, COALESCE(headers,'')
+	rows, err := s.m.PG().Query(`SELECT id, url, password, encoder, script_type, COALESCE(headers,''),
+		COALESCE(carrier,''), COALESCE(disguise,'')
 		FROM webshell_targets`)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -159,12 +186,12 @@ func (s *Server) wsTargetsCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	type trow struct {
-		id, url, pw, enc, st, headers string
+		id, url, pw, enc, st, headers, carrier, disguise string
 	}
 	var all []trow
 	for rows.Next() {
 		var t trow
-		if rows.Scan(&t.id, &t.url, &t.pw, &t.enc, &t.st, &t.headers) == nil {
+		if rows.Scan(&t.id, &t.url, &t.pw, &t.enc, &t.st, &t.headers, &t.carrier, &t.disguise) == nil {
 			t.pw = s.wsDecryptPassword(t.pw)
 			all = append(all, t)
 		}
@@ -198,6 +225,7 @@ func (s *Server) wsTargetsCheck(w http.ResponseWriter, r *http.Request) {
 			defer func() { <-sem }()
 			cli := &webshell.Client{
 				URL: t.url, Password: t.pw, Encoder: t.enc, ScriptType: t.st, Timeout: 12 * time.Second,
+				Carrier: t.carrier, Disguise: t.disguise,
 			}
 			if t.headers != "" {
 				var hs map[string]string

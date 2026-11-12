@@ -4,6 +4,38 @@
 
 ## [Unreleased]
 
+## [0.5.59] - 2026-11-12
+
+> 0.5.0–0.5.58 的中间迭代未逐条记录，本节汇总本机 webshell 模块成型后的完整能力面。
+> 该模块是对哥斯拉（Godzilla）二开版能力的**对标重写**，未复制其源码：那套是 GPL/授权不明的
+> Java Swing 单体，直接搬代码会污染本项目的 AGPL-3.0 分发。
+
+### Webshell
+
+#### 新增的功能
+
+- **Java 动态载荷（jsp/jspx 载体）**：载荷源码随二进制内嵌，首次调用时在目标端用 `javac --release 8` 现编成字节码（主版本 52），经 wire 协议下发后由载体 `defineClass` + 反射调用，目标端不落任何文件。编译产物按「源码摘要 + javac 主版本」缓存。目标端只需 JRE 8+，不依赖脚本引擎，对禁用 `Runtime.exec` 之外一切脚本执行的环境仍可用。
+- **内存马（Tomcat Filter，javax/jakarta 双兼容）**：不用 Nashorn（JDK 15 已移除），改用 `java.lang.reflect.Proxy` 为容器自身的 Filter 接口生成实现，反射定位 `StandardContext` 后登记 filterDef/filterMap/filterConfig 三处；门禁走自定义请求头，未带门禁的流量原样放行。支持注入、列举、卸载，卸载后路由恢复原状。
+- **提权面分析**：只读采集 + 结构化判定，Linux 12 项 / Windows 8 项（SUID、sudo 配置、docker 组与 docker.sock、可写服务路径、计划任务、内核版本、Windows 令牌权限与 AlwaysInstallElevated 等），输出 risk 分级线索与原始证据。**不内置任何 exp**：第三方 exp 授权状态不明会污染分发授权，且落地即被查杀；平台负责判断可走哪条路，利用由 Agent 决定。
+- **Java 载荷插件：进程 / 网络 / 数据库**：脚本载体那三个插件靠目标端解释器跑源码，Java 载体只有字节码，因此在载荷里用 JDK 自带 API 等价重写——进程读 `/proc`（Windows 走 `tasklist`，不依赖目标装没装 `ps`）、连接读 `/proc/net/tcp`（不依赖 `netstat`）、内网扫描用非阻塞 `SocketChannel` + `Selector`（不额外起线程，也避免内部类多产 class）、数据库走 JDBC 直连并回结构化结果。回显结构与脚本插件严格同构，前端面板一套通用。
+- **响应体伪装链**：目标端回包可包成 PNG（tEXt 元数据块）、PDF（`/Thumb` FlateDecode 流）、GIF（LZW 光栅）；客户端未显式配置时按文件签名自动识别。密文不再塞 IDAT 像素尾——那会被 Go 图像解码器以 `too much pixel data` 拒绝。
+- **Agent 工具补齐**：新增 `webshell_privesc`（提权面分析）与 `webshell_plugin`（数据库/内网扫描/进程/内存马插件通道），此前这两类能力只有 UI 与 HTTP API 入口，Agent 无法自主调用。审计模式下两者与 `webshell_exec` 一并禁用。
+
+#### 修复的问题
+
+- **修复 Java 载荷一旦含内部类就整条链路失效**：`javac` 会为匿名/内部类额外产出 `Payload$1.class`，而载体只 `defineClass` 主类，目标端表现为「连上了但每个操作都报 `NoClassDefFoundError`」。现改为不用内部类，并在编译期用 `extraJavaClasses()` 直接拦截——宁可编译失败，也不要静默产生一个跑不起来的载荷。
+- **修复载体写死 `javax.servlet.ServletInputStream` 导致 Tomcat 10 编译失败**：请求体改声明为 `java.io.InputStream`，两个命名空间都能编译。
+- **修复内存马卸载残留**：Tomcat 10 的 `filterMaps` 字段结构与 8/9 不同，按字段名改写会漏。现改走 `StandardContext` 公开方法 + 数组重建。
+- **修复手写 GIF LZW 在码宽 9→10 边界解码错位**：改用 `compress/lzw` 的 LSB 变体。
+- **修复脚本载体与 Java 载体的文件操作回显格式漂移**：`list` 必须是 JSON 数组（name/size/is_dir/mtime）、`read` 必须是 base64、其余为 `OK`，前端按这套约定解析，漂移即「目录解析失败」。
+- **修复控制台会话顶栏重复渲染两个「命令执行」按钮**。
+
+#### 已知限制
+
+- 内存马目前只覆盖 Tomcat（WebLogic/Jetty/WebSphere 的容器 API 各成一套，需分别实现）。
+- Java 载体的数据库插件依赖目标 classpath 上已有 JDBC 驱动（脚本载体能把驱动打进 payload，字节码做不到）；缺驱动时明确报错并提示改用 `jar_load` 或命令行客户端。
+- 压缩、Servlet 枚举、Jar 加载、远程屏幕截图仍是脚本载体专属。
+
 ## [0.3.15] - 2026-10-07
 
 ### 拦截

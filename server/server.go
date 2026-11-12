@@ -915,6 +915,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tools/webshell/generate-ai", s.webshellGenerateAIAPI) // AI 生成 webshell（LLM 多态）
 	mux.HandleFunc("POST /api/tools/webshell/exec", s.webshellExecAPI)
 	mux.HandleFunc("POST /api/tools/webshell/ext", s.webshellExtAPI) // 插件（db/扫描/内存马/…）
+	mux.HandleFunc("POST /api/tools/webshell/privesc", s.webshellPrivescAPI)
 	mux.HandleFunc("GET /api/tools/webshell/targets", s.wsTargetsList) // 目标管理（参考 morelian）
 	mux.HandleFunc("POST /api/tools/webshell/targets", s.wsTargetsSave)
 	mux.HandleFunc("DELETE /api/tools/webshell/targets/{id}", s.wsTargetsDelete)

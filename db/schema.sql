@@ -1705,6 +1705,8 @@ CREATE TABLE IF NOT EXISTS webshell_targets (
     script_type TEXT NOT NULL DEFAULT 'php',  -- php/jsp/jspx/asp/aspx/py/node
     note TEXT NOT NULL DEFAULT '',
     headers TEXT NOT NULL DEFAULT '',         -- 附加请求头 JSON（含 Header Gate / UA 伪装）
+    carrier TEXT NOT NULL DEFAULT '',         -- 载荷投递方式：''/script=脚本源码，java=Java 动态载荷（JSP 载体 defineClass）
+    disguise TEXT NOT NULL DEFAULT '',        -- 响应体伪装链：''/png/pdf/gif（密文藏进合法容器）
     alive BOOLEAN NOT NULL DEFAULT false,
     last_check TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1715,6 +1717,10 @@ CREATE INDEX IF NOT EXISTS idx_ws_targets_group ON webshell_targets(group_name, 
 -- 任务删除时可随任务回收；手工添加的为 NULL 不回收（真实用户数据）。
 ALTER TABLE webshell_targets ADD COLUMN IF NOT EXISTS task_id BIGINT REFERENCES tasks(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS idx_ws_targets_task ON webshell_targets(task_id) WHERE task_id IS NOT NULL;
+-- 载荷形态（2026-11-11）：carrier 决定「发什么」（脚本源码 / Java 字节码），
+-- disguise 决定「密文套什么壳」（裸密文 / PNG / PDF / GIF）。老库补列，默认值即旧行为。
+ALTER TABLE webshell_targets ADD COLUMN IF NOT EXISTS carrier TEXT NOT NULL DEFAULT '';
+ALTER TABLE webshell_targets ADD COLUMN IF NOT EXISTS disguise TEXT NOT NULL DEFAULT '';
 
 -- C2 插件（CS 后渗透动作库）：内置（builtin）+ 用户自定义。
 CREATE TABLE IF NOT EXISTS c2_plugins (
