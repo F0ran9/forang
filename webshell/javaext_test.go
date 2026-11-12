@@ -7,8 +7,13 @@ package webshell
 // 就是「面板空白但接口 200」。所以测试重点放在结构断言上，而不是「能跑就行」。
 
 import (
+	"archive/zip"
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -184,8 +189,11 @@ func TestJavaExtOpMapping(t *testing.T) {
 		{"proc_list", "proc", []string{"list", "java"}},
 		{"net_scan", "net", []string{"scan", "10.0.0.6", "80,443"}},
 		{"net_list", "net", []string{"list"}},
-		{"db_exec", "db", []string{"pgsql", "10.0.0.5", "5432", "u", "p", "d", "SELECT 1"}},
+		{"db_exec", "db", []string{"pgsql", "10.0.0.5", "5432", "u", "p", "d", "SELECT 1", ""}},
 		{"db_probe", "db", []string{"drivers"}},
+		{"servlet_list", "servlets", nil},
+		{"jar_load", "jarload", []string{"", ""}},
+		{"screenshot", "shot", nil},
 		{"memshell_probe", "memshell_probe", nil},
 		{"memshell_add_filter", "memshell_inject", []string{"fs", "X-A", "b", "cmd"}},
 		{"memshell_list", "memshell_list", nil},
@@ -203,8 +211,12 @@ func TestJavaExtOpMapping(t *testing.T) {
 			t.Fatalf("%s 参数期望 %q，实际 %q", c.op, c.args, args)
 		}
 	}
+	// 没给 jar_path 时 db 的第 8 个参数必须是空串——多一位参数就是「连错库」这类事故
+	if _, args, _ := javaExtOp("db_exec", ExtParams{JarPath: "/tmp/mysql.jar"}); len(args) != 8 || args[7] != "/tmp/mysql.jar" {
+		t.Fatalf("db_exec 未把 jar_path 透传到第 8 个参数: %q", args)
+	}
 	// 没有等价实现的插件必须明确拒绝，不能悄悄发空 payload 给目标端
-	for _, op := range []string{"zip", "unzip", "jar_load", "screenshot", "servlet_list"} {
+	for _, op := range []string{"zip", "unzip", "php_info"} {
 		if _, _, ok := javaExtOp(op, p); ok {
 			t.Fatalf("%s 不该被 Java 载体承接", op)
 		}
@@ -216,4 +228,104 @@ func head(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// TestJavaPayloadServletList 枚举：没有 ServletContext 时也必须回结构化 JSON（available=false），
+// 而不是抛异常或回空串——否则前端 Servlet 面板会显示「解析失败」，看不出是「环境不支持」。
+func TestJavaPayloadServletList(t *testing.T) {
+	run := javaRunner(t)
+	raw := strings.TrimSpace(run("servlets"))
+	if strings.HasPrefix(raw, "ERROR:") {
+		t.Fatalf("servlets 返回错误: %s", raw)
+	}
+	var got struct {
+		Context struct {
+			API       string `json:"api"`
+			Available bool   `json:"available"`
+		} `json:"context"`
+		Servlets []map[string]any `json:"servlets"`
+		Filters  []map[string]any `json:"filters"`
+	}
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("servlets 输出不是合法 JSON: %v\n%s", err, head(raw, 300))
+	}
+	// 宿主进程里没有 ServletContext，所以必须是「不可用但结构完整」
+	if got.Context.Available {
+		t.Fatal("无 ServletContext 时 available 应为 false")
+	}
+	if got.Context.API == "" {
+		t.Fatal("api 字段为空，无法判断 javax/jakarta")
+	}
+}
+
+// TestJavaPayloadJarLoad 上传装载：写盘 + 回报路径与 class 数。
+// 用最小 zip 当 jar，重点验证「能解出合法 jar、回结构化结果、文件真的落盘」。
+func TestJavaPayloadJarLoad(t *testing.T) {
+	run := javaRunner(t)
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("META-INF/MANIFEST.MF")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("Manifest-Version: 1.0\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	b64 := base64.StdEncoding.EncodeToString(buf.Bytes())
+
+	dst := filepath.Join(t.TempDir(), "probe.jar")
+	raw := strings.TrimSpace(run("jarload", b64, dst))
+	if strings.HasPrefix(raw, "ERROR:") {
+		t.Fatalf("jarload 返回错误: %s", raw)
+	}
+	var got struct {
+		OK     bool   `json:"ok"`
+		Path   string `json:"path"`
+		Size   int    `json:"size"`
+		ClassN int    `json:"classes"`
+	}
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("jarload 输出不是合法 JSON: %v\n%s", err, head(raw, 300))
+	}
+	if !got.OK || got.Size != buf.Len() {
+		t.Fatalf("jarload 结果异常: %s", head(raw, 300))
+	}
+	if st, err := os.Stat(got.Path); err != nil || st.Size() != int64(buf.Len()) {
+		t.Fatalf("jar 没有落盘或大小不符: %v", err)
+	}
+	if got.ClassN != 0 {
+		t.Fatalf("空 jar 不该数出 class: %d", got.ClassN)
+	}
+
+	// 非法 base64 要回可读错误，不能崩
+	if out := strings.TrimSpace(run("jarload", "not-base64!!", "")); !strings.HasPrefix(out, "ERROR:") {
+		t.Fatalf("非法 base64 应回 ERROR，实际: %s", head(out, 120))
+	}
+}
+
+// TestJavaPayloadScreenshot 截屏：要么给 IMG:<PNG base64>，要么给一句明确的不可用原因。
+// 无头/有桌面取决于运行环境，所以只断言「两种合法形态之一」，不做环境假设。
+func TestJavaPayloadScreenshot(t *testing.T) {
+	run := javaRunner(t)
+	out := strings.TrimSpace(run("shot"))
+	if strings.HasPrefix(out, "ERROR:") {
+		if !strings.Contains(out, "headless") && !strings.Contains(out, "截屏不可用") &&
+			!strings.Contains(out, "Robot") && !strings.Contains(out, "AWT") {
+			t.Fatalf("不可用原因不够具体: %s", head(out, 200))
+		}
+		return
+	}
+	if !strings.HasPrefix(out, "IMG:") {
+		t.Fatalf("截屏应回 IMG: 前缀: %s", head(out, 120))
+	}
+	png, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(out, "IMG:"))
+	if err != nil {
+		t.Fatalf("IMG 内容不是合法 base64: %v", err)
+	}
+	if len(png) < 8 || !bytes.Equal(png[:8], []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}) {
+		t.Fatal("IMG 内容不是 PNG")
+	}
 }

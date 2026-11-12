@@ -4,6 +4,34 @@
 
 ## [Unreleased]
 
+## [0.5.61] - 2026-11-12
+
+### Webshell
+
+- **Java 载荷补齐脚本载体剩下的三项**（至此 Java 载体只差 zip/unzip）：
+  - `servlet_list`：用 Servlet 3.0 的 `getServletRegistrations/getFilterRegistrations` 枚举注册与映射，顺带给出 `contextPath`/`serverInfo`/`javax|jakarta` 与 ServletContext 属性名的**类型**（只给类型不给 toString —— 属性里常有连接池对象，toString 可能是半页无关文本）。不碰容器内部类，Tomcat/Jetty/Undertow 一套代码通用。
+  - `jar_load`：上传 jar 到目标机并 `URLClassLoader` 装载，回报路径、class 数、包里的 JDBC 驱动。装载器挂在 **ServletContext 属性** 上而不是静态字段——载荷类每个请求都会被重新 `defineClass`，静态字段活不到下一次请求。
+  - `screenshot`：`java.awt.Robot` 截屏回 `IMG:<PNG base64>`；headless 环境先判 `isHeadless` 给一句「为什么不可用」，避免被当成载荷坏了。
+- **db 支持 `jar_path`（classpath 外的驱动）**：目标 classpath 没有驱动时，用 `jar_path` 指向目标机上的驱动 jar（逗号/分号分隔可给多个，驱动包常依赖 slf4j 之类）。这里**必须绕过 `DriverManager`**：`registerDriver` 会按「调用者类加载器能不能看见驱动类」校验，跨 loader 一律拒绝；改成拿到 `Driver` 实例直接 `connect()`。驱动初始化失败时把**最后一个异常原因**带回（`NoClassDefFoundError: org/slf4j/LoggerFactory` 这类信息才是真正可操作的线索）。
+
+#### 过程中修掉的三个坑
+
+- **反射调用不可见实现类**：`JarFile$JarFileEntry` 是包内私有类，用 `safeCall(e,"getName")` 会因访问检查返回 null，表现为「13MB 的 jar 一个 class 都数不出来」。改成直接转 `JarEntry`（类里能直接写类型就别反射）。
+- **`setAccessible` 在 JDK 9+ 可能被拒**（`InaccessibleObjectException`）：原来会直接中断整条重载链，现在包在 try 里退化为按默认可见性继续试，并额外接住 `IllegalAccessException` 去试下一个重载 —— 容器实现类不可见时，同名方法往往在可见父类上也声明了。
+- **多包装载**：单个 URLClassLoader 要同时挂主包与依赖包，否则驱动类的静态块在 `forName` 时就 `NoClassDefFoundError`。
+
+### Agent
+
+- `webshell_plugin` 补 `servlet_list`/`jar_load`/`screenshot` 与 `jar_path` 参数；Java 载体拒绝文案与能力边界同步（只剩压缩是脚本载体专属）。
+- playbook 段 [B']：Java 载体缺驱动时「先 jar_load / 指向已有 jar，再 db_exec 带 jar_path，依赖包一起给」，并说明 `servlet_list` 的用途（过滤器链、暴露的管理端点、内存马是否真的登记上）。
+
+### 验证（192.168.17.150）
+
+- Servlet 枚举：Tomcat 10.1.61（`api=jakarta`，2 servlet/1 filter，映射正确）、Jetty 11.0.24（jakarta）、Jetty 9.4.58（`api=javax`）三处均正确。
+- Jar + 驱动直连：把 12.9MB 的 sqlite-jdbc 与 68KB 的 slf4j 经平台 API 上传到 Jetty 11 目标（b64 后 17.2MB 报文通过）→ `jar_load` 回报 124 个 class、驱动 `org.sqlite.JDBC` → `db_exec` 带两个 jar 路径建表/插入（affected=1）/查询（`{"id":"1","name":"forang"}`），驱动标识 `org.sqlite.JDBC@/tmp/forang-sqlite.jar,/tmp/forang-slf4j.jar`。
+- 截屏：Tomcat/Jetty 均回 headless 说明（符合预期）。
+- 回归：exec/proc/net/db_probe、内存马注入→触发 `uid=0`→list→卸载→恢复 404 全通；`go test ./webshell/ ./agent/` 全绿。
+
 ## [0.5.60] - 2026-11-12
 
 ### Webshell

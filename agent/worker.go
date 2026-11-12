@@ -274,7 +274,7 @@ func webshellPlaybookBlock() string {
 	return "\n\n**拿到 shell 之后（只在确实需要驻留时）**：\n" +
 		"- 先问一句「非上 shell 不可吗」：能直接读文件/打接口就别驻留，少一个落地物就少一处痕迹。\n" +
 		"- 链路是 webshell_gen（生成载体并落库成目标）→ webshell_exec（执行）→ webshell_plugin（插件通道：db_probe/db_exec 直连目标内网库、net_scan 以其为跳板扫内网、net_list/proc_list 看本机连接与进程，不依赖目标装 netstat/ps）。\n" +
-		"- carrier=java 时插件同样可用（载荷用 JDK 自带 API 重写，不在目标落脚本文件）；目标缺 JDBC 驱动时 db_exec 会回「试过哪些类 + 换个办法」，别拿同一组参数反复重试。\n" +
+		"- carrier=java 时插件同样可用（载荷用 JDK 自带 API 重写，不在目标落脚本文件）：目标 classpath 缺 JDBC 驱动时先用 jar_load 传驱动包（或直接指向目标机已有的 jar），再 db_exec 带上 jar_path；依赖包要一起给（如 sqlite 需要 slf4j），多个路径逗号分隔。servlet_list 可确认过滤器链、暴露的管理端点，以及内存马是否真的登记上了。\n" +
 		"- webshell_privesc 只做只读采集（内核/权限位/可写服务/凭据可读性）给结论，**不内置 exp、不自动提权**；要不要动手由操作员定。\n" +
 		"- 内存马 memshell_add_filter **必须**带 gate_header + gate_value（无门禁等于给目标开公网后门），验证完用 memshell_del 卸载；Tomcat/Jetty 走各自容器接口，其它容器走 Servlet 3.0 动态注册，部分容器不支持运行时卸载，会如实报错。\n" +
 		"- 纪律：不留持久化后门、不改业务数据、不清日志；RCE 验证只用 id/whoami 这类无害命令；用完即卸，卸载与残留情况写进 fact。"

@@ -31,7 +31,7 @@ func ExtOps(scriptType string) []string {
 // ExtParams 插件参数：数据库连接、扫描目标、内存马配置等。
 // json tag 必须显式 snake_case——Go 默认字段名匹配不认下划线（scan_host ≠ ScanHost）。
 type ExtParams struct {
-	DBType     string `json:"db_type"`     // mysql/pgsql/sqlite
+	DBType     string `json:"db_type"` // mysql/pgsql/sqlite
 	Host       string `json:"host"`
 	Port       string `json:"port"`
 	User       string `json:"user"`
@@ -46,7 +46,10 @@ type ExtParams struct {
 	GateHeader string `json:"gate_header"`
 	GateValue  string `json:"gate_value"`
 	JarB64     string `json:"jar_b64"`
-	Cmd        string `json:"cmd"`
+	// JarPath 是目标机上的 jar 路径，逗号分隔可给多个（驱动包常依赖 slf4j 之类的包）。
+	// Java 载体用它解决「目标有库但容器 classpath 没驱动」：装载后直接 driver.connect。
+	JarPath string `json:"jar_path"`
+	Cmd     string `json:"cmd"`
 }
 
 // ---------- PHP 插件 ----------
