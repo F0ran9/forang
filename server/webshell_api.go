@@ -272,10 +272,10 @@ func (s *Server) webshellExtAPI(w http.ResponseWriter, r *http.Request) {
 		b.Password = s.wsDecryptPassword(pwEnc)
 	}
 	// Java 载体只认字节码，插件源码发过去必然是 bad wire。能在载荷里用 JDK 自带 API
-	// 等价重写的几项（内存马/进程/网络/数据库/Servlet 枚举/Jar 加载/截图）放行，由
-	// client 映射成载荷 op；zip/unzip 依赖目标端解释器，仍是脚本载体专属。
+	// 等价重写的几项（内存马/进程/网络/数据库/Servlet 枚举/Jar 加载/截图/压缩）放行，
+	// 由 client 映射成载荷 op。
 	if b.Carrier == "java" && !webshell.JavaExtSupported(b.Op) {
-		writeErr(w, 400, "Java 载体不支持该扩展操作（可用：内存马、进程、网络、数据库、Servlet 枚举、Jar 加载、屏幕截图；压缩仍是脚本载体专属）")
+		writeErr(w, 400, "Java 载体不支持该扩展操作（可用：内存马、进程、网络、数据库、Servlet 枚举、Jar 加载、屏幕截图、压缩/解压）")
 		return
 	}
 	if strings.TrimSpace(b.URL) == "" || strings.TrimSpace(b.Password) == "" {

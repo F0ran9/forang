@@ -5,7 +5,7 @@ package webshell
 //   db_probe   数据库连接枚举（读目标常见配置文件找连接串）
 //   net_scan   目标内网端口扫描（php: fsockopen 并发；jsp: Socket）
 //   proc_list  进程列表（php: /proc 或 tasklist）
-//   zip / unzip 远程压缩/解压（php: ZipArchive）
+//   zip / unzip 远程压缩/解压（php: ZipArchive；jsp: java.util.zip，解包带 Zip Slip 防护）
 //   memshell_add_filter / memshell_list / memshell_del  内存马（jsp: Tomcat Filter 注入）
 //   servlet_list  Servlet/Filter 枚举（jsp）
 //   jar_load   Jar 动态加载（jsp: URLClassLoader）
@@ -23,7 +23,7 @@ func ExtOps(scriptType string) []string {
 	case "php":
 		return []string{"db_exec", "db_probe", "net_scan", "proc_list", "zip", "unzip", "php_info", "php_writedirs", "php_scan"}
 	case "jsp", "jspx":
-		return []string{"db_exec", "db_probe", "net_scan", "memshell_add_filter", "memshell_list", "memshell_del", "servlet_list", "jar_load", "screenshot"}
+		return []string{"db_exec", "db_probe", "net_scan", "memshell_add_filter", "memshell_list", "memshell_del", "servlet_list", "jar_load", "screenshot", "zip", "unzip"}
 	}
 	return nil
 }
