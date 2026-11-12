@@ -161,7 +161,7 @@ go build -tags embedui -o forang ./cmd/artex
 
 ## 版本
 
-当前 **v0.5.62**（2026-11-12，见 [Releases](https://github.com/F0ran9/forang/releases)）。近期重点：
+当前 **v0.5.65**（2026-11-12，见 [Releases](https://github.com/F0ran9/forang/releases)）。近期重点：
 
 - **Webshell 双载体（脚本 + Java 动态载荷）**：Java 载体源码进仓库、首次调用 `javac --release 8` 运行时编译（不内置 .class），只发字节码给 JSP 载体 `defineClass`，目标端没有脚本引擎也能用；插件面与脚本载体对齐——数据库直连（支持 classpath 外驱动 `jar_path`）、内网端口扫描、进程/连接枚举（不依赖 netstat/tasklist）、Servlet/Filter 枚举、jar 动态装载、远程截屏、zip/unzip（带 Zip Slip 防护）
 - **内存马跨容器**：Tomcat（FilterDef/FilterMap 注册）、Jetty 9.4/10/11（ServletHandler `_filters` + 链缓存失效）实测可用，门禁头触发、可列出、可卸载；Undertow 这类容器实测拒绝运行期注册 Filter（UT010041）会**如实报错**而不是假装成功
@@ -186,6 +186,9 @@ go build -tags embedui -o forang ./cmd/artex
 - 许可证：AGPL-3.0（见 LICENSE）。
 
 <!-- ver-note -->
+> v0.5.65：zip/unzip 失败回显带原因与路径，空包/非 zip 不再回 OK 0。
+> v0.5.64：PHP 载体 zip/unzip 与 Java 对齐（空目录保留、解包挡越界条目）。
+> v0.5.63：控制台新增「压缩解压」面板（目标机内打包/解包，PHP 与 Java 载体共用，目标路径可自动推导）。
 > v0.5.62：Java 载荷补齐 zip/unzip（流式打包、空目录保留、解包挡 Zip Slip），双载体插件面对齐。
 > v0.5.61：Java 载荷补 Servlet/Filter 枚举、jar 动态装载、远程截屏；`db` 支持 classpath 外驱动（绕过 DriverManager 直连）。
 > v0.5.60：内存马跨容器（Tomcat/Jetty 9.4+10/11）+ Agent 后渗透 playbook；进程/连接枚举不再受 500 条上限假阴性影响。

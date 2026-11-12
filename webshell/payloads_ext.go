@@ -111,13 +111,20 @@ func phpProcList(_ ExtParams) string {
 }
 
 func phpZip(p ExtParams) string {
+	// SELF_FIRST 才看得到空目录：LEAVES_ONLY（默认）只吐文件，空目录解包后就没了。
+	// 非空目录也调 addEmptyDir 无害（写一条目录 entry），换来的是目录层级始终完整。
+	// 路径里的反斜杠要换成 '/'，否则 Windows 目标打的包在 Linux 上解出来是一个长文件名。
 	return build("\n$src = base64_decode(\"@SRC@\");\n$dst = base64_decode(\"@DST@\");\n"+
 		"$z = new ZipArchive();\n"+
 		"if ($z->open($dst, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) { echo \"ERROR: cannot open zip\"; }\n"+
 		"else {\n"+
 		"    if (is_dir($src)) {\n"+
-		"        $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($src, FilesystemIterator::SKIP_DOTS));\n"+
-		"        foreach ($it as $f) { $z->addFile($f->getPathname(), ltrim(substr($f->getPathname(), strlen($src)), '/\\\\')); }\n"+
+		"        $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($src, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST);\n"+
+		"        foreach ($it as $f) {\n"+
+		"            $rel = str_replace('\\\\', '/', ltrim(substr($f->getPathname(), strlen($src)), '/\\\\'));\n"+
+		"            if ($rel === '') continue;\n"+
+		"            if ($f->isDir()) { $z->addEmptyDir($rel); } else { $z->addFile($f->getPathname(), $rel); }\n"+
+		"        }\n"+
 		"    } else { $z->addFile($src, basename($src)); }\n"+
 		"    $z->close();\n"+
 		"    echo \"OK \" . filesize($dst);\n"+
@@ -127,10 +134,26 @@ func phpZip(p ExtParams) string {
 }
 
 func phpUnzip(p ExtParams) string {
+	// 逐条校验后单条解压：extractTo 整包解没法拦越界条目，而压缩包可能来自目标机上
+	// 任意位置（上传目录、临时文件），不能配合它往解压目录外面写文件。
 	return build("\n$src = base64_decode(\"@SRC@\");\n$dst = base64_decode(\"@DST@\");\n"+
 		"$z = new ZipArchive();\n"+
-		"if ($z->open($src) !== true) { echo \"ERROR: cannot open zip\"; }\n"+
-		"else { $z->extractTo($dst); $z->close(); echo \"OK\"; }\n"+
+		"if ($z->open($src) !== true) { echo 'ERROR: 无法打开压缩包（不是 zip / 目标没有 zip 扩展 / 无读权限）: ' . $src; }\n"+
+		"else {\n"+
+		"    if (!is_dir($dst)) { @mkdir($dst, 0777, true); }\n"+
+		"    $ok = 0; $bad = 0;\n"+
+		"    for ($i = 0; $i < $z->numFiles; $i++) {\n"+
+		"        $n = $z->getNameIndex($i);\n"+
+		"        if ($n === false) { $bad++; continue; }\n"+
+		"        $norm = str_replace('\\\\', '/', $n);\n"+
+		"        $lead = substr($norm, 0, 1);\n"+
+		"        if ($norm === '' || $lead === '/' || strpos($norm, '..') !== false || preg_match('#^[A-Za-z]:#', $norm)) { $bad++; continue; }\n"+
+		"        if ($z->extractTo($dst, $n)) { $ok++; } else { $bad++; }\n"+
+		"    }\n"+
+		"    $z->close();\n"+
+		"    if ($ok === 0 && $bad === 0) { echo 'ERROR: 压缩包里没有条目（空包或不是有效 zip）: ' . $src; }\n"+
+		"    else { echo 'OK ' . $ok . ($bad > 0 ? ' (跳过 ' . $bad . ' 个异常条目)' : ''); }\n"+
+		"}\n"+
 		"echo \""+EndMarker+"\";\n",
 		"@SRC@", b64s(p.SrcPath), "@DST@", b64s(p.DstPath))
 }

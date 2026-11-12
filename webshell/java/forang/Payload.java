@@ -490,6 +490,11 @@ public final class Payload implements java.lang.reflect.InvocationHandler {
         } finally {
             zis.close();
         }
+        if (ok == 0 && skip == 0) {
+            // 空包与「根本不是一个 zip」在 ZipInputStream 眼里都是「没有下一个 entry」，
+            // 分开不了就一起说清楚，免得回一个 OK 0 让人以为解成功了
+            return "ERROR:压缩包里没有条目（空包或不是有效 zip）: " + src;
+        }
         return "OK " + ok + (skip > 0 ? " (跳过 " + skip + " 个异常条目)" : "");
     }
 
