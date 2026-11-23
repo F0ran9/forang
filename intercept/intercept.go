@@ -136,6 +136,9 @@ type Interceptor struct {
 	enabledTools map[string]bool // nil means not loaded yet
 	pending      *pendingManager
 	reviewer     Reviewer // nil = LLM fallback judge not wired
+	// OnPendingCreated 待审批创建回调（server 侧接 IM 推送：钉钉/飞书）。
+	// 异步调用、失败静默——通知不可用不能阻塞审批流。
+	OnPendingCreated func(pendingID int64, taskID string, agentName, toolName, reason string)
 }
 
 // SetReviewer installs the LLM fallback judge callback. Passing nil disables it.
@@ -612,6 +615,13 @@ func (i *Interceptor) HandleAsk(ctx context.Context, convID int64, dec Decision,
 		return false, nil
 	}
 
+	if i.OnPendingCreated != nil {
+		go func() {
+			defer func() { _ = recover() }() // 通知失败不影响审批
+			i.OnPendingCreated(pendingID, taskID, agentName, toolName, dec.Message)
+		}()
+	}
+
 	i.bindResult(ctx, pendingID, audit)
 	ch := i.pending.add(pendingID)
 	defer i.pending.remove(pendingID)
@@ -713,6 +723,7 @@ func (i *Interceptor) Decide(pendingID int64, allowed bool, edited json.RawMessa
 // WithTaskID / TaskIDFromContext 把当前任务 id 放进工具调用上下文：
 // guard 判定「清理任务」降级路径时读取（agent 侧注入，import 环避雷）。
 type taskIDKey struct{}
+
 func WithTaskID(ctx context.Context, taskID int64) context.Context {
 	return context.WithValue(ctx, taskIDKey{}, taskID)
 }
@@ -734,6 +745,7 @@ func CleanupFingerprintsFromContext(ctx context.Context) []string {
 	}
 	return nil
 }
+
 type cleanupFpKey struct{}
 
 // cleanupJudgeGuidance 追加到裁判提示词：清理上下文的归属判定规则。
@@ -759,7 +771,9 @@ func (i *Interceptor) PrefixAllowed(toolName string, input []byte) bool {
 	if err != nil || !ok || strings.TrimSpace(v) == "" {
 		return false
 	}
-	var args struct{ Command string `json:"command"` }
+	var args struct {
+		Command string `json:"command"`
+	}
 	if json.Unmarshal(input, &args) != nil || args.Command == "" {
 		return false
 	}

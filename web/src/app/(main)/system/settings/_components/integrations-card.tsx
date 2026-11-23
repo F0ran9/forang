@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
-import type { NotifyConfig, SurveyPlatform, TavilyKeyRow } from "@/lib/types";
+import type { SurveyPlatform, TavilyKeyRow } from "@/lib/types";
 
 const PLATFORMS: [string, string][] = [["fofa", "FOFA"], ["quake", "360 Quake"], ["hunter", "奇安信 Hunter"]];
 const STRATEGIES: [string, string][] = [
@@ -103,46 +103,24 @@ function SurveyCard() {
 }
 
 function NotifyCard() {
-  const [cfg, setCfg] = React.useState<NotifyConfig>({ dingtalk: { enabled: false, webhook: "", secret: "" }, feishu: { enabled: false, webhook: "", secret: "" } });
-  React.useEffect(() => { api.notifyConfig().then(setCfg).catch(() => undefined); }, []);
-  const save = () => api.notifySet(cfg).then(() => toast.success("已保存通知配置")).catch((e) => toast.error(e.message));
-  const test = () => api.notifyTest().then(() => toast.success("测试消息已发出")).catch((e) => toast.error(`发送失败：${e.message}`));
-
-  const row = (k: "dingtalk" | "feishu", label: string) => (
-    <div className="rounded-md border p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-sm font-medium">{label}</span>
-        <Switch checked={cfg[k].enabled} onCheckedChange={(v) => setCfg({ ...cfg, [k]: { ...cfg[k], enabled: v } })} />
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div>
-          <Label className="text-xs">Webhook（https）</Label>
-          <Input value={cfg[k].webhook} onChange={(e) => setCfg({ ...cfg, [k]: { ...cfg[k], webhook: e.target.value } })} placeholder="https://oapi.dingtalk.com/robot/send?access_token=…" />
-        </div>
-        <div>
-          <Label className="text-xs">加签密钥（可选）</Label>
-          <Input type="password" value={cfg[k].secret} onChange={(e) => setCfg({ ...cfg, [k]: { ...cfg[k], secret: e.target.value } })} placeholder="SEC…" />
-        </div>
-      </div>
-    </div>
-  );
+  // 2026-11-23：旧版钉钉/飞书 webhook 配置已下线。它与新通知中心（/system/notify）
+  // 是两套并行系统，曾导致「在这里保存了 webhook 但测试/推送走的却是另一套」的
+  // 配置漂移事故。此卡改为入口引导；旧配置键 settings.notify.config 不再读取。
   return (
     <Card className="mb-4 break-inside-avoid md:mb-6">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base"><BellRingIcon className="size-4" />通知推送</CardTitle>
-        <CardDescription>评审确认的高危/严重漏洞自动推送（dubious 存疑不推）。钉钉加签 timestamp+sign、飞书签名均为 HMAC-SHA256。</CardDescription>
+        <CardDescription>高危漏洞评审确认、待审批操作等事件推送到钉钉 / 飞书 / 企业微信 / Telegram / 邮件</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {row("dingtalk", "钉钉机器人")}
-        {row("feishu", "飞书机器人")}
-        <div className="flex gap-2">
-          <Button size="sm" onClick={save}>保存</Button>
-          <Button size="sm" variant="outline" onClick={test}>发送测试</Button>
-        </div>
+      <CardContent>
+        <Button size="sm" onClick={() => (window.location.href = "/system/notify")}>
+          前往通知中心配置渠道
+        </Button>
       </CardContent>
     </Card>
   );
 }
+
 
 function TavilyPoolCard() {
   const [keys, setKeys] = React.useState<TavilyKeyRow[]>([]);

@@ -37,6 +37,9 @@ type Item struct {
 	// 状态变更事件专用；两项均非空时渲染成「待处理 → 已修复」。
 	FromStatus string
 	ToStatus   string
+	// Kind 事件类型（approval_pending 等）；空表示 finding 类事件，
+	// 渲染按漏洞处理（兼容历史）。
+	Kind string
 }
 
 // IsStatusChange 报告该条目是否为状态变更事件。
@@ -45,6 +48,9 @@ func (i Item) IsStatusChange() bool { return i.FromStatus != "" || i.ToStatus !=
 // Title 返回条目的展示标题：优先人工命名的 name，回退漏洞类型 vulnclass，
 // 两者都空时用一个占位符——绝不输出空标题。
 func (i Item) Title() string {
+	if i.Kind == EventApprovalPending {
+		return "⏸ 操作待审批"
+	}
 	if i.Name != "" {
 		return i.Name
 	}

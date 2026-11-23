@@ -198,6 +198,11 @@ func writeItem(b *strings.Builder, it Item, prefix string, single bool) {
 		}
 	}
 	if it.DetailURL != "" {
-		fmt.Fprintf(b, "[查看详情](%s)\n", it.DetailURL)
+		if it.Kind == EventApprovalPending {
+			// 审批快捷链接：DetailURL 此处是平台审批确认页（含 pending id + 免登录 token）
+			fmt.Fprintf(b, "[✅ 前往批准/拒绝](%s)\n", it.DetailURL)
+		} else {
+			fmt.Fprintf(b, "[查看详情](%s)\n", it.DetailURL)
+		}
 	}
 }

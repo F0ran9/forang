@@ -10,6 +10,7 @@
 //         路径栏 + 表格（名称/修改时间/文件大小）
 //   命令执行：黑底输出区 + 命令行 + cwd，快捷命令按钮
 import React from "react";
+import { copyText } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -324,7 +325,7 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
             <div className="space-y-1">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>已存 {gen.path}（{gen.size} 字节）</span>
-                <Button variant="outline" size="sm" onClick={async () => { await navigator.clipboard.writeText(gen.code); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
+                <Button variant="outline" size="sm" onClick={async () => { if (await copyText(gen.code)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } }}>
                   {copied ? "已复制 ✓" : "复制代码"}
                 </Button>
               </div>

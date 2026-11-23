@@ -34,7 +34,7 @@ import type {
   InterceptPending,
   InterceptReviewInput,
 } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, copyText } from "@/lib/utils";
 
 function fmtTime(value?: string) {
   if (!value) return "—";
@@ -131,10 +131,9 @@ function MatchCell({ row, showReason = true }: { row: InterceptApprovalRow; show
 
 function CodeBlock({ label, text, truncated = false }: { label: string; text: string; truncated?: boolean }) {
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
+    if (await copyText(text)) {
       toast.success("已复制");
-    } catch {
+    } else {
       toast.error("复制失败，请手动选择内容复制");
     }
   }

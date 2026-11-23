@@ -1,7 +1,7 @@
 package server
 
 // report_nsformat.go — FORANG 渗透测试报告（参照行业交付模板：封面表 + 目录域 +
-// 页眉密级 + 页脚页码 + 品牌色标题 + 等级配色漏洞小节 + 漏洞汇总表 + 攻击动作留痕）。
+// 页眉密级 + 页脚页码 + 品牌色标题 + 等级配色风险小节 + 风险汇总表 + 攻击动作留痕）。
 // 结构对齐真实交付报告：目标信息 → 测试内容（五类方法论）→ 漏洞信息（汇总+逐项）→
 // 攻击动作痕迹 → 建议总结。无第三方品牌标识。
 
@@ -36,7 +36,7 @@ func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 	if v, ok, _ := s.m.pg.GetSetting("report.cover_prefix"); ok && strings.TrimSpace(v) != "" {
 		prefix = strings.TrimSpace(v)
 	}
-	sysName := target
+	sysName := cleanCoverName(target)
 	if sysName == "" {
 		sysName = "目标系统"
 	}
@@ -162,6 +162,24 @@ func (s *Server) buildNSReport(t *Task, fs []*db.DBFinding) *Docx {
 	doc.Paragraph("3. 建立配置基线：关闭未使用的诊断端点，移除或轮换默认凭据（如 serverIdentity 等框架默认身份头），禁用前端硬编码口令。")
 	doc.Paragraph("4. 完善日志审计与备份策略，将关键日志外发至独立日志服务器，防止单点破坏。")
 	doc.Paragraph("注：Web 漏洞会随时间推移而变化，基于评估严谨性考虑，本报告仅具备两个月的时效性。")
+
+	// ===== 附录：技术验证明细（正文只放结论，这里放完整命令与输出） =====
+	doc.PageBreak()
+	doc.Heading(1, "附录. 技术验证明细")
+	doc.Paragraph("以下为各风险项的完整验证命令与原始输出，供技术同事复现与复核；管理层可只关注正文各风险项的结论与建议。")
+	for i, f := range sorted {
+		_, evClean, _ := finalizeFindingForReport(f.Packet, f.Evidence)
+		if strings.TrimSpace(evClean) == "" {
+			continue
+		}
+		title := f.Name
+		if title == "" {
+			title = f.VulnClass
+		}
+		doc.Heading(2, fmt.Sprintf("附 %d. %s", i+1, title))
+		doc.CodeBlock(evClean)
+	}
+
 	return doc
 }
 
@@ -297,12 +315,16 @@ func (s *Server) buildNSVulnSection(doc *Docx, idx int, f *db.DBFinding) {
 		}
 	}
 
-	// 漏洞描述
+	// 报告期证据整形（evidence JSON 解包 / packet 拆分清洗 / 缺失合成）
+	pktClean, evClean, pktSynth := finalizeFindingForReport(f.Packet, f.Evidence)
+
+	// 漏洞描述（2026-11-23 结构化重排：核心结论 + 要点 + 攻击链 +
+	// 修复建议，审计细节小字——机器审计体长文不再整段直灌）
 	desc := strings.TrimSpace(f.Summary)
 	if desc == "" {
-		desc = f.Evidence
+		desc = evClean
 	}
-	doc.FieldLine("漏洞描述：", desc)
+	writeSummaryDocx(doc, parseSummary(desc))
 	if cvssLine != "" {
 		doc.FieldLine("定级依据：", cvssLine)
 	}
@@ -324,15 +346,27 @@ func (s *Server) buildNSVulnSection(doc *Docx, idx int, f *db.DBFinding) {
 		}
 	}
 
-	// POC 请求包：可直粘 Repeater/Burp 重放的完整原始 HTTP 请求（packet 列）。
-	if pkt := strings.TrimSpace(f.Packet); pkt != "" {
-		doc.FieldLine("POC请求包：", "以下为可直接重放的原始 HTTP 请求（复制进 Repeater/Burp 即可复现）")
+	// POC 请求包：可直粘 Repeater/Burp/Yakit 重放的完整原始 HTTP 请求。
+	// 优先 packet 列（整形：多请求拆分、剔除注释行）；为空时用 evidence 中
+	// curl 命令合成的包（2026-11-20 实测：约半数 finding 只有 evidence 没写 packet）。
+	if pkt := strings.TrimSpace(pktClean); pkt != "" {
+		doc.FieldLine("POC请求包：", "以下为可直接重放的原始 HTTP 请求（整段复制进 Yakit/Burp Repeater 即可复现；多请求时按编号顺序发送）")
+		doc.CodeBlock(pkt)
+	} else if pkt := strings.TrimSpace(pktSynth); pkt != "" {
+		doc.FieldLine("POC请求包：", "以下请求包由验证命令自动转换（可直接重放；多请求时按编号顺序发送）")
 		doc.CodeBlock(pkt)
 	}
 
-	// 相关截图：结构化截图实际嵌入；既无截图也无证据文本时不输出空字段行
-	if shotCount := s.findingShotCount(f); shotCount > 0 || strings.TrimSpace(f.Evidence) != "" {
+	// 证据呈现分两层（2026-11-20 用户反馈：无截图时塞 evidence 全文，
+	// 领导看到 curl 长文很费劲）：
+	// ① 有真截图 → 嵌图（原样）；
+	// ② 无截图 → 只写一句通俗结论 + 指向文末「技术验证附录」，
+	//    完整 curl/响应细节挪到附录，正文不再出现大段技术文字。
+	if shotCount := s.findingShotCount(f); shotCount > 0 {
 		doc.FieldLine("相关截图：", "")
+	} else if strings.TrimSpace(f.Evidence) != "" {
+		doc.FieldLine("验证结论：", plainVerdict(f))
+		doc.FieldLine("技术验证附录：", "见报告末尾附录（含完整验证命令与原始输出，供技术同事复现）")
 	}
 	shotCount := 0
 	if evs, err := s.ListFindingEvidence(f.ID); err == nil {
@@ -346,9 +380,6 @@ func (s *Server) buildNSVulnSection(doc *Docx, idx int, f *db.DBFinding) {
 				shotCount++
 			}
 		}
-	}
-	if shotCount == 0 && f.Evidence != "" {
-		doc.CodeBlock(f.Evidence)
 	}
 
 	// 加固建议
@@ -374,4 +405,33 @@ func remediationFor(f *db.DBFinding) string {
 	default:
 		return "限制相关接口的访问权限；对输入与输出做严格校验；修复后进行复测确认。"
 	}
+}
+
+// cleanCoverName 净化封面系统名：用户建任务常用口语（"测试 xxx 这个站点"），
+// 封面要的是系统名而不是这句话。策略：提取第一个 URL → 主机名；
+// 无 URL 时剥掉"测试/这个站点"等壳词；剥完为空退化为原文（再为空由调用方兜底）。
+func cleanCoverName(desc string) string {
+	desc = strings.TrimSpace(desc)
+	if desc == "" {
+		return ""
+	}
+	// 1) URL：提取主机名（先剥协议，再截路径/井号/空白）
+	if i := strings.Index(desc, "http"); i >= 0 {
+		rest := desc[i:]
+		rest = strings.TrimPrefix(strings.TrimPrefix(rest, "https://"), "http://")
+		if j := strings.IndexAny(rest, "/#? \t"); j > 0 {
+			rest = rest[:j]
+		}
+		rest = strings.TrimRight(rest, "/#?.")
+		if rest != "" && strings.Contains(rest, ".") {
+			return rest
+		}
+	}
+	// 2) 剥口语壳
+	for _, shell := range []string{"这个站点", "这个网站", "这个系统", "这个站", "站点", "网站",
+		"测试一下", "帮我测试", "测一下", "测试", "扫一下", "扫扫"} {
+		desc = strings.ReplaceAll(desc, shell, "")
+	}
+	desc = strings.TrimSpace(desc)
+	return desc
 }

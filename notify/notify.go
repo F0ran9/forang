@@ -25,6 +25,11 @@ const (
 const (
 	EventFindingCreated       = "finding_created"
 	EventFindingStatusChanged = "finding_status_changed"
+
+	// EventApprovalPending 待人工审批事件（interceptor HandleAsk 产生）。
+	// 非 finding 事件：Severity 置空 → AtLeast 放行（min 为空才通过，
+	// 渠道若设了 min_severity 会被滤掉——这是文档化行为：严格渠道只收漏洞）。
+	EventApprovalPending = "approval_pending"
 )
 
 // InitKind 是 config 里为空的 kind 的兜底值。

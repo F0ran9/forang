@@ -5,6 +5,7 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { copyText } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { api, type RepHistoryItem, type ScanJob } from "@/lib/api";
 import {
@@ -327,12 +328,11 @@ function RepeaterTab() {
     }
     const defaultPort = (scheme === "https" && port === 443) || (scheme === "http" && port === 80);
     const url = scheme + "://" + host + (defaultPort ? "" : ":" + port) + path;
-    try {
-      await navigator.clipboard.writeText(url);
+    if (await copyText(url)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      window.alert(url);
+    } else {
+      window.alert(url); // 复制彻底失败时兜底展示，让用户手动复制
     }
   };
 

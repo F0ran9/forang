@@ -21,13 +21,13 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/guard"
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/guard"
 	"github.com/Autumn-27/artex/intercept"
 	"github.com/Autumn-27/artex/llmpool"
 	"github.com/Autumn-27/artex/llmrec"
-	"github.com/Autumn-27/artex/survey"
 	"github.com/Autumn-27/artex/report"
+	"github.com/Autumn-27/artex/survey"
 	"github.com/Autumn-27/artex/traffic"
 	"github.com/Autumn-27/artex/webshell"
 	"github.com/Autumn-27/norma/llm"
@@ -43,24 +43,24 @@ var BuildVersion = "dev"
 // Server exposes the ARTEX backend over a JSON HTTP API for the shadcn/ui
 // frontend.
 type Server struct {
-	m      *Manager
-	engine *Engine
-	pocSyncMu      sync.Mutex
-	gateMu sync.Mutex
-	gateCacheAt time.Time
+	m                *Manager
+	engine           *Engine
+	pocSyncMu        sync.Mutex
+	gateMu           sync.Mutex
+	gateCacheAt      time.Time
 	gateCacheEnabled bool
-	gateCacheToken string
-	netExitMu sync.Mutex
-	netExitCacheAt time.Time
-	netExitCache NetExitConfig
-	pocSyncInFlight map[string]bool
-	tavilyMu      sync.Mutex
-	tavilyUsage   map[string]*tavilyPoolUsage
-	tavilyUsageAt time.Time
-	supervisor *Supervisor // LLM 监督员（旁观工具流→建议→NotifyHint），配置走 /api/supervisor/config
-	surveySvc *survey.Service // 资产测绘（FOFA/Quake/Hunter），配置门控+查询流水
-	logins *loginLimiter // 登录限速（IP|用户名，15min 窗口 5 次失败）
-	ctx    context.Context
+	gateCacheToken   string
+	netExitMu        sync.Mutex
+	netExitCacheAt   time.Time
+	netExitCache     NetExitConfig
+	pocSyncInFlight  map[string]bool
+	tavilyMu         sync.Mutex
+	tavilyUsage      map[string]*tavilyPoolUsage
+	tavilyUsageAt    time.Time
+	supervisor       *Supervisor     // LLM 监督员（旁观工具流→建议→NotifyHint），配置走 /api/supervisor/config
+	surveySvc        *survey.Service // 资产测绘（FOFA/Quake/Hunter），配置门控+查询流水
+	logins           *loginLimiter   // 登录限速（IP|用户名，15min 窗口 5 次失败）
+	ctx              context.Context
 
 	// auth.token_not_before 的短 TTL 缓存：requireAuth 每 /api 请求都要比对
 	// token iat，不能每次都打 DB。
@@ -180,19 +180,19 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		provByProfile:  map[int64]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
 		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1)}
 	s.surveySvc = survey.NewService(m.PG(), m.dir) // 资产测绘服务（evidence 落 <dir>/evidence/survey）
-	m.SetTavilyPoolPicker(nil) // 占位：New 返回后由 server 注入（避免构造期回环）
+	m.SetTavilyPoolPicker(nil)                     // 占位：New 返回后由 server 注入（避免构造期回环）
 	s.initSideQuestions()
-	s.supervisor.srv = s                          // 监督员借用 Server 的模型解析
+	s.supervisor.srv = s                               // 监督员借用 Server 的模型解析
 	s.engine.SetActivityObserver(s.supervisor.Observe) // 监督员旁观活动流（supervisor 模式）
-	s.startFindingReviewLoop()                       // 漏洞中枢：LLM 评审员轮询 queued 记录
-	s.wireDoctrineResolver()                       // 指挥条令 doc:<id> 复用预设注入管道
-	workRoot = m.dir                             // 容器同路径挂载的平台根
-	go s.cleanupOrphanContainers()                // 启动清理无主任务容器
+	s.startFindingReviewLoop()                         // 漏洞中枢：LLM 评审员轮询 queued 记录
+	s.wireDoctrineResolver()                           // 指挥条令 doc:<id> 复用预设注入管道
+	workRoot = m.dir                                   // 容器同路径挂载的平台根
+	go s.cleanupOrphanContainers()                     // 启动清理无主任务容器
 	s.startPocSubLoop()
-	s.startNotifyHealthLoop()   // 通知渠道健康巡检：每 6h 探测，死 webhook 不再静默丢推送
+	s.startNotifyHealthLoop()      // 通知渠道健康巡检：每 6h 探测，死 webhook 不再静默丢推送
 	s.StartProxySubscriptionLoop() // 出口代理订阅轮询（未配置即静默）                            // POC 订阅定时同步（每分钟检查到期源）
 	s.syncC2Settings()             // goc2 连接配置：settings 覆盖默认（token 不进仓库）
-	s.startKBDistillLoop()          // 知识蒸馏：终态任务自动沉淀总结（移植自 AI-PENTEST）
+	s.startKBDistillLoop()         // 知识蒸馏：终态任务自动沉淀总结（移植自 AI-PENTEST）
 	agent.SetKBSearcher(func(q string, topK int) ([]agent.KBHit, int, error) {
 		res, total, err := s.kbSearchRetrieval(q, topK)
 		hits := make([]agent.KBHit, len(res))
@@ -274,10 +274,10 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 			}
 			return out, nil
 		})
-	s.seedDictBuiltins()          // 字典种子（幂等，只补缺失）
-	s.seedC2Plugins()             // C2 内置插件种子（幂等）
-	s.ensureC2AuditTable()        // C2 审计日志表（幂等）
-	s.ensureC2GraphTables()       // C2 攻击链路图（幂等）
+	s.seedDictBuiltins()    // 字典种子（幂等，只补缺失）
+	s.seedC2Plugins()       // C2 内置插件种子（幂等）
+	s.ensureC2AuditTable()  // C2 审计日志表（幂等）
+	s.ensureC2GraphTables() // C2 攻击链路图（幂等）
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。
 	s.applyRetryPolicy()
@@ -346,8 +346,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		wireAgentAugment(m.pg, s.skillDir, s.hostTools) // 可见 skills/MCP + 流量/编排 host 工具装配进 agent 工具集
 		domainReg := buildDomainReg(m.Assets(), m.dir, s.surveySvc)
 		s.wireTools(m.pg, domainReg) // 内置工具表：按 agent 过滤 + 覆盖描述/schema + 注入默认值
-		seedPrompts(m.pg)          // 内置 agent 默认提示词正文播种进 agent_prompts(仅空时)
-		s.seedOrchestrationTools() // P2 跨任务编排工具 seed 进 tools 表(可按 agent 绑定)
+		seedPrompts(m.pg)            // 内置 agent 默认提示词正文播种进 agent_prompts(仅空时)
+		s.seedOrchestrationTools()   // P2 跨任务编排工具 seed 进 tools 表(可按 agent 绑定)
 		if err := s.seedFindingRetester(); err != nil {
 			log.Printf("[retester] seed: %v", err)
 		}
@@ -381,9 +381,16 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	s.restoreTaskRuntimes()
 	go s.reconcileConcurrency()
 	s.startTaskArchiveWorker()
-	srv := s // 号池闭包需要已构造的 s
+	srv := s                                 // 号池闭包需要已构造的 s
 	m.SetTavilyPoolPicker(srv.pickTavilyKey) // Tavily 号池：余额最高优先
-	s.wireInterceptReviewer() // LLM 兜底审批:未命中拦截规则的命令交给模型判定
+	s.wireInterceptReviewer()                // LLM 兜底审批:未命中拦截规则的命令交给模型判定
+	// 待审批 IM 推送（体验优化：审批等人工时运维能第一时间知道）。
+	// 双通道：飞书自建应用卡片（按钮直答，首选）+ 通知中心（回链兜底）。
+	m.interceptor.OnPendingCreated = func(pendingID int64, taskID string, agentName, toolName, reason string) {
+		go s.sendApprovalCard(pendingID, taskID, agentName, toolName, reason)
+		s.enqueueApprovalEvent(pendingID, taskID, agentName, toolName, reason)
+	}
+	go s.StartFeishuWS(s.ctx) // 飞书长连接（卡片按钮审批；未配置时内部直接返回）
 	return s
 }
 
@@ -830,7 +837,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/task-archives/restore/batch", s.restoreTaskArchivesBatch)
 	mux.HandleFunc("DELETE /api/task-archives/{id}", s.queueTaskArchiveDelete)
 	mux.HandleFunc("POST /api/task-archives/delete/batch", s.deleteTaskArchivesBatch)
-	mux.HandleFunc("GET /api/tasks/{id}/report/docx", s.taskReportNS)          // 渗透测试 Word 报告（行业模板，嵌截图）
+	mux.HandleFunc("GET /api/tasks/{id}/report/docx", s.taskReportNS) // 渗透测试 Word 报告（行业模板，嵌截图）
 	mux.HandleFunc("GET /api/tasks/{id}/report/markdown", s.taskReportMarkdown)
 	mux.HandleFunc("GET /api/evidence/file", s.evidenceFile) // 证据文件（截图/日志，限 data 目录内） // 漏洞中台 Markdown 报告
 	mux.HandleFunc("GET /api/tasks/{id}/coverage", s.taskCoverage)
@@ -890,8 +897,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tools/repeater/send", s.repeaterSend)
 	mux.HandleFunc("POST /api/tools/repeater/capture", s.repeaterCapture)
 	mux.HandleFunc("GET /api/tools/repeater/job/{id}", s.repeaterJob)
-	mux.HandleFunc("POST /api/tools/repeater/stop", s.repeaterStop)   // 工具箱·Repeater 发包
-	mux.HandleFunc("GET /api/tools/repeater/history", s.repHistoryList)     // Repeater 历史（移植自 AI-PENTEST）
+	mux.HandleFunc("POST /api/tools/repeater/stop", s.repeaterStop)     // 工具箱·Repeater 发包
+	mux.HandleFunc("GET /api/tools/repeater/history", s.repHistoryList) // Repeater 历史（移植自 AI-PENTEST）
 	mux.HandleFunc("POST /api/tools/repeater/history", s.repHistoryCreate)
 	mux.HandleFunc("PUT /api/tools/repeater/history/{id}", s.repHistoryUpdate)
 	mux.HandleFunc("DELETE /api/tools/repeater/history/{id}", s.repHistoryDelete)
@@ -911,7 +918,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/kb/dicts", s.dictCreate)
 	mux.HandleFunc("DELETE /api/kb/dicts/{id}", s.dictDelete)
 	mux.HandleFunc("GET /api/kb/dicts/export", s.dictExport)
-	mux.HandleFunc("POST /api/tools/webshell/generate", s.webshellGenerateAPI) // Webshell 控制台（UI）
+	mux.HandleFunc("POST /api/tools/webshell/generate", s.webshellGenerateAPI)      // Webshell 控制台（UI）
 	mux.HandleFunc("POST /api/tools/webshell/generate-ai", s.webshellGenerateAIAPI) // AI 生成 webshell（LLM 多态）
 	mux.HandleFunc("POST /api/tools/webshell/exec", s.webshellExecAPI)
 	mux.HandleFunc("POST /api/tools/webshell/ext", s.webshellExtAPI) // 插件（db/扫描/内存马/…）
@@ -925,72 +932,72 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tools/c2/exec", s.c2ExecAPI)
 	mux.HandleFunc("GET /api/tools/c2/tasks", s.c2TasksAPI)
 	mux.HandleFunc("GET /api/tools/c2/listeners", s.c2ListenersAPI)
-	mux.HandleFunc("POST /api/tools/c2/generate", s.c2GenerateAPI) // 载荷生成：真实 beacon 二进制（连接参数内嵌）
+	mux.HandleFunc("POST /api/tools/c2/generate", s.c2GenerateAPI)              // 载荷生成：真实 beacon 二进制（连接参数内嵌）
 	mux.HandleFunc("POST /api/tools/c2/loader-generate", s.c2LoaderGenerateAPI) // 免杀加载器
-	mux.HandleFunc("GET /api/tools/c2/download/{name}", s.c2DownloadGet) // 载荷直链下载（Content-Disposition 原生文件名）：shellcode→模板渲染→交叉编译
-	mux.HandleFunc("PUT /api/tools/c2/clients/{id}/notes", s.c2NotesAPI) // CS 风格会话备注
-	mux.HandleFunc("POST /api/tools/c2/task", s.c2TaskAPI) // CS 通用任务（download/upload/sleep/…）
-	mux.HandleFunc("DELETE /api/tools/c2/clients/{id}", s.c2RemoveAPI) // CS Remove 下线
-	mux.HandleFunc("GET /api/tools/mumu/status", s.mumuStatus) // MuMu 一键启动（agent 在物理机）
+	mux.HandleFunc("GET /api/tools/c2/download/{name}", s.c2DownloadGet)        // 载荷直链下载（Content-Disposition 原生文件名）：shellcode→模板渲染→交叉编译
+	mux.HandleFunc("PUT /api/tools/c2/clients/{id}/notes", s.c2NotesAPI)        // CS 风格会话备注
+	mux.HandleFunc("POST /api/tools/c2/task", s.c2TaskAPI)                      // CS 通用任务（download/upload/sleep/…）
+	mux.HandleFunc("DELETE /api/tools/c2/clients/{id}", s.c2RemoveAPI)          // CS Remove 下线
+	mux.HandleFunc("GET /api/tools/mumu/status", s.mumuStatus)                  // MuMu 一键启动（agent 在物理机）
 	mux.HandleFunc("POST /api/tools/mumu/launch", s.mumuLaunch)
 	mux.HandleFunc("POST /api/tools/mumu/connect", s.mumuConnect)
 	mux.HandleFunc("GET /api/tools/mumu/config", s.mumuConfigGet)
-	s.registerC2ClassicRoutes(mux) // Classic C2 控制台（github-C2 UI 移植 + goc2 适配层）
-	s.registerC2ClassicRoutes2(mux) // Classic 二期：反弹Shell/资料库/隧道/报告
+	s.registerC2ClassicRoutes(mux)                               // Classic C2 控制台（github-C2 UI 移植 + goc2 适配层）
+	s.registerC2ClassicRoutes2(mux)                              // Classic 二期：反弹Shell/资料库/隧道/报告
 	mux.HandleFunc("GET /api/tools/c2/plugins", s.c2PluginsList) // C2 插件（后渗透动作库）
 	mux.HandleFunc("POST /api/tools/c2/plugins", s.c2PluginsCreate)
 	mux.HandleFunc("DELETE /api/tools/c2/plugins/{id}", s.c2PluginsDelete)
 	mux.HandleFunc("POST /api/tools/c2/plugin/run", s.c2PluginRun)
-	mux.HandleFunc("POST /api/tools/c2/schedule", s.c2Schedule)     // C2 定时任务
-	mux.HandleFunc("POST /api/tools/c2/kill", s.c2KillSwitch)       // C2 Kill Switch
-	mux.HandleFunc("POST /api/tools/c2/sysinfo", s.c2Sysinfo)       // C2 系统信息快照
-	mux.HandleFunc("POST /api/tools/c2/sensitive", s.c2Sensitive)   // C2 敏感文件搜集
-	mux.HandleFunc("POST /api/tools/c2/scan", s.c2ScanDeploy)       // C2 扫描下发
-	mux.HandleFunc("GET /api/tools/c2/report", s.c2Report)          // C2 会话报告
-	mux.HandleFunc("GET /api/tools/c2/audit", s.c2AuditList)        // C2 审计日志
-	mux.HandleFunc("GET /api/tools/c2/graph", s.c2GraphGet)         // C2 攻击链路图
+	mux.HandleFunc("POST /api/tools/c2/schedule", s.c2Schedule)   // C2 定时任务
+	mux.HandleFunc("POST /api/tools/c2/kill", s.c2KillSwitch)     // C2 Kill Switch
+	mux.HandleFunc("POST /api/tools/c2/sysinfo", s.c2Sysinfo)     // C2 系统信息快照
+	mux.HandleFunc("POST /api/tools/c2/sensitive", s.c2Sensitive) // C2 敏感文件搜集
+	mux.HandleFunc("POST /api/tools/c2/scan", s.c2ScanDeploy)     // C2 扫描下发
+	mux.HandleFunc("GET /api/tools/c2/report", s.c2Report)        // C2 会话报告
+	mux.HandleFunc("GET /api/tools/c2/audit", s.c2AuditList)      // C2 审计日志
+	mux.HandleFunc("GET /api/tools/c2/graph", s.c2GraphGet)       // C2 攻击链路图
 	mux.HandleFunc("POST /api/tools/c2/graph/node", s.c2GraphNodeAdd)
 	mux.HandleFunc("POST /api/tools/c2/graph/edge", s.c2GraphEdgeAdd)
 	mux.HandleFunc("DELETE /api/tools/c2/graph/{session_id}", s.c2GraphClear)
-	mux.HandleFunc("POST /api/tools/c2/ai", s.c2AIDrive)            // AI 驱动 C2
+	mux.HandleFunc("POST /api/tools/c2/ai", s.c2AIDrive) // AI 驱动 C2
 	mux.HandleFunc("GET /api/tools/c2/ai/suggestions", s.c2AISuggest)
-	mux.HandleFunc("GET /api/tools/c2/stream", s.c2SSEStream)       // SSE 实时推送
-	mux.HandleFunc("POST /api/tools/c2/batch", s.c2BatchExec)       // 批量执行
-	mux.HandleFunc("GET /api/tools/c2/tokens", s.c2TokenStats)      // AI 用量统计
-	mux.HandleFunc("GET /api/tools/c2/shell/ws", s.c2ShellWS)       // 反弹 Shell（SSE 流）
-	mux.HandleFunc("POST /api/tools/c2/shell/cmd", s.c2ShellCmd)   // 反弹 Shell 命令
+	mux.HandleFunc("GET /api/tools/c2/stream", s.c2SSEStream)    // SSE 实时推送
+	mux.HandleFunc("POST /api/tools/c2/batch", s.c2BatchExec)    // 批量执行
+	mux.HandleFunc("GET /api/tools/c2/tokens", s.c2TokenStats)   // AI 用量统计
+	mux.HandleFunc("GET /api/tools/c2/shell/ws", s.c2ShellWS)    // 反弹 Shell（SSE 流）
+	mux.HandleFunc("POST /api/tools/c2/shell/cmd", s.c2ShellCmd) // 反弹 Shell 命令
 	mux.HandleFunc("DELETE /api/tools/c2/shell/{shell_id}", s.c2ShellClose)
-	mux.HandleFunc("POST /api/tools/c2/tunnel/start", s.c2TunnelStart)  // 内网穿透
+	mux.HandleFunc("POST /api/tools/c2/tunnel/start", s.c2TunnelStart) // 内网穿透
 	mux.HandleFunc("GET /api/tools/c2/tunnel/status", s.c2TunnelStatus)
 	mux.HandleFunc("GET /api/tools/c2/tunnel/chains", s.c2TunnelChains)
-	mux.HandleFunc("POST /api/tools/c2/tunnel/auto", s.c2TunnelAuto)   // AI 一键穿透
+	mux.HandleFunc("POST /api/tools/c2/tunnel/auto", s.c2TunnelAuto)       // AI 一键穿透
 	mux.HandleFunc("POST /api/tools/c2/autopilot/start", s.autopilotStart) // AI 自动驾驶
 	mux.HandleFunc("POST /api/tools/c2/autopilot/stop", s.autopilotStop)
 	mux.HandleFunc("GET /api/tools/c2/autopilot/status", s.autopilotStatus)
-	mux.HandleFunc("POST /api/tools/c2/autopilot/chain", s.autopilotChain) // AI 漏洞链推断
-	mux.HandleFunc("POST /api/tools/c2/autopilot/match", s.autopilotMatch) // 指纹→载荷匹配
+	mux.HandleFunc("POST /api/tools/c2/autopilot/chain", s.autopilotChain)   // AI 漏洞链推断
+	mux.HandleFunc("POST /api/tools/c2/autopilot/match", s.autopilotMatch)   // 指纹→载荷匹配
 	mux.HandleFunc("POST /api/tools/c2/autopilot/report", s.autopilotReport) // AI 报告增强
-	mux.HandleFunc("GET /api/dashboard/enhanced", s.dashboardEnhanced) // 实时仪表盘
-	mux.HandleFunc("GET /api/dashboard/stream", s.dashboardStream)     // 仪表盘 SSE
-	mux.HandleFunc("GET /api/tools/c2/ws", s.c2WSDuplex)             // WS 双向通信
-	mux.HandleFunc("POST /api/tools/c2/ws/cmd", s.c2WSCmd)           // WS 发命令
-	mux.HandleFunc("GET /api/tools/c2/queue", s.c2QueueStatus)       // C2 命令队列
+	mux.HandleFunc("GET /api/dashboard/enhanced", s.dashboardEnhanced)       // 实时仪表盘
+	mux.HandleFunc("GET /api/dashboard/stream", s.dashboardStream)           // 仪表盘 SSE
+	mux.HandleFunc("GET /api/tools/c2/ws", s.c2WSDuplex)                     // WS 双向通信
+	mux.HandleFunc("POST /api/tools/c2/ws/cmd", s.c2WSCmd)                   // WS 发命令
+	mux.HandleFunc("GET /api/tools/c2/queue", s.c2QueueStatus)               // C2 命令队列
 	mux.HandleFunc("POST /api/tools/c2/queue/clear", s.c2QueueClear)
 	mux.HandleFunc("GET /api/backup", s.backupFull)                   // 全量备份
-	mux.HandleFunc("POST /api/backup/restore", s.backupRestore)      // 恢复
+	mux.HandleFunc("POST /api/backup/restore", s.backupRestore)       // 恢复
 	mux.HandleFunc("GET /api/tools/c2/audit/verify", s.c2AuditVerify) // 审计防篡校验
-	mux.HandleFunc("GET /api/tools/fingerprint", s.fingerprintAPI)               // 指纹识别
+	mux.HandleFunc("GET /api/tools/fingerprint", s.fingerprintAPI)    // 指纹识别
 	mux.HandleFunc("POST /api/tools/fingerprint/autotest", s.fingerprintAutoTest)
-	mux.HandleFunc("POST /api/batch/create", s.batchCreate)            // 批量资产渗透
-	mux.HandleFunc("GET /api/batch/{id}", s.batchDetail) // 指纹→POC→AI任务
+	mux.HandleFunc("POST /api/batch/create", s.batchCreate) // 批量资产渗透
+	mux.HandleFunc("GET /api/batch/{id}", s.batchDetail)    // 指纹→POC→AI任务
 	mux.HandleFunc("GET /api/batch", s.batchList)
-	mux.HandleFunc("POST /api/codeaudit/upload", s.caUpload)          // 源码审计：上传 zip（流式+安全解压）
+	mux.HandleFunc("POST /api/codeaudit/upload", s.caUpload) // 源码审计：上传 zip（流式+安全解压）
 	mux.HandleFunc("GET /api/codeaudit/uploads", s.caUploadsList)
 	mux.HandleFunc("DELETE /api/codeaudit/uploads/{id}", s.caUploadDelete)
-	mux.HandleFunc("POST /api/codeaudit/task", s.caCreateTask)         // 消费上传→审计任务
+	mux.HandleFunc("POST /api/codeaudit/task", s.caCreateTask)               // 消费上传→审计任务
 	mux.HandleFunc("POST /api/tools/c2/tunnel/stop", s.c2TunnelStopEnhanced) // 增强：全清理
 	mux.HandleFunc("POST /api/tools/mumu/config", s.mumuConfigSet)
-		mux.HandleFunc("GET /api/exploration/findings", s.findings)
+	mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
 	mux.HandleFunc("GET /api/exploration/findings/asset-tree", s.findingAssetTree)
 	mux.HandleFunc("GET /api/exploration/findings/stats", s.findingStats)
@@ -1051,9 +1058,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/settings/proxy-subscription", s.proxySubGet)
 	mux.HandleFunc("POST /api/settings/proxy-subscription", s.proxySubSet)
 	mux.HandleFunc("GET /api/settings/proxy-subscription/check", s.proxySubCheck)
-	mux.HandleFunc("GET /api/network/exits", s.netExitsGet)      // 测试网络出口（内网/互联网分线）
+	mux.HandleFunc("GET /api/network/exits", s.netExitsGet) // 测试网络出口（内网/互联网分线）
 	mux.HandleFunc("PUT /api/network/exits", s.netExitsSet)
-	mux.HandleFunc("POST /api/network/check", s.netExitCheck)    // 出口连通自检
+	mux.HandleFunc("POST /api/network/check", s.netExitCheck) // 出口连通自检
 	mux.HandleFunc("GET /api/settings/c2", s.c2SettingsGet)
 	mux.HandleFunc("POST /api/settings/c2", s.c2SettingsSet)
 	mux.HandleFunc("POST /api/settings/web-search/test", s.testWebSearch)
@@ -1167,7 +1174,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/asset-intercept/rules/{id}", s.assetInterceptDeleteRule)
 	mux.HandleFunc("POST /api/asset-intercept/rules/{id}/toggle", s.assetInterceptToggleRule)
 
-
 	mux.HandleFunc("GET /api/intercept/pending", s.interceptListPending)
 	mux.HandleFunc("GET /api/intercept/pending/{id}", s.interceptGetOne)
 	mux.HandleFunc("POST /api/intercept/pending/{id}/decide", s.interceptDecide)
@@ -1180,8 +1186,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/intercept/judge", s.interceptGetJudgeConfig)
 	mux.HandleFunc("PUT /api/intercept/judge", s.interceptSetJudgeConfig)
 	mux.HandleFunc("GET /api/intercept/judge/usage", s.interceptJudgeUsage) // 兜底审批累计 token 用量
-	mux.HandleFunc("GET /api/intercept/stats", s.interceptStats) // 审批统计聚合(拦截率/来源/耗时)
-	mux.HandleFunc("GET /api/intercept/prefixes", s.interceptGetPrefixes) // 前缀白名单
+	mux.HandleFunc("GET /api/intercept/stats", s.interceptStats)            // 审批统计聚合(拦截率/来源/耗时)
+	mux.HandleFunc("GET /api/intercept/prefixes", s.interceptGetPrefixes)   // 前缀白名单
 	mux.HandleFunc("PUT /api/intercept/prefixes", s.interceptSetPrefixes)
 
 	// 三端载体（Web / 微信小程序 / APP）: 目标 / 产物上传解析 / 统一 API 资产
@@ -1194,15 +1200,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/supervisor/config", s.supervisorSetConfig)
 	// noa 上下文压缩（实验功能）：归档观测与清理
 	s.registerNoaRoutes(mux)
-	s.registerSurveyRoutes(mux) // 资产测绘配置/验证/流水
+	s.registerSurveyRoutes(mux)     // 资产测绘配置/验证/流水
 	s.registerTavilyPoolRoutes(mux) // Tavily 号池
-	s.registerPocSubRoutes(mux) // POC 订阅源管理+手动同步
-	s.registerApiModelRoutes(mux) // 业务建模：列表/详情/下载 OpenAPI/删除
+	s.registerPocSubRoutes(mux)     // POC 订阅源管理+手动同步
+	s.registerApiModelRoutes(mux)   // 业务建模：列表/详情/下载 OpenAPI/删除
 	// Webhook 通知（钉钉/飞书）+ 高危漏洞推送
 	s.registerNotifyRoutes(mux)
-	s.registerGateRoutes(mux) // 隐身入口
-	s.registerDoctrineRoutes(mux) // 指挥条令 CRUD
-	s.registerPluginRoutes(mux) // 插件中心（zip 包→MCP 注册）
+	s.registerGateRoutes(mux)      // 隐身入口
+	s.registerDoctrineRoutes(mux)  // 指挥条令 CRUD
+	s.registerPluginRoutes(mux)    // 插件中心（zip 包→MCP 注册）
 	s.registerContainerRoutes(mux) // 任务容器化
 
 	// /api/* goes through CORS + JWT; everything else is served by the embedded
@@ -1211,6 +1217,9 @@ func (s *Server) Handler() http.Handler {
 	api := cors(s.requireAuth(mux))
 	root := http.NewServeMux()
 	root.Handle("/api/", api)
+	// approval-quick 必须挂在 root mux 直通：挂在 api mux 会被 webui SPA 兜底吞掉
+	// 返回前端 404 页（HMAC 免登录审批回链，路由本身自带鉴权）。
+	root.Handle("/approval-quick", http.HandlerFunc(s.serveApprovalQuick))
 	root.Handle("/debug/pprof/", s.requireAuth(http.DefaultServeMux)) // 诊断：goroutine 栈转储（真正过 gate+JWT；自测 1941 曾裸挂未授权）
 	root.Handle("/", s.webuiHandler())
 	return s.gateMiddleware(root)
@@ -1816,7 +1825,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		SourceTaskIDs: sourceIDs, CompanyIDs: req.CompanyIDs, LLMProfileIDs: req.LLMProfileIDs,
 		TimeoutSeconds: req.TimeoutSeconds, PlanHeartbeatSeconds: req.PlanHeartbeatSeconds,
 		CoverageEnabled: req.CoverageEnabled, Preset: normalizePreset(req.Preset),
-		InterceptRules:  interceptRules,
+		InterceptRules: interceptRules,
 	})
 	if err != nil {
 		if errors.Is(err, db.ErrTaskCategoryInvalid) || errors.Is(err, db.ErrTaskCategoryNotFound) {
@@ -3593,23 +3602,23 @@ func (s *Server) settingsPayload() map[string]any {
 		concLimit = defaultConcurrencyLimit // 关闭时也回显一个合理默认值给 UI
 	}
 	return map[string]any{
-		"traffic_capture":          s.m.TrafficEnabled(),
-		"agent_traffic_binding":    s.m.pg.GetBool(settingAgentTrafficBinding, false),
-		"llm_record":               s.m.LLMRecordEnabled(),
-		"web_search_enabled":       on,
-		"web_search_backend":       backend,
-		"brave_key_set":            strings.TrimSpace(braveKey) != "",
-		"tavily_key_set":           strings.TrimSpace(tavilyKey) != "",
-		"web_search_proxy":         proxy,                       // 独立出口代理(http/https/socks5)，空=直连
-		"global_proxy":             s.m.GlobalProxy(),           // 全局出口代理(http/https/socks5)，所有目标流量走它，空=直连
-		"python_interpreter":       strings.TrimSpace(pyStored), // 用户/自动设的值(空=用运行时检测)
+		"traffic_capture":       s.m.TrafficEnabled(),
+		"agent_traffic_binding": s.m.pg.GetBool(settingAgentTrafficBinding, false),
+		"llm_record":            s.m.LLMRecordEnabled(),
+		"web_search_enabled":    on,
+		"web_search_backend":    backend,
+		"brave_key_set":         strings.TrimSpace(braveKey) != "",
+		"tavily_key_set":        strings.TrimSpace(tavilyKey) != "",
+		"web_search_proxy":      proxy,                       // 独立出口代理(http/https/socks5)，空=直连
+		"global_proxy":          s.m.GlobalProxy(),           // 全局出口代理(http/https/socks5)，所有目标流量走它，空=直连
+		"python_interpreter":    strings.TrimSpace(pyStored), // 用户/自动设的值(空=用运行时检测)
 		// 报告封面要素（nsformat 封面读取；空=FORANG 内部资料默认）
 		"report_cover_org":            getSettingDefault(s.m.pg, "report.cover_org", ""),
 		"report_cover_classification": getSettingDefault(s.m.pg, "report.cover_classification", "内部资料"),
 		"report_cover_prefix":         getSettingDefault(s.m.pg, "report.cover_prefix", "FORANG"),
-		"workers":                  s.m.Workers(),               // 并发工作 agent 数(默认3)；对之后启动的任务生效
-		"task_concurrency_enabled": concOn,                      // 任务并发上限开关(默认关)
-		"task_concurrency_limit":   concLimit,                   // 同时运行任务上限(开启后默认5)
+		"workers":                     s.m.Workers(), // 并发工作 agent 数(默认3)；对之后启动的任务生效
+		"task_concurrency_enabled":    concOn,        // 任务并发上限开关(默认关)
+		"task_concurrency_limit":      concLimit,     // 同时运行任务上限(开启后默认5)
 		// LLM 轮询(故障转移)。默认关；开启后走全局激活配置的 agent 在当前配置不可用时
 		// 自动切到下一个配置。bind_fallback 仅在轮询开启时有意义(默认关)。
 		"llm_pool_enabled":       s.m.LLMPoolEnabled(),
@@ -3705,8 +3714,11 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		NotifyEnabled    *bool   `json:"notify_enabled"`
 		NotifyBaseURL    *string `json:"notify_public_base_url"`
 		NotifyDigestMins *int    `json:"notify_digest_interval_min"`
+		// 飞书自建应用（长连接 + 审批卡片直答）。存 settings 键 feishu_app，
+		// JSON：app_id/app_secret/notify_user_ids；保存后由 feishu_ws 按需重连。
+		FeishuApp *string `json:"feishu_app"`
 		// 报告封面要素（机构署名/密级/文档编号前缀）。生成报告时读取；""=恢复默认。
-		ReportCoverOrg           *string `json:"report_cover_org"`
+		ReportCoverOrg            *string `json:"report_cover_org"`
 		ReportCoverClassification *string `json:"report_cover_classification"`
 		ReportCoverPrefix         *string `json:"report_cover_prefix"`
 	}
@@ -3750,6 +3762,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := s.m.pg.SetSetting(settingNotifyPublicBaseURL, base); err != nil {
 			writeErr(w, 500, err.Error())
+			return
+		}
+	}
+	if req.FeishuApp != nil {
+		if err := s.m.pg.SetSetting("feishu_app", strings.TrimSpace(*req.FeishuApp)); err != nil {
+			writeErr(w, 500, "飞书应用配置保存失败: "+err.Error())
 			return
 		}
 	}
