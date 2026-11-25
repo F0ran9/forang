@@ -20,6 +20,19 @@ import (
 	actool "github.com/Autumn-27/norma/tool"
 )
 
+// platformAPIBase 返回平台 API 的回环基址。
+//
+// 优先用主程序注入的 FORANG_API_BASE（按 -addr 算出，见 cmd/artex/main.go）；
+// 未注入时回落 http://127.0.0.1:8787。早期这里是硬编码 "http://127.0.0.1:8787"，
+// 一旦部署换端口（或把服务收进回环只留 nginx 对外）就会整体失联——
+// port_scan / dir_scan / fingerprint 全部 "connection refused"。
+func platformAPIBase() string {
+	if b := strings.TrimSpace(os.Getenv("FORANG_API_BASE")); b != "" {
+		return strings.TrimRight(b, "/")
+	}
+	return "http://127.0.0.1:8787"
+}
+
 // platformCall 调平台工具箱 API（127.0.0.1:8787，FORANG_TOKEN 认证），
 // 返回 data 段原始 JSON。fingerprintTool 同款约定。
 func platformCall(ctx context.Context, method, path string, body any) (json.RawMessage, error) {
@@ -35,7 +48,7 @@ func platformCall(ctx context.Context, method, path string, body any) (json.RawM
 		}
 		rdr = strings.NewReader(string(raw))
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://127.0.0.1:8787"+path, rdr)
+	req, err := http.NewRequestWithContext(ctx, method, platformAPIBase()+path, rdr)
 	if err != nil {
 		return nil, err
 	}

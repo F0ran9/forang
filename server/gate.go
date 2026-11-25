@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"log"
 	"math/big"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -125,7 +126,7 @@ func (s *Server) gateMiddleware(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Content-Security-Policy", "frame-ancestors 'self'")
 		enabled, token := s.gateConfig()
-		if !enabled || token == "" || s.gateExemptPath(r.URL.Path) {
+		if !enabled || token == "" || s.gateExemptPath(r.URL.Path) || s.gateInternalRequest(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -240,4 +241,31 @@ func gateNextTarget(next string) string {
 		return "/"
 	}
 	return n
+}
+
+// gateInternalRequest 识别"本机 agent 的环回 API 调用"并放行。
+//
+// port_scan / dir_scan / fingerprint 是 agent 进程内通过环回 HTTP 调平台工具箱
+// 实现的；gate 一开，这些请求没有 gate cookie，会被裸 404，
+// 表现为 "扫描启动失败: HTTP 404: 404 page not found"（线上实测）。
+//
+// 判定从严：对端必须是回环、不带任何反代/边缘头（nginx 一定写
+// X-Forwarded-For/X-Real-IP，Cloudflare 写 CF-Connecting-IP）、
+// 且路径限定在工具箱 API 前缀（这些接口本身仍要求 Bearer 内部 token）。
+func (s *Server) gateInternalRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	switch host {
+	case "127.0.0.1", "::1", "::ffff:127.0.0.1":
+	default:
+		return false
+	}
+	for _, h := range []string{"X-Forwarded-For", "X-Real-IP", "CF-Connecting-IP", "X-Forwarded-Proto"} {
+		if strings.TrimSpace(r.Header.Get(h)) != "" {
+			return false
+		}
+	}
+	return strings.HasPrefix(r.URL.Path, "/api/tools/")
 }

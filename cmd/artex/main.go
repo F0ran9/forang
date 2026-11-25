@@ -8,11 +8,13 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -63,6 +65,9 @@ func run() int {
 	server.BuildVersion = version
 
 	printBanner(*addr)
+	// 平台 API 回环基址：agent 的 port_scan / dir_scan / fingerprint 走环回 HTTP
+	// 调平台工具箱。按 -addr 算出（早期硬编码 8787，换端口即断链）。
+	os.Setenv("FORANG_API_BASE", apiBaseFromAddr(*addr))
 
 	// capture backend logs into the in-memory sink (still to stderr) so the /logs
 	// page can show a live log stream. Do this first, to catch startup logs too.
@@ -157,4 +162,37 @@ func shutdownContext(signalCtx context.Context) (context.Context, context.Cancel
 		}
 	}()
 	return ctx, shutdown
+}
+
+// apiBaseFromAddr 把监听地址转成回环 API 基址。
+// ":8787"/"8787" → http://127.0.0.1:8787；"127.0.0.1:9000" → 原样；
+// "0.0.0.0:p"/"[::]:p" → 回落回环；显式 IP/主机名 → 原样使用。
+func apiBaseFromAddr(a string) string {
+	a = strings.TrimSpace(a)
+	if a == "" {
+		a = ":8787"
+	}
+	var host, port string
+	if strings.HasPrefix(a, "[") {
+		if i := strings.LastIndex(a, "]"); i > 0 {
+			host = a[1:i]
+			if rest := strings.TrimPrefix(a[i+1:], ":"); rest != "" {
+				port = rest
+			}
+		}
+	} else if i := strings.LastIndex(a, ":"); i >= 0 {
+		host, port = a[:i], a[i+1:]
+	} else {
+		port = a
+	}
+	if port == "" {
+		port = "8787"
+	}
+	switch host {
+	case "", "0.0.0.0":
+		host = "127.0.0.1"
+	case "::", "[::]":
+		host = "::1"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }
