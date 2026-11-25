@@ -39,6 +39,9 @@ type ReviewInput struct {
 	// LocalScripts 是本次命令涉及的全部脚本（复合命令可能跑多个）。
 	// 保留 LocalScript 作首个元素的兼容字段。
 	LocalScripts []LocalScriptRef `json:"local_scripts,omitempty"`
+	// LocalWrite 非空表示本次是 Write/Edit 类本地落盘工具（路径/归属/合法性事实），
+	// 避免裁判把「本地写分析脚本」误判成「在目标系统写入后门/持久化」。
+	LocalWrite *LocalWriteHint `json:"local_write,omitempty"`
 }
 
 // LocalScriptRef 被执行脚本的源码引用（随裁判输入下发）。
@@ -90,5 +93,6 @@ func BuildReviewInput(ctx context.Context, tool string, arguments json.RawMessag
 	}
 	// Bash 执行本地脚本 → 附带脚本源码（副作用可判，不再"内容不可见只能ASK"）
 	AttachLocalScript(&in, arguments)
+	AttachLocalWrite(&in, tool, arguments)
 	return in, nil
 }
