@@ -411,10 +411,10 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "请求格式错误")
 		return
 	}
-	key := loginKey(r, req.Username)
-	if ok, wait := s.logins.allow(key); !ok {
+	ipKey, acctKey := loginKeys(r, req.Username)
+	if ok, wait := s.logins.allow(ipKey, acctKey); !ok {
 		w.Header().Set("Retry-After", fmt.Sprintf("%d", int(wait.Seconds())+1))
-		writeErr(w, 429, fmt.Sprintf("登录尝试过于频繁，请约 %d 分钟后再试", int(wait.Minutes())+1))
+		writeErr(w, 429, fmt.Sprintf("密码错误次数过多，已锁定，请 %s 后再试", humanWait(wait)))
 		return
 	}
 	if req.Username != "FORANG" {
@@ -431,19 +431,36 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)); err != nil {
-		s.logins.record(key)
-		writeErr(w, 401, "用户名或密码错误")
+		s.logins.record(ipKey, acctKey)
+		writeErr(w, 401, fmt.Sprintf("用户名或密码错误（本轮还可尝试 %d 次）", s.logins.remaining(ipKey, acctKey)))
 		return
 	}
 	if s.consentEnforced() {
 		writeErr(w, 403, "consent_required")
 		return
 	}
-	s.logins.reset(key)
+	s.logins.reset(ipKey, acctKey)
 	tok, err := signJWT(s.jwtKey)
 	if err != nil {
 		writeErr(w, 500, "token 生成失败")
 		return
 	}
 	writeJSON(w, 200, map[string]any{"token": tok})
+}
+
+// humanWait 把剩余等待时间格式化成人话：秒级/分钟级/小时级。
+func humanWait(d time.Duration) string {
+	secs := int(d.Seconds())
+	if secs < 60 {
+		if secs < 1 {
+			secs = 1
+		}
+		return fmt.Sprintf("%d 秒", secs)
+	}
+	mins := (secs + 59) / 60
+	if mins < 60 {
+		return fmt.Sprintf("%d 分钟", mins)
+	}
+	hours := (mins + 59) / 60
+	return fmt.Sprintf("%d 小时", hours)
 }

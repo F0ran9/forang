@@ -1,2 +1,6 @@
 *.bat text eol=crlf
 *.sh  text eol=lf
+
+# Shell / 单元文件强制 LF：CRLF 会让 systemd 报 bash\r 找不到解释器
+*.sh text eol=lf
+*.service text eol=lf

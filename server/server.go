@@ -188,6 +188,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	s.wireDoctrineResolver()                           // 指挥条令 doc:<id> 复用预设注入管道
 	workRoot = m.dir                                   // 容器同路径挂载的平台根
 	go s.cleanupOrphanContainers()                     // 启动清理无主任务容器
+	go s.startTunnelWatcher(s.ctx)                     // 公网入口变化时推飞书
 	s.startPocSubLoop()
 	s.startNotifyHealthLoop()      // 通知渠道健康巡检：每 6h 探测，死 webhook 不再静默丢推送
 	s.StartProxySubscriptionLoop() // 出口代理订阅轮询（未配置即静默）                            // POC 订阅定时同步（每分钟检查到期源）
@@ -1207,6 +1208,7 @@ func (s *Server) Handler() http.Handler {
 	// Webhook 通知（钉钉/飞书）+ 高危漏洞推送
 	s.registerNotifyRoutes(mux)
 	s.registerGateRoutes(mux)      // 隐身入口
+	s.registerTunnelRoutes(mux)    // 公网入口（隧道）查看/重建/回链同步
 	s.registerDoctrineRoutes(mux)  // 指挥条令 CRUD
 	s.registerPluginRoutes(mux)    // 插件中心（zip 包→MCP 注册）
 	s.registerContainerRoutes(mux) // 任务容器化
@@ -3633,6 +3635,7 @@ func (s *Server) settingsPayload() map[string]any {
 		// 这里只放「作用于全部渠道」的三项。
 		"notify_enabled":             s.m.pg.GetBool(settingNotifyEnabled, true),
 		"notify_public_base_url":     notifyPublicBaseURL(s.m.pg),
+		"tunnel_auto_sync":           getSettingDefault(s.m.pg, "tunnel.auto_sync", "true") != "false",
 		"notify_digest_interval_min": notifyDigestIntervalMin(s.m.pg),
 	}
 }
@@ -3713,6 +3716,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// 不需要重建 agent 或重启。
 		NotifyEnabled    *bool   `json:"notify_enabled"`
 		NotifyBaseURL    *string `json:"notify_public_base_url"`
+		TunnelAutoSync   *bool   `json:"tunnel_auto_sync"` // 隧道换域名自动同步回连地址
 		NotifyDigestMins *int    `json:"notify_digest_interval_min"`
 		// 飞书自建应用（长连接 + 审批卡片直答）。存 settings 键 feishu_app，
 		// JSON：app_id/app_secret/notify_user_ids；保存后由 feishu_ws 按需重连。
@@ -3749,6 +3753,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if req.NotifyEnabled != nil {
 		if err := s.m.pg.SetBool(settingNotifyEnabled, *req.NotifyEnabled); err != nil {
 			writeErr(w, 500, err.Error())
+			return
+		}
+	}
+	if req.TunnelAutoSync != nil {
+		if err := s.m.pg.SetSetting("tunnel.auto_sync", boolStr(*req.TunnelAutoSync)); err != nil {
+			writeErr(w, 500, "自动同步开关保存失败: "+err.Error())
 			return
 		}
 	}

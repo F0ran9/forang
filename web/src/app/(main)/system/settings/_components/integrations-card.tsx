@@ -1,10 +1,10 @@
 "use client";
 
 // 平台集成设置卡（哨兵移植批次）：资产测绘（FOFA/Quake/Hunter）、Webhook 通知、
-// Tavily 号池、监督员策略、拦截前缀白名单。全部独立加载，互不阻塞。
+// Tavily 号池、拦截前缀白名单。全部独立加载，互不阻塞。
 import * as React from "react";
 
-import { FlaskConicalIcon, GlobeIcon, BellRingIcon, KeySquareIcon, EyeIcon, ShieldCheckIcon } from "lucide-react";
+import { FlaskConicalIcon, GlobeIcon, BellRingIcon, KeySquareIcon, ShieldCheckIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -16,9 +16,6 @@ import { api } from "@/lib/api";
 import type { SurveyPlatform, TavilyKeyRow } from "@/lib/types";
 
 const PLATFORMS: [string, string][] = [["fofa", "FOFA"], ["quake", "360 Quake"], ["hunter", "奇安信 Hunter"]];
-const STRATEGIES: [string, string][] = [
-  ["steady", "稳健交付"], ["validation", "漏洞验证"], ["offensive", "红队推进"], ["stealth", "低噪声"], ["guarded", "避危险接口"],
-];
 
 function SurveyCard() {
   const [cfg, setCfg] = React.useState<Record<string, SurveyPlatform>>({});
@@ -171,36 +168,6 @@ function TavilyPoolCard() {
   );
 }
 
-function SupervisorStrategyCard() {
-  const [strategy, setStrategy] = React.useState("steady");
-  const [cfg, setCfg] = React.useState<{ enabled: boolean; strategy: string; interval_sec: number; min_actions: number } | null>(null);
-  React.useEffect(() => {
-    fetch("/api/supervisor/config", { headers: authHeaders() }).then((r) => r.json()).then((d) => {
-      setStrategy(d.strategy ?? "steady");
-      setCfg(d);
-    }).catch(() => undefined);
-  }, []);
-  const save = (s: string) => {
-    setStrategy(s);
-    if (!cfg) return;
-    fetch("/api/supervisor/config", { method: "PUT", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ ...cfg, strategy: s }) })
-      .then(() => toast.success(`监督策略已切换：${s}`)).catch(() => toast.error("保存失败"));
-  };
-  return (
-    <Card className="mb-4 break-inside-avoid md:mb-6">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base"><EyeIcon className="size-4" />监督员策略</CardTitle>
-        <CardDescription>监督模式（第二个 LLM 旁观工具流）的作战策略：滚动维护「已测/已排除」，digest 脱敏后判定空转并注入建议。</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-wrap gap-2">
-        {STRATEGIES.map(([v, l]) => (
-          <Button key={v} size="sm" variant={strategy === v ? "default" : "outline"} onClick={() => save(v)} disabled={!cfg}>{l}</Button>
-        ))}
-      </CardContent>
-    </Card>
-  );
-}
-
 function PrefixCard() {
   const [v, setV] = React.useState("");
   React.useEffect(() => { api.interceptPrefixes().then((r) => setV(r.prefixes ?? "")).catch(() => undefined); }, []);
@@ -228,7 +195,6 @@ export function IntegrationsCards() {
   return (
     <>
       <SurveyCard />
-      <SupervisorStrategyCard />
       <NotifyCard />
       <TavilyPoolCard />
       <PrefixCard />

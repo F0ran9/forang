@@ -1,0 +1,16 @@
+[Unit]
+Description=FORANG Cloudflare 临时隧道（出站连接，公网零入站端口）
+After=network-online.target forang.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/root/Desktop/artex/scripts/tunnel-run.sh
+Restart=always
+RestartSec=5
+# 换网络时 cloudflared 自己重连（域名不变）；进程真挂了由 systemd 拉起（域名会变）
+KillMode=mixed
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

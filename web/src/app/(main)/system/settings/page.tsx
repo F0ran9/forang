@@ -18,6 +18,7 @@ import type { Settings } from "@/lib/types";
 import { UpdateCard } from "./_components/update-card";
 import { IntegrationsCards } from "./_components/integrations-card";
 import { NetExitCard } from "./_components/net-exit-card";
+import { TunnelCard } from "./_components/tunnel-card";
 import { ReportCoverCard } from "./_components/report-cover-card";
 import { P2IntegrationCards } from "./_components/p2-cards";
 
@@ -287,6 +288,7 @@ export default function SystemSettingsPage() {
           column-gap 只管列间距，行间距要由子元素自己给。 */}
       <div className="columns-1 gap-4 md:gap-6 lg:columns-2">
         <IntegrationsCards />
+        <TunnelCard />
         <NetExitCard />
         <ReportCoverCard />
         <P2IntegrationCards />

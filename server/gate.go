@@ -11,7 +11,6 @@ package server
 // 默认关闭（内网部署无此威胁）；设置页开关/查看/轮换 token。
 
 import (
-	"time"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -21,6 +20,7 @@ import (
 	"math/big"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const (
@@ -125,7 +125,7 @@ func (s *Server) gateMiddleware(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Content-Security-Policy", "frame-ancestors 'self'")
 		enabled, token := s.gateConfig()
-		if !enabled || token == "" || r.URL.Path == "/api/health" {
+		if !enabled || token == "" || s.gateExemptPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -133,19 +133,26 @@ func (s *Server) gateMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// 入口路径：种 cookie 后跳转。常量时间比较（与 cookie 校验同标准）防逐字符探测。
-		if subtle.ConstantTimeCompare([]byte(strings.Trim(r.URL.Path, "/")), []byte(token)) == 1 {
-			http.SetCookie(w, &http.Cookie{
-				Name:     gateCookieName,
-				Value:    s.gateCookieValue(token),
-				Path:     "/",
-				MaxAge:   30 * 24 * 3600,
-				HttpOnly: true,
-				SameSite: http.SameSiteLaxMode,
-			})
-			http.Redirect(w, r, "/", http.StatusFound)
+		// 入口路径：种 cookie 后跳转（常量时间比较，防逐字符探测）。
+		// 支持两种形态，让分享出去的深链一次点通：
+		//   /<token>        → 跳 /（或 ?next= 站内路径）
+		//   /<token>/<rest> → 跳 /<rest>（保留 query）——审批/详情等推送链接用它
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if subtle.ConstantTimeCompare([]byte(path), []byte(token)) == 1 {
+			s.setGateCookie(w, r, token)
+			http.Redirect(w, r, gateNextTarget(r.URL.Query().Get("next")), http.StatusFound)
 			return
 		}
+		if strings.HasPrefix(path, token+"/") {
+			rest := "/" + strings.TrimPrefix(path, token+"/")
+			s.setGateCookie(w, r, token)
+			if r.URL.RawQuery != "" {
+				rest += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, rest, http.StatusFound)
+			return
+		}
+
 		// 其余一律裸 404：不带登录页、不带重定向、不带 Server 头指纹。
 		http.NotFound(w, r)
 	})
@@ -199,3 +206,38 @@ func (s *Server) gateSet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"enabled": enabled, "token": token})
 }
 
+// gateExemptPath 是 gate 白名单：这些路径无 cookie 也放行。
+//   - /api/health：健康检查；
+//   - /approval-quick：飞书/企微推送的一键审批链接。它自带 HMAC 一次性令牌
+//     （10 分钟、单次使用），安全性不依赖 gate；而手机点开时必然没有 gate
+//     cookie——不放行就是裸 404，这正是「飞书点批准/拒绝无效、平台还卡着」的根因。
+func (s *Server) gateExemptPath(p string) bool {
+	switch p {
+	case "/api/health", "/approval-quick":
+		return true
+	}
+	return false
+}
+
+// setGateCookie 种下 gate cookie（HTTPS 时带 Secure）。
+func (s *Server) setGateCookie(w http.ResponseWriter, r *http.Request, token string) {
+	secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	http.SetCookie(w, &http.Cookie{
+		Name:     gateCookieName,
+		Value:    s.gateCookieValue(token),
+		Path:     "/",
+		MaxAge:   30 * 24 * 3600,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// gateNextTarget 校验 next 参数：只允许站内相对路径，防开放重定向。
+func gateNextTarget(next string) string {
+	n := strings.TrimSpace(next)
+	if n == "" || !strings.HasPrefix(n, "/") || strings.HasPrefix(n, "//") || strings.Contains(n, "\\") {
+		return "/"
+	}
+	return n
+}
