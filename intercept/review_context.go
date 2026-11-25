@@ -36,6 +36,9 @@ type ReviewInput struct {
 	// 预览（工作目录内、头 8K+尾 4K 截断）——脚本副作用据此可判，不再
 	// 「内容不可见只能 ASK」。读取失败时 ReadError 说明原因，仍按信息不足处理。
 	LocalScript *LocalScriptRef `json:"local_script,omitempty"`
+	// LocalScripts 是本次命令涉及的全部脚本（复合命令可能跑多个）。
+	// 保留 LocalScript 作首个元素的兼容字段。
+	LocalScripts []LocalScriptRef `json:"local_scripts,omitempty"`
 }
 
 // LocalScriptRef 被执行脚本的源码引用（随裁判输入下发）。
@@ -44,6 +47,8 @@ type LocalScriptRef struct {
 	Content   string `json:"content,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
 	ReadError string `json:"read_error,omitempty"`
+	// Source：file / file-truncated / command-inline（命令里的 heredoc）
+	Source string `json:"source,omitempty"`
 }
 
 type reviewContextKey struct{}

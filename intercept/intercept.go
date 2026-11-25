@@ -609,6 +609,10 @@ func (i *Interceptor) HandleAsk(ctx context.Context, convID int64, dec Decision,
 	taskID, agentName := taskInfoFromCtx(ctx)
 	taskEmit := taskEmitFromCtx(ctx)
 
+	// 人工看到的内容要和裁判一致：命令里跑本地脚本时，把脚本体摘要并进审批说明。
+	if excerpt := ScriptExcerptFor(toolName, input); excerpt != "" {
+		dec.Message += excerpt
+	}
 	audit := auditFor(ctx, dec, input, "pending")
 	pendingID, err := i.db.CreateInterceptPending(ruleID, convID, taskID, agentName, toolName, input, dec.Message, audit)
 	if err != nil {
