@@ -385,6 +385,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	srv := s                                 // 号池闭包需要已构造的 s
 	m.SetTavilyPoolPicker(srv.pickTavilyKey) // Tavily 号池：余额最高优先
 	s.wireInterceptReviewer()                // LLM 兜底审批:未命中拦截规则的命令交给模型判定
+	s.wireScopeResolver()                    // 任务授权范围注入裁判(目标清单来自 DB)
 	// 待审批 IM 推送（体验优化：审批等人工时运维能第一时间知道）。
 	// 双通道：飞书自建应用卡片（按钮直答，首选）+ 通知中心（回链兜底）。
 	m.interceptor.OnPendingCreated = func(pendingID int64, taskID string, agentName, toolName, reason string) {

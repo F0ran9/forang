@@ -21,6 +21,20 @@ type ReviewBackground struct {
 
 // ReviewInput contains only the current call and explicitly selected background.
 // Execution history and call correlation belong to the separate audit record.
+// ReviewScope 是任务的授权范围事实（来自平台 DB，不是模型生成的内容）。
+// 裁判据此判断"这条命令打的是不是任务范围内、已获授权的目标"。
+type ReviewScope struct {
+	TaskID       string   `json:"task_id,omitempty"`
+	Goal         string   `json:"goal,omitempty"`           // 人类写的任务目标（截断）
+	InScope      []string `json:"in_scope,omitempty"`       // 在册目标（去重，限量）
+	InScopeTotal int      `json:"in_scope_total,omitempty"` // 在册目标总数
+	Note         string   `json:"note,omitempty"`
+}
+
+// ScopeResolver 由 server 注入：按 task_id 返回任务范围事实。
+// 未注入时（单测/无 DB）裁判输入里不带 scope。
+var ScopeResolver func(taskID string) (ReviewScope, bool)
+
 type ReviewInput struct {
 	Version    int               `json:"version"`
 	WorkingDir string            `json:"working_directory,omitempty"`
@@ -43,6 +57,9 @@ type ReviewInput struct {
 	// 是否在工作目录内、是否已存在等事实——避免裁判把「本地写分析脚本」
 	// 误判成「在目标系统写入后门/持久化」。
 	LocalWrite *LocalWriteHint `json:"local_write,omitempty"`
+	// Scope 非空表示本次调用属于某个任务的授权范围，用于避免把授权测试
+	// 判成对陌生生产系统的攻击（线上 #1634：IMAP 认证探测被误判）。
+	Scope *ReviewScope `json:"scope,omitempty"`
 }
 
 // LocalScriptRef 被执行脚本的源码引用（随裁判输入下发）。
@@ -100,5 +117,11 @@ func BuildReviewInput(ctx context.Context, tool string, arguments json.RawMessag
 	// Bash 执行本地脚本 → 附带脚本源码（副作用可判，不再"内容不可见只能ASK"）
 	AttachLocalScript(&in, arguments)
 	AttachLocalWrite(&in, tool, arguments)
+	// 任务授权范围（平台事实，供裁判区分"授权测试"与"陌生攻击"）
+	if tid := TaskIDFromContext(ctx); tid > 0 && ScopeResolver != nil {
+		if sc, ok := ScopeResolver(fmt.Sprintf("%d", tid)); ok {
+			in.Scope = &sc
+		}
+	}
 	return in, nil
 }

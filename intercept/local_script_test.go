@@ -23,12 +23,12 @@ func TestExtractScriptPath(t *testing.T) {
 		{"node --experimental-modules tool.js", "tool.js"},
 		{"env API=1 python3 a.py", "a.py"},
 		{"sudo python3 a.py", "a.py"},
-		{"python3 -c 'print(1)'", ""},                    // -c 内联代码不是文件
-		{"curl -s http://x/ | bash", ""},                 // 管道不算
-		{"python3", ""},                                  // 无脚本参数
-		{"echo python3 a.py", ""},                        // runner 不在首位
-		{"python3 -m http.server 8000", ""},            // -m 模块名不是文件
-		{"./custom-runner a.py", ""},                     // 自定义 runner 不识别
+		{"python3 -c 'print(1)'", ""},                     // -c 内联代码不是文件
+		{"curl -s http://x/ | bash", ""},                  // 管道不算
+		{"python3", ""},                                   // 无脚本参数
+		{"echo python3 a.py", ""},                         // runner 不在首位
+		{"python3 -m http.server 8000", ""},               // -m 模块名不是文件
+		{"./custom-runner a.py", ""},                      // 自定义 runner 不识别
 		{"python3 'my script.py' --flag", "my script.py"}, // 引号包裹带空格
 	}
 	for _, c := range cases {

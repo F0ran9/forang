@@ -32,6 +32,45 @@ func (s *Server) chatGuard() *guard.Guard {
 // judge runs only on tool calls that matched no rule (see intercept.Judge). It
 // resolves the configured judge profile (0 → active/default), builds a provider,
 // runs a one-shot JSON classification with an explanation for every verdict.
+// wireScopeResolver 把任务的授权范围（目标描述 + 在册资产）注入裁判输入。
+// 只读平台 DB，不接受模型生成的内容——避免 agent 用自述"这是授权的"操纵裁判。
+func (s *Server) wireScopeResolver() {
+	intercept.ScopeResolver = func(taskID string) (intercept.ReviewScope, bool) {
+		id, err := strconv.ParseInt(taskID, 10, 64)
+		if err != nil || id <= 0 || s.m == nil || s.m.pg == nil {
+			return intercept.ReviewScope{}, false
+		}
+		goal, hosts, total, err := s.m.pg.TaskScope(id, 12)
+		if err != nil {
+			return intercept.ReviewScope{}, false
+		}
+		if total == 0 && strings.TrimSpace(goal) == "" {
+			return intercept.ReviewScope{}, false
+		}
+		sc := intercept.ReviewScope{
+			TaskID:       taskID,
+			Goal:         clipText(goal, 200),
+			InScope:      hosts,
+			InScopeTotal: total,
+		}
+		if total > 0 {
+			sc.Note = "in_scope 是平台登记的本任务目标（客户授权范围）。对这些目标的扫描、指纹识别、认证/口令尝试、漏洞验证属于授权测试；目标清单之外的资产按常规判据处理。"
+		} else {
+			sc.Note = "本任务尚未登记具体目标，按常规判据处理。"
+		}
+		return sc, true
+	}
+}
+
+// clipText 按 rune 截断，避免中文被切半。
+func clipText(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
 func (s *Server) wireInterceptReviewer() {
 	s.m.interceptor.SetReviewer(func(ctx context.Context, profileID int64, prompt string, input intercept.ReviewInput) (intercept.Decision, error) {
 		if profileID == 0 {
@@ -357,7 +396,7 @@ func (s *Server) interceptDecide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Decision    string `json:"decision"` // "allowed" | "denied"
+		Decision    string `json:"decision"`     // "allowed" | "denied"
 		EditedInput string `json:"edited_input"` // 修改后放行：完整参数 JSON（哨兵可编辑放行）
 	}
 	if err := decode(r, &req); err != nil {
