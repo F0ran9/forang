@@ -377,13 +377,12 @@ func loadScriptRef(workingDir, raw, command string, budget *int) LocalScriptRef 
 		ref.ReadError = "路径解析失败"
 		return ref
 	}
-	// 越界防护：只读工作目录子树（防审查通道变任意文件读取口）
-	if workingDir != "" {
-		wdAbs, werr := filepath.Abs(workingDir)
-		if werr == nil && !strings.HasPrefix(abs+string(filepath.Separator), wdAbs+string(filepath.Separator)) && abs != wdAbs {
-			ref.ReadError = "脚本路径不在任务工作目录内，不附带内容（防审查通道读取任意文件）"
-			return ref
-		}
+	// 越界防护：只读本任务数据树（tasks/<id>/…，含兄弟意图目录）。
+	// 放宽到任务根而不是单个意图目录，是因为 agent 常复用上一轮目录里的脚本；
+	// 仍不越出任务，防审查通道变成任意文件读取口。
+	if workingDir != "" && !withinTaskTree(abs, workingDir) {
+		ref.ReadError = "脚本路径不在任务工作目录内，不附带内容（防审查通道读取任意文件）"
+		return ref
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
@@ -391,6 +390,14 @@ func loadScriptRef(workingDir, raw, command string, budget *int) LocalScriptRef 
 		if src, ok := extractInlineScript(command, raw); ok {
 			ref.Content = clipScript(src, budget)
 			ref.Source = "command-inline"
+			return ref
+		}
+		// 也可能是"由另一脚本派生"：`sed ... src.sh > dst.sh`、`cp src dst`、
+		// `awk ... src > dst`。线上 #1843 就是这种：裁判只看到 dst 读取失败 → ASK → 超时被拒。
+		if srcContent, srcPath, genCmd, ok := resolveGeneratedScript(command, raw, workingDir); ok {
+			ref.Content = clipScript(srcContent, budget)
+			ref.Source = "generated-from:" + srcPath
+			ref.GeneratedBy = genCmd
 			return ref
 		}
 		ref.ReadError = "读取失败: " + err.Error()
@@ -566,4 +573,141 @@ func ScriptExcerptFor(toolName string, input json.RawMessage) string {
 		fmt.Fprintf(&b, "\n\n📄 %s（%s）:\n```\n%s\n```", ref.Path, from, clipScript(ref.Content, &remain))
 	}
 	return b.String()
+}
+
+// resolveGeneratedScript 解析「目标脚本由另一文件派生」的形态：
+//
+//	sed 's|a|b|' src.sh > dst.sh      （线上 #1843）
+//	cp src.sh dst.sh
+//	awk '{...}' src.sh > dst.sh
+//	cat src.sh > dst.sh
+//
+// 返回源文件正文、源路径与派生命令片段。只读同一任务目录树内的文件：
+// 任务的各意图目录是兄弟关系（tasks/18/i798 ← tasks/18/i775），
+// 所以边界从"当前意图目录"放宽到"本任务根目录"，仍不越出任务。
+func resolveGeneratedScript(command, dstPath, workingDir string) (content, srcPath, genCmd string, ok bool) {
+	want := filepath.Base(dstPath)
+	for _, seg := range splitSegments(command) {
+		if !writesTo(seg, dstPath, want) {
+			continue
+		}
+		for _, cand := range candidateSources(seg, dstPath) {
+			abs := cand
+			if !filepath.IsAbs(abs) {
+				if workingDir == "" {
+					continue
+				}
+				abs = filepath.Join(workingDir, abs)
+			}
+			if !withinTaskTree(abs, workingDir) {
+				continue
+			}
+			data, err := os.ReadFile(abs)
+			if err != nil {
+				continue
+			}
+			return string(data), abs, strings.TrimSpace(seg), true
+		}
+	}
+	return "", "", "", false
+}
+
+// writesTo 判断该命令段是否把输出写到 dst（`… > dst`、`… >> dst`、`cp x dst`、`tee dst`）。
+func writesTo(seg, dstPath, base string) bool {
+	fields := splitFields(seg)
+	for i, f := range fields {
+		t := unquote(f)
+		if t == ">" || t == ">>" {
+			if i+1 < len(fields) {
+				n := unquote(fields[i+1])
+				if n == dstPath || filepath.Base(n) == base {
+					return true
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(t, ">") && strings.TrimPrefix(t, ">") != "" {
+			n := strings.TrimLeft(t, ">")
+			if n == dstPath || filepath.Base(n) == base {
+				return true
+			}
+			continue
+		}
+		// cp / install / tee / ln -s：最后一个参数是目标
+		if base0 := filepath.Base(unquote(fields[0])); base0 == "cp" || base0 == "install" || base0 == "tee" {
+			if i == len(fields)-1 && (t == dstPath || filepath.Base(t) == base) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// candidateSources 从命令段里挑出可能是"源脚本"的路径（带脚本扩展名、且不是目标）。
+func candidateSources(seg, dstPath string) []string {
+	var out []string
+	dstBase := filepath.Base(dstPath)
+	for _, f := range splitFields(seg) {
+		t := unquote(f)
+		if t == "" || strings.HasPrefix(t, "-") || strings.ContainsAny(t, "<>|&") {
+			continue
+		}
+		// 只跳过"目标本身"：同名的裸文件名才是目标；带目录的同名文件是另一个
+		// 位置（#1843 的源是上一轮目录里的同名 dns_round.sh，不能当目标跳过）
+		if t == dstPath || (filepath.Base(t) == dstBase && !strings.ContainsAny(t, "/\\")) {
+			continue
+		}
+		if filepath.Ext(t) == "" || !scriptExts[strings.ToLower(filepath.Ext(t))] {
+			continue
+		}
+		if strings.Contains(t, "=") {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+// withinTaskTree 判断路径是否落在本任务的数据目录树内（tasks/<id>/…）。
+// 比"仅当前意图目录"宽一档：agent 常把上一轮的脚本复制/改写后复用。
+func withinTaskTree(abs, workingDir string) bool {
+	root := taskRoot(workingDir)
+	if root == "" {
+		return withinDir(abs, workingDir)
+	}
+	return withinDir(abs, root) || abs == root
+}
+
+// taskRoot 从工作目录推出任务根：…/tasks/<id>/<intent> → …/tasks/<id>。
+func taskRoot(workdir string) string {
+	if workdir == "" {
+		return ""
+	}
+	clean := filepath.Clean(workdir)
+	parts := strings.Split(clean, string(filepath.Separator))
+	for i := len(parts) - 1; i >= 0; i-- {
+		if parts[i] != "tasks" {
+			continue
+		}
+		if i+1 < len(parts) {
+			return strings.Join(parts[:i+2], string(filepath.Separator))
+		}
+	}
+	return ""
+}
+
+// withinDir 判断 abs 是否在 dir 子树内。
+func withinDir(abs, dir string) bool {
+	if dir == "" {
+		return false
+	}
+	d, err := filepath.Abs(dir)
+	if err != nil {
+		return false
+	}
+	a, err := filepath.Abs(abs)
+	if err != nil {
+		return false
+	}
+	return a == d || strings.HasPrefix(a+string(filepath.Separator), d+string(filepath.Separator))
 }

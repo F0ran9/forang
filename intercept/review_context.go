@@ -37,10 +37,11 @@ type ReviewInput struct {
 	// 「内容不可见只能 ASK」。读取失败时 ReadError 说明原因，仍按信息不足处理。
 	LocalScript *LocalScriptRef `json:"local_script,omitempty"`
 	// LocalScripts 是本次命令涉及的全部脚本（复合命令可能跑多个）。
-	// 保留 LocalScript 作首个元素的兼容字段。
+	// 保留 LocalScript 作首个元素的兼容字段，老提示词仍能读到。
 	LocalScripts []LocalScriptRef `json:"local_scripts,omitempty"`
-	// LocalWrite 非空表示本次是 Write/Edit 类本地落盘工具（路径/归属/合法性事实），
-	// 避免裁判把「本地写分析脚本」误判成「在目标系统写入后门/持久化」。
+	// LocalWrite 非空表示本次是 Write/Edit 类本地落盘工具，这里给出目标路径、
+	// 是否在工作目录内、是否已存在等事实——避免裁判把「本地写分析脚本」
+	// 误判成「在目标系统写入后门/持久化」。
 	LocalWrite *LocalWriteHint `json:"local_write,omitempty"`
 }
 
@@ -50,8 +51,13 @@ type LocalScriptRef struct {
 	Content   string `json:"content,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
 	ReadError string `json:"read_error,omitempty"`
-	// Source：file / file-truncated / command-inline（命令里的 heredoc）
+	// Source 说明内容从哪来：file（磁盘原文）/ file-truncated（头尾截断）/
+	// command-inline（命令里的 heredoc，审批时文件尚未落盘）。裁判据此判断
+	// "看到的就是将要执行的全部内容"，而不是猜。
 	Source string `json:"source,omitempty"`
+	// GeneratedBy 非空表示该脚本是命令内派生出来的（如 sed 改写源脚本后重定向），
+	// 这里给出派生命令，便于裁判判断"改写后的行为是否仍与原脚本一致"。
+	GeneratedBy string `json:"generated_by,omitempty"`
 }
 
 type reviewContextKey struct{}

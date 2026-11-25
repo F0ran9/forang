@@ -137,3 +137,58 @@ func TestAttachInlineDashC(t *testing.T) {
 		t.Fatalf("-c 内联未附带: %+v", in.LocalScripts)
 	}
 }
+
+// 线上 #1843：`sed 's|a|b|' 上级目录/src.sh > ./dst.sh && ./dst.sh`
+// 目标脚本审批时不存在，但源脚本可读 —— 必须把源脚本带上并标注派生命令。
+func TestAttachGeneratedScript(t *testing.T) {
+	root := t.TempDir()
+	prev := filepath.Join(root, "tasks", "18", "i775")
+	cur := filepath.Join(root, "tasks", "18", "i798")
+	for _, d := range []string{prev, cur} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	src := filepath.Join(prev, "dns_round.sh")
+	if err := os.WriteFile(src, []byte("#!/bin/bash\nOUT="+prev+"/round_r0.txt\ndig +short A a.test > $OUT\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := "cd " + cur + " && sed 's|" + prev + "/|" + cur + "/|' " + src + " > dns_round.sh && chmod +x dns_round.sh && ./dns_round.sh r0"
+	in := &ReviewInput{Tool: "Bash", WorkingDir: cur}
+	args, _ := json.Marshal(map[string]string{"command": cmd})
+	AttachLocalScript(in, args)
+
+	if in.LocalScript == nil || in.LocalScript.Content == "" {
+		t.Fatalf("未附带派生脚本内容: %+v", in.LocalScript)
+	}
+	ref := in.LocalScript
+	if !strings.HasPrefix(ref.Source, "generated-from:") || !strings.Contains(ref.Source, "dns_round.sh") {
+		t.Fatalf("Source 应标注来源，实际 %q", ref.Source)
+	}
+	if !strings.Contains(ref.Content, "dig +short") {
+		t.Fatalf("内容不对: %q", ref.Content)
+	}
+	if !strings.Contains(ref.GeneratedBy, "sed") {
+		t.Fatalf("应给出派生命令: %q", ref.GeneratedBy)
+	}
+}
+
+// 任务树之外的源文件仍必须拒绝。
+func TestAttachGeneratedScriptOutsideTask(t *testing.T) {
+	root := t.TempDir()
+	cur := filepath.Join(root, "tasks", "18", "i798")
+	if err := os.MkdirAll(cur, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(root, "secret.sh")
+	if err := os.WriteFile(outside, []byte("echo secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := "cd " + cur + " && cat " + outside + " > x.sh && bash x.sh"
+	in := &ReviewInput{Tool: "Bash", WorkingDir: cur}
+	args, _ := json.Marshal(map[string]string{"command": cmd})
+	AttachLocalScript(in, args)
+	if in.LocalScript != nil && strings.Contains(in.LocalScript.Content, "secret") {
+		t.Fatal("任务树外的源文件不应附带内容")
+	}
+}
