@@ -142,7 +142,19 @@ func extractOne(seg string) string {
 		}
 		break
 	}
-	if i >= len(fields) || !scriptRunners[filepath.Base(fields[i])] {
+	if i >= len(fields) {
+		return ""
+	}
+	// 形态 A：脚本自身作为命令首令牌（`./dns_round.sh r1`、`/opt/x/probe.sh`），
+	// 靠 shebang 执行，没有 bash/python 前缀——线上 1799 号审批就是这种。
+	// 只认带脚本扩展名的（`./dns_round.sh`、`/opt/x/probe.sh`）；
+	// 裸可执行文件（`./custom-runner`、`/usr/bin/curl`）不当脚本，避免把二进制读进来
+	if !scriptRunners[filepath.Base(fields[i])] {
+		if tok := unquote(fields[i]); scriptExts[strings.ToLower(filepath.Ext(tok))] && strings.Contains(tok, "/") {
+			return tok
+		}
+	}
+	if !scriptRunners[filepath.Base(fields[i])] {
 		return ""
 	}
 	runner := filepath.Base(fields[i])
@@ -219,6 +231,11 @@ func AttachLocalScript(in *ReviewInput, arguments json.RawMessage) {
 	}
 	paths := ExtractScriptPaths(args.Command)
 	if len(paths) == 0 {
+		// 没有脚本文件，但可能有"喂给解释器的内联代码"
+		if refs := extractInlineCode(args.Command); len(refs) > 0 {
+			in.LocalScript = &refs[0]
+			in.LocalScripts = refs
+		}
 		return
 	}
 	if len(paths) > scriptMaxScripts {
@@ -229,9 +246,113 @@ func AttachLocalScript(in *ReviewInput, arguments json.RawMessage) {
 	for _, raw := range paths {
 		refs = append(refs, loadScriptRef(in.WorkingDir, raw, args.Command, &budget))
 	}
+	// 同一条命令里可能既有脚本文件又有 stdin 内联代码，两者都带上
+	refs = append(refs, extractInlineCode(args.Command)...)
+	if len(refs) > scriptMaxScripts {
+		refs = refs[:scriptMaxScripts]
+	}
 	first := refs[0]
 	in.LocalScript = &first
 	in.LocalScripts = refs
+}
+
+// extractInlineCode 抽「没有脚本文件、代码走 stdin/参数」的形态：
+//
+//	python3 - <<'EOF' … EOF      （stdin heredoc）
+//	bash -s <<EOF … EOF
+//	python3 -c '...'             （-c 内联代码）
+//
+// 这些代码在命令行里看得见，但旧实现当成"没有脚本"直接跳过，裁判只能 ASK。
+func extractInlineCode(command string) []LocalScriptRef {
+	var refs []LocalScriptRef
+	lines := strings.Split(command, "\n")
+	for i := 0; i < len(lines); i++ {
+		ln := lines[i]
+		seg := ln
+		idx := strings.Index(ln, "<<")
+		if idx >= 0 {
+			seg = ln[:idx]
+		}
+		runner, marker := stdinRunner(seg)
+		if runner == "" {
+			continue
+		}
+		if marker == "stdin" && idx >= 0 {
+			delim := parseHeredocDelimiter(ln[idx:])
+			if delim == "" {
+				continue
+			}
+			var body []string
+			ok := false
+			for j := i + 1; j < len(lines); j++ {
+				if strings.TrimSpace(lines[j]) == delim {
+					ok = true
+					i = j
+					break
+				}
+				body = append(body, lines[j])
+			}
+			if !ok || len(body) == 0 {
+				continue
+			}
+			refs = append(refs, LocalScriptRef{
+				Path:    "<stdin:" + runner + ">",
+				Content: strings.Join(body, "\n"),
+				Source:  "command-inline",
+			})
+			continue
+		}
+		if marker == "c" {
+			// python3 -c "..." / node -e "..."：取 -c/-e 后面那段
+			if code := flagCode(ln); code != "" {
+				refs = append(refs, LocalScriptRef{
+					Path:    "<-c:" + runner + ">",
+					Content: code,
+					Source:  "command-inline",
+				})
+			}
+		}
+	}
+	return refs
+}
+
+// stdinRunner 判断这段命令是否「解释器 + 从 stdin 读代码」或「解释器 -c 内联」。
+func stdinRunner(seg string) (runner, marker string) {
+	fields := splitFields(seg)
+	for i, f := range fields {
+		base := filepath.Base(unquote(f))
+		if !scriptRunners[base] {
+			continue
+		}
+		// 解释器后的标记：`-`（stdin）、`-s`（bash 从 stdin）、`-c`/`-e`（内联）
+		for j := i + 1; j < len(fields); j++ {
+			t := unquote(fields[j])
+			switch t {
+			case "-":
+				return base, "stdin"
+			case "-s":
+				return base, "stdin"
+			case "-c", "-e":
+				return base, "c"
+			}
+			if !strings.HasPrefix(t, "-") {
+				break // 遇到文件参数就不是 stdin 形态
+			}
+		}
+		return "", ""
+	}
+	return "", ""
+}
+
+// flagCode 取 `-c` / `-e` 后面的代码字符串。
+func flagCode(line string) string {
+	fields := splitFields(line)
+	for i := 0; i+1 < len(fields); i++ {
+		if t := unquote(fields[i]); t == "-c" || t == "-e" {
+			return unquote(fields[i+1])
+		}
+	}
+	return ""
 }
 
 // loadScriptRef 读取单个脚本：优先磁盘；磁盘没有时从命令里的 heredoc 抽内联源码。
