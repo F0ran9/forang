@@ -9,9 +9,9 @@ package guard
 
 import (
 	"context"
-	"strings"
 	"encoding/json"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,6 +38,7 @@ var CleanupTaskResolver func(taskID int64) bool
 // CleanupFingerprintResolver 由 server 注入：清理任务 → 任务目标里声明的
 // 待清理测试数据指纹（用于裁判上下文：作用对象归属已明）。
 var CleanupFingerprintResolver func(taskID int64) []string
+
 type Guard struct {
 	mu          sync.Mutex
 	audit       []AuditEntry
@@ -85,6 +86,12 @@ func (g *Guard) preToolUse(ctx context.Context, ev hook.Event) hook.Result {
 		cmd = in.Text
 	}
 	g.record(ev.ToolName, "allow", "", cmd)
+	// 空参数短路：Bash/shell 没有命令文本时，交给裁判只会得到"行为不明"→ASK→
+	// 阻塞 10 分钟再超时拒绝（线上 #1908 就是 `{}` 空参数跑进了裁判）。
+	if (ev.ToolName == "Bash" || ev.ToolName == "shell_open" || ev.ToolName == "shell_send") &&
+		strings.TrimSpace(cmd) == "" {
+		return g.block(ev.ToolName, "工具参数无效：命令为空。请直接重试并给出完整命令，不要用空参数占位。", "")
+	}
 	return g.applyIntercept(ctx, ev)
 }
 
