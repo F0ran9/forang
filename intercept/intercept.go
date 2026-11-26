@@ -447,6 +447,13 @@ func (i *Interceptor) Judge(ctx context.Context, tool string, arguments json.Raw
 	if !cfg.Enabled || rv == nil {
 		return Decision{}, false
 	}
+	// 规则预筛：明显只读（或只写本地工作目录产物）的命令直接放行，不进模型。
+	// 开关 intercept.prefilter，白名单见 prefilter.go。
+	if i.db.GetBool(settingPrefilter, true) {
+		if ok, why := PrefilterDecision(ctx, tool, arguments); ok {
+			return Decision{Action: "allow", Message: "[预筛] " + why + "，免 AI 裁判"}, true
+		}
+	}
 
 	cctx := ctx
 	if cfg.TimeoutSeconds > 0 {

@@ -125,3 +125,11 @@ func BuildReviewInput(ctx context.Context, tool string, arguments json.RawMessag
 	}
 	return in, nil
 }
+
+// WorkingDirFromContext 取出当前调用绑定的任务工作目录（供预筛判断"本地写"归属）。
+func WorkingDirFromContext(ctx context.Context) string {
+	if env, ok := ctx.Value(reviewContextKey{}).(reviewEnvironment); ok {
+		return env.workingDir
+	}
+	return ""
+}
