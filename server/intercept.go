@@ -60,6 +60,14 @@ func (s *Server) wireScopeResolver() {
 		}
 		return sc, true
 	}
+	// 按本次命令实际打的主机做精确归属（避免"目标不在前 12 个里"被当成越界）
+	intercept.ScopeTargetChecker = func(taskID, host string) bool {
+		id, err := strconv.ParseInt(taskID, 10, 64)
+		if err != nil || id <= 0 || s.m == nil || s.m.pg == nil {
+			return false
+		}
+		return s.m.pg.TaskScopeHasHost(id, host)
+	}
 }
 
 // clipText 按 rune 截断，避免中文被切半。

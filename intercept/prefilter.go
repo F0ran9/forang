@@ -71,22 +71,45 @@ func PrefilterDecision(ctx context.Context, tool string, args json.RawMessage) (
 	if tool != "Bash" {
 		return false, ""
 	}
-	workdir := WorkingDirFromContext(ctx)
 	var a struct {
 		Command string `json:"command"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return false, ""
 	}
-	cmd := strings.TrimSpace(a.Command)
+	return prefilterCmd(ctx, a.Command, 0)
+}
+
+// prefilterCmd 是判定主体（depth 用于 bash -c 递归，最多 2 层）。
+func prefilterCmd(ctx context.Context, rawCmd string, depth int) (bool, string) {
+	workdir := WorkingDirFromContext(ctx)
+	cmd := strings.TrimSpace(rawCmd)
 	if cmd == "" {
 		return false, ""
 	}
 	// 命令替换 / 反引号 / 解释执行：一律交给裁判
-	for _, bad := range []string{"$(", "`", "eval ", "exec ", "source ", ". /", "sh -c", "bash -c", "|sh", "| sh", "|bash", "| bash"} {
+	for _, bad := range []string{"`", "eval ", "exec ", "source ", ". /", "|sh", "| sh", "|bash", "| bash"} {
 		if strings.Contains(cmd, bad) {
 			return false, ""
 		}
+	}
+	// 命令替换 $()：$(( )) 是算术运算无副作用；其余把内层命令递归判定，
+	// 内层也安全才放行（线上常见 start=$(date +%s%N) 这类计时）。
+	for i := 0; i+1 < len(cmd); i++ {
+		if cmd[i] != '$' || cmd[i+1] != '(' {
+			continue
+		}
+		if i+2 < len(cmd) && cmd[i+2] == '(' {
+			continue
+		}
+		inner, ok := extractSubst(cmd, i+2)
+		if !ok || depth >= 2 {
+			return false, ""
+		}
+		if ok2, _ := prefilterCmd(ctx, inner, depth+1); !ok2 {
+			return false, ""
+		}
+		i += len(inner) + 1
 	}
 	segs := splitSegments(cmd)
 	if len(segs) == 0 {
@@ -94,13 +117,20 @@ func PrefilterDecision(ctx context.Context, tool string, args json.RawMessage) (
 	}
 	var bins []string
 	for _, seg := range segs {
+		seg = stripAssignments(seg)
+		if strings.TrimSpace(seg) == "" {
+			continue
+		}
 		fields := splitFields(seg)
 		if len(fields) == 0 {
 			return false, ""
 		}
 		// 剥掉 sudo/env 前缀
 		i := 0
-		for i < len(fields) && (fields[i] == "sudo" || fields[i] == "env") {
+		for i < len(fields) && (fields[i] == "sudo" || fields[i] == "env" || fields[i] == "timeout") {
+			if fields[i] == "timeout" && i+1 < len(fields) {
+				i++ // 跳过时长参数
+			}
 			i++
 			for i < len(fields) && strings.Contains(fields[i], "=") && !strings.HasPrefix(fields[i], "-") {
 				i++
@@ -122,6 +152,19 @@ func PrefilterDecision(ctx context.Context, tool string, args json.RawMessage) (
 			bin = base
 		}
 		if !readOnlyBins[bin] && !localArtifactBins[bin] {
+			// bash -c '<payload>' / sh -c '<payload>'：对 payload 递归判定，
+			// 通过才放行（线上都是 `bash -c 'echo > /dev/tcp/ip/port'` 这类端口探测）。
+			if (bin == "bash" || bin == "sh") && depth < 2 && hasDashC(fields) {
+				payload := dashCPayload(fields)
+				if payload == "" {
+					return false, ""
+				}
+				if ok, _ := prefilterDepth(ctx, payload, depth+1); !ok {
+					return false, ""
+				}
+				bins = append(bins, bin)
+				continue
+			}
 			return false, ""
 		}
 		// 本地产物类（mkdir/touch/tee/cp/mv）：所有非 flag 参数必须落在工作目录内
@@ -149,7 +192,7 @@ func PrefilterDecision(ctx context.Context, tool string, args json.RawMessage) (
 				if j+1 < len(fields) {
 					target = unquote(fields[j+1])
 				}
-				if target != "" && target != "/dev/null" && !insideWorkdir(workdir, target) {
+				if target != "" && !safeWriteTarget(workdir, target) {
 					return false, ""
 				}
 				continue
@@ -166,7 +209,7 @@ func PrefilterDecision(ctx context.Context, tool string, args json.RawMessage) (
 				if j+1 < len(fields) {
 					next = unquote(fields[j+1])
 				}
-				if next == "/dev/null" || insideWorkdir(workdir, next) {
+				if safeWriteTarget(workdir, next) {
 					continue
 				}
 				return false, ""
@@ -255,4 +298,105 @@ func insideWorkdir(workdir, p string) bool {
 		abs = slash(filepath.Clean(filepath.Join(workdir, p)))
 	}
 	return abs == wd || strings.HasPrefix(abs+"/", wd+"/")
+}
+
+// hasDashC 判断参数里是否有 -c。
+func hasDashC(fields []string) bool {
+	for _, f := range fields {
+		if unquote(f) == "-c" {
+			return true
+		}
+	}
+	return false
+}
+
+// dashCPayload 取 -c 后面的那段命令。
+func dashCPayload(fields []string) string {
+	for i, f := range fields {
+		if unquote(f) == "-c" && i+1 < len(fields) {
+			return unquote(fields[i+1])
+		}
+	}
+	return ""
+}
+
+// safeWriteTarget 判断"写目标"是否无副作用：
+//   - /dev/null：丢弃输出
+//   - /dev/tcp/<host>/<port>、/dev/udp/…：bash 的端口探测语法（不落盘）
+//   - /tmp、/dev/shm：一次性中间产物（A2）
+//   - 任务工作目录内：测试产物
+func safeWriteTarget(workdir, target string) bool {
+	t := strings.TrimSpace(target)
+	if t == "" || t == "/dev/null" {
+		return true
+	}
+	for _, p := range []string{"/dev/tcp/", "/dev/udp/", "/tmp/", "/dev/shm/", "/var/tmp/"} {
+		if strings.HasPrefix(t, p) {
+			return true
+		}
+	}
+	return insideWorkdir(workdir, t)
+}
+
+// prefilterDepth 带递归深度的判定入口。
+func prefilterDepth(ctx context.Context, cmd string, depth int) (bool, string) {
+	return prefilterCmd(ctx, cmd, depth)
+}
+
+// extractSubst 从 start（"$(" 之后）取出配平的括号内容与结束位置。
+func extractSubst(s string, start int) (string, bool) {
+	depth := 1
+	for i := start; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return s[start:i], true
+			}
+		}
+	}
+	return "", false
+}
+
+// stripAssignments 去掉命令段开头的 shell 变量赋值（NAME=value / NAME=$(cmd)），
+// 它们不产生副作用，但会把后续字段切碎（start=$(date +%s%N) 会被切成两段）。
+func stripAssignments(seg string) string {
+	for {
+		t := strings.TrimLeft(seg, " \t")
+		eq := strings.Index(t, "=")
+		if eq <= 0 {
+			return t
+		}
+		name := t[:eq]
+		if strings.ContainsAny(name, "/ \t$'\"`") {
+			return t
+		}
+		rest := t[eq+1:]
+		// 值以 $( 或 $(( 开头：跳到配平的右括号
+		if strings.HasPrefix(rest, "$(") {
+			if _, ok := extractSubst(rest, 2); ok {
+				i := 2
+				depth := 1
+				for i < len(rest) && depth > 0 {
+					switch rest[i] {
+					case '(':
+						depth++
+					case ')':
+						depth--
+					}
+					i++
+				}
+				seg = rest[i:]
+				continue
+			}
+		}
+		// 普通值：吃到第一个空白
+		if sp := strings.IndexAny(rest, " \t"); sp >= 0 {
+			seg = rest[sp:]
+			continue
+		}
+		return ""
+	}
 }

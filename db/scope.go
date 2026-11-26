@@ -1,5 +1,7 @@
 package db
 
+import "strings"
+
 // scope.go — 任务授权范围（给 AI 裁判用的结构化事实）。
 //
 // 裁判此前只看到单条命令，不知道"这是客户授权的渗透测试、目标清单在册"，
@@ -47,4 +49,22 @@ func (d *DB) TaskScope(taskID int64, hostLimit int) (goal string, hosts []string
 		  AND (domain <> '' OR ip <> '')
 		  AND COALESCE(NULLIF(domain, ''), NULLIF(ip, '')) IS NOT NULL`, taskID).Scan(&total)
 	return
+}
+
+// TaskScopeHasHost 判断某个主机（IP 或域名）是否登记在本任务范围内。
+// 供裁判按"本次命令实际打的目标"做精确归属，避免只给前 N 个资产时
+// 把范围里的其它目标误判成"不在册"（线上 #2628）。
+func (d *DB) TaskScopeHasHost(taskID int64, host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" || taskID <= 0 {
+		return false
+	}
+	var ok bool
+	_ = d.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM assets
+			WHERE $1 = ANY(task_ids)
+			  AND (ip = $2 OR domain = $2 OR root_domain = $2 OR bound_domains = $2)
+		)`, taskID, host).Scan(&ok)
+	return ok
 }

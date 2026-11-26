@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -28,12 +29,20 @@ type ReviewScope struct {
 	Goal         string   `json:"goal,omitempty"`           // 人类写的任务目标（截断）
 	InScope      []string `json:"in_scope,omitempty"`       // 在册目标（去重，限量）
 	InScopeTotal int      `json:"in_scope_total,omitempty"` // 在册目标总数
-	Note         string   `json:"note,omitempty"`
+	// Matched / Unknown 是"本次命令实际涉及的主机"的归属判定（按 DB 精确比对），
+	// 比只看截断后的 in_scope 列表可靠——线上 #2628 就是因为目标不在前 12 个里，
+	// 被裁判当成"不在授权范围"而 ASK。
+	Matched []string `json:"matched,omitempty"`
+	Unknown []string `json:"unknown,omitempty"`
+	Note    string   `json:"note,omitempty"`
 }
 
 // ScopeResolver 由 server 注入：按 task_id 返回任务范围事实。
 // 未注入时（单测/无 DB）裁判输入里不带 scope。
 var ScopeResolver func(taskID string) (ReviewScope, bool)
+
+// ScopeTargetChecker 由 server 注入：判断某主机是否登记在任务范围内（精确查库）。
+var ScopeTargetChecker func(taskID, host string) bool
 
 type ReviewInput struct {
 	Version    int               `json:"version"`
@@ -120,6 +129,7 @@ func BuildReviewInput(ctx context.Context, tool string, arguments json.RawMessag
 	// 任务授权范围（平台事实，供裁判区分"授权测试"与"陌生攻击"）
 	if tid := TaskIDFromContext(ctx); tid > 0 && ScopeResolver != nil {
 		if sc, ok := ScopeResolver(fmt.Sprintf("%d", tid)); ok {
+			attachScopeTargets(&sc, fmt.Sprintf("%d", tid), tool, arguments)
 			in.Scope = &sc
 		}
 	}
@@ -132,4 +142,42 @@ func WorkingDirFromContext(ctx context.Context) string {
 		return env.workingDir
 	}
 	return ""
+}
+
+// hostPattern 粗粒度提取命令行里的 IPv4 与域名（用于范围归属判定，不作精确解析）。
+var hostPattern = regexp.MustCompile(`\b((?:\d{1,3}\.){3}\d{1,3}|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})\b`)
+
+// attachScopeTargets 从本次命令里提取目标主机，按 DB 判定是否在册。
+// 只解析 Bash 的 command 字段——其它工具的参数（脚本正文等）会引入大量噪音 IP。
+func attachScopeTargets(sc *ReviewScope, taskID, tool string, arguments json.RawMessage) {
+	if sc == nil || ScopeTargetChecker == nil || tool != "Bash" {
+		return
+	}
+	var a struct {
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal(arguments, &a); err != nil {
+		return
+	}
+	seen := map[string]bool{}
+	for _, m := range hostPattern.FindAllString(a.Command, -1) {
+		h := strings.ToLower(strings.TrimSpace(m))
+		if seen[h] || len(h) < 4 {
+			continue
+		}
+		// 过滤明显不是目标的常量
+		switch h {
+		case "127.0.0.1", "0.0.0.0", "localhost", "example.com":
+			continue
+		}
+		seen[h] = true
+		if len(sc.Matched)+len(sc.Unknown) >= 6 {
+			break
+		}
+		if ScopeTargetChecker(taskID, h) {
+			sc.Matched = append(sc.Matched, h)
+		} else {
+			sc.Unknown = append(sc.Unknown, h)
+		}
+	}
 }
